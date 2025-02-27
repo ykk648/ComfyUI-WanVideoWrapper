@@ -7,6 +7,9 @@ import torch.nn as nn
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 
+from ...enhance_a_video.enhance import get_feta_scores
+from ...enhance_a_video.globals import is_enhance_enabled, set_num_frames
+
 from .attention import attention
 
 __all__ = ['WanModel']
@@ -149,13 +152,40 @@ class WanSelfAttention(nn.Module):
 
         q, k, v = qkv_fn(x)
 
-        x = attention(
-            q=rope_apply(q, grid_sizes, freqs),
-            k=rope_apply(k, grid_sizes, freqs),
-            v=v,
-            k_lens=seq_lens,
-            window_size=self.window_size,
-            attention_mode=self.attention_mode)
+        if is_enhance_enabled():
+            feta_scores = get_feta_scores(q, k)
+
+        if self.attention_mode == 'spargeattn_tune' or self.attention_mode == 'spargeattn':
+            tune_mode = False
+            if self.attention_mode == 'spargeattn_tune':
+                tune_mode = True
+                
+            if hasattr(self, 'inner_attention'):
+                #print("has inner attention")
+                q=rope_apply(q, grid_sizes, freqs)
+                k=rope_apply(k, grid_sizes, freqs)
+                q = q.permute(0, 2, 1, 3)
+                k = k.permute(0, 2, 1, 3)
+                v = v.permute(0, 2, 1, 3)
+                x = self.inner_attention(
+                    q=q, 
+                    k=k,
+                    v=v, 
+                    is_causal=False, 
+                    tune_mode=tune_mode
+                    ).permute(0, 2, 1, 3)
+                #print("inner attention", x.shape) #inner attention torch.Size([1, 12, 32760, 128])
+        else:
+            x = attention(
+                q=rope_apply(q, grid_sizes, freqs),
+                k=rope_apply(k, grid_sizes, freqs),
+                v=v,
+                k_lens=seq_lens,
+                window_size=self.window_size,
+                attention_mode=self.attention_mode)
+            
+            if is_enhance_enabled():
+                x *= feta_scores
 
         # output
         x = x.flatten(2)
