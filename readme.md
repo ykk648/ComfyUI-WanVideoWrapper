@@ -19,11 +19,23 @@ Transformer to `ComfyUI/models/diffusion_models`
 
 Vae to `ComfyUI/models/vae`
 
-Right now I have only ran the I2V model succesfully.
 
-This test was 512x512x81
+This very firsttest was 512x512x81
 
 ~16GB used with 20/40 blocks offloaded
 
 https://github.com/user-attachments/assets/fa6d0a4f-4a4d-4de5-84a4-877cc37b715f
+
+Vid2vid example:
+
+
+with 14B T2V model:
+
+https://github.com/user-attachments/assets/ef228b8a-a13a-4327-8a1b-1eb343cf00d8
+
+with 1.3B T2V model
+
+https://github.com/user-attachments/assets/4f35ba84-da7a-4d5b-97ee-9641296f391e
+
+
 
