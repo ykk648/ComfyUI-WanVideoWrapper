@@ -1295,5 +1295,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoEmptyEmbeds": "WanVideo Empty Embeds",
     "WanVideoLoraSelect": "WanVideo Lora Select",
     "WanVideoLoraBlockEdit": "WanVideo Lora Block Edit",
-    "WanVideoEnhanceAVideo": "WanVideo Enhance AVideo"
+    "WanVideoEnhanceAVideo": "WanVideo Enhance-A-Video"
     }
