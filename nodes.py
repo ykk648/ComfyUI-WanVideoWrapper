@@ -950,8 +950,8 @@ class WanVideoSampler:
         d = transformer.dim // transformer.num_heads
         freqs = torch.cat([
             rope_params(1024, d - 4 * (d // 6), L_test=latent.shape[2], k=riflex_freq_index),
-            rope_params(1024, 2 * (d // 6), L_test=latent.shape[2], k=riflex_freq_index),
-            rope_params(1024, 2 * (d // 6), L_test=latent.shape[2], k=riflex_freq_index)
+            rope_params(1024, 2 * (d // 6)),
+            rope_params(1024, 2 * (d // 6))
         ],
         dim=1)
 
