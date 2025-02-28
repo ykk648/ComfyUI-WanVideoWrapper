@@ -292,7 +292,7 @@ class WanVideoModelLoader:
             try:
                 torch.backends.cuda.matmul.allow_fp16_accumulation = True
             except:
-                log.warning("torch.backends.cuda.matmul.allow_fp16_accumulation is not available in this version of torch")
+                log.warning("torch.backends.cuda.matmul.allow_fp16_accumulation is not available in this version of torch, requires torch 2.7.0 nightly currently")
 
         model_path = folder_paths.get_full_path_or_raise("diffusion_models", model)
         sd = load_torch_file(model_path, device=transformer_load_device, safe_load=True)
