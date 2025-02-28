@@ -35,6 +35,7 @@ def rope_params(max_seq_len, dim, theta=10000, L_test=81, k=0):
         1.0 / torch.pow(theta,
                         torch.arange(0, dim, 2).to(torch.float64).div(dim)))
     if k > 0:
+        print(f"RifleX: Using {k}th freq")
         freqs[k-1] = 0.9 * 2 * torch.pi / L_test
     freqs = torch.polar(torch.ones_like(freqs), freqs)
     return freqs

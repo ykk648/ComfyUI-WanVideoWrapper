@@ -1061,7 +1061,7 @@ class WanVideoSampler:
             set_enhance_weight(feta_args["weight"])
             feta_start_percent = feta_args["start_percent"]
             feta_end_percent = feta_args["end_percent"]
-            set_num_frames(latent.shape[2])
+            set_num_frames(latent_video_length)
             enable_enhance()
         else:
             disable_enhance()   
@@ -1080,10 +1080,12 @@ class WanVideoSampler:
                 block.self_attn.verbose = True
                 block.self_attn.inner_attention = SparseAttentionMeansim(l1=0.06, pv_l1=0.065)
             if transformer.attention_mode == "spargeattn":
-                saved_state_dict = torch.load("sparge_wan.pt")
-                for key in saved_state_dict.keys():
-                    print(key)
+                try:
+                    saved_state_dict = torch.load("sparge_wan.pt")
+                except:
+                    raise ValueError("No saved parameters found for sparse attention, tuning is required first")
                 load_sparse_attention_state_dict(transformer, saved_state_dict, verbose = True)
+                
                 
         #for idx, block in enumerate(transformer.blocks):
         #    print(f"Block {idx} attn1: {block}")
