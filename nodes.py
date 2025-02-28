@@ -1015,7 +1015,7 @@ class WanVideoSampler:
                 block.self_attn.verbose = True
                 block.self_attn.inner_attention = SparseAttentionMeansim(l1=0.06, pv_l1=0.065)
             if transformer.attention_mode == "spargeattn":
-                saved_state_dict = torch.load("sparge_wan_30_steps_1_iter.pt")
+                saved_state_dict = torch.load("sparge_wan.pt")
                 for key in saved_state_dict.keys():
                     print(key)
                 load_sparse_attention_state_dict(transformer, saved_state_dict, verbose = True)
