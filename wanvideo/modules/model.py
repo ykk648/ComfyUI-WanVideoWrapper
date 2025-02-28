@@ -8,7 +8,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 
 from ...enhance_a_video.enhance import get_feta_scores
-from ...enhance_a_video.globals import is_enhance_enabled, set_num_frames
+from ...enhance_a_video.globals import is_enhance_enabled
 
 from .attention import attention
 
