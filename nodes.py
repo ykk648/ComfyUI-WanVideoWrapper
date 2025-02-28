@@ -892,7 +892,7 @@ class WanVideoSampler:
                 "samples": ("LATENT", {"tooltip": "init Latents to use for video2video process"} ),
                 "denoise_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "feta_args": ("FETAARGS", ),
-                "context_options": ("WANVIDCONTEXT", ),
+                #"context_options": ("WANVIDCONTEXT", ),
             }
         }
 
@@ -1118,7 +1118,7 @@ class WanVideoSampler:
                         print(c)
                         partial_latent_model_input = [latent_model_input[0][:, c, :, :]]
                         print("partial_latent_model_input", partial_latent_model_input[0].shape)
-                        #model inference start
+                        # Model inference - returns [frames, channels, height, width]
                         noise_pred_cond = transformer(
                             partial_latent_model_input, t=timestep, **arg_c)[0].to(offload_device)
                         if cfg[i] != 1.0:
@@ -1129,7 +1129,7 @@ class WanVideoSampler:
                                 noise_pred_cond - noise_pred_uncond)
                         else:
                             noise_pred_context = noise_pred_cond
-                        print(noise_pred.shape)
+                        print("noise_pred_context", noise_pred.shape)
                         noise_pred[:, c, :, :] += noise_pred_context
                         noise_pred = noise_pred.float()
                         counter[:, c, :, :] += 1
