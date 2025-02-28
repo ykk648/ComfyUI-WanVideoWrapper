@@ -1116,9 +1116,7 @@ class WanVideoSampler:
                             i, steps, latent_video_length, context_frames, context_stride, context_overlap,
                         ))
                     for c in context_queue:
-                        print(c)
                         partial_latent_model_input = [latent_model_input[0][:, c, :, :]]
-                        print("partial_latent_model_input", partial_latent_model_input[0].shape)
                         # Model inference - returns [frames, channels, height, width]
                         noise_pred_cond = transformer(
                             partial_latent_model_input, t=timestep, **arg_c)[0].to(offload_device)
@@ -1130,7 +1128,6 @@ class WanVideoSampler:
                                 noise_pred_cond - noise_pred_uncond)
                         else:
                             noise_pred_context = noise_pred_cond
-                        print("noise_pred_context", noise_pred.shape)
                         noise_pred[:, c, :, :] += noise_pred_context
                         counter[:, c, :, :] += 1
                         #model inference end
