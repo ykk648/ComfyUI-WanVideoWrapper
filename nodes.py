@@ -287,7 +287,7 @@ class WanVideoModelLoader:
         transformer_load_device = device if load_device == "main_device" else offload_device
         
         base_dtype = {"fp8_e4m3fn": torch.float8_e4m3fn, "fp8_e4m3fn_fast": torch.float8_e4m3fn, "bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[base_precision]
-        torch.backends.cuda.matmul.allow_fp16_accumulation = True
+        
         if base_dtype == torch.float16:
             try:
                 torch.backends.cuda.matmul.allow_fp16_accumulation = True
