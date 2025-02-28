@@ -837,6 +837,36 @@ class WanVideoEmptyEmbeds:
 
 
 #region Sampler
+
+class WanVideoContextOptions:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "context_schedule": (["uniform_standard", "uniform_looped", "static_standard"],),
+            "context_frames": ("INT", {"default": 65, "min": 2, "max": 1000, "step": 1, "tooltip": "Number of pixel frames in the context, NOTE: the latent space has 4 frames in 1"} ),
+            "context_stride": ("INT", {"default": 4, "min": 4, "max": 100, "step": 1, "tooltip": "Context stride as pixel frames, NOTE: the latent space has 4 frames in 1"} ),
+            "context_overlap": ("INT", {"default": 4, "min": 4, "max": 100, "step": 1, "tooltip": "Context overlap as pixel frames, NOTE: the latent space has 4 frames in 1"} ),
+            "freenoise": ("BOOLEAN", {"default": True, "tooltip": "Shuffle the noise"}),
+            }
+        }
+
+    RETURN_TYPES = ("WANVIDCONTEXT", )
+    RETURN_NAMES = ("context_options",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Context options for WanVideo, allows splitting the video into context windows and attemps blending them for longer generations than the model and memory otherwise would allow."
+
+    def process(self, context_schedule, context_frames, context_stride, context_overlap, freenoise):
+        context_options = {
+            "context_schedule":context_schedule,
+            "context_frames":context_frames,
+            "context_stride":context_stride,
+            "context_overlap":context_overlap,
+            "freenoise":freenoise
+        }
+
+        return (context_options,)
+    
 class WanVideoSampler:
     @classmethod
     def INPUT_TYPES(s):
@@ -862,6 +892,7 @@ class WanVideoSampler:
                 "samples": ("LATENT", {"tooltip": "init Latents to use for video2video process"} ),
                 "denoise_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "feta_args": ("FETAARGS", ),
+                "context_options": ("WANVIDCONTEXT", ),
             }
         }
 
@@ -871,7 +902,7 @@ class WanVideoSampler:
     CATEGORY = "WanVideoWrapper"
 
     def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
-        force_offload=True, samples=None, feta_args=None, denoise_strength=1.0):
+        force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None):
         patcher = model
         model = model.model
         transformer = model.diffusion_model
@@ -940,16 +971,49 @@ class WanVideoSampler:
                     dtype=torch.float32,
                     device=torch.device("cpu"),
                     generator=seed_g)
+            
+        latent_video_length = noise.shape[1]
 
         if samples is not None:
             latent_timestep = timesteps[:1].to(noise)
             noise = noise * latent_timestep / 1000 + (1 - latent_timestep / 1000) * samples["samples"].squeeze(0).to(noise)
+
+        if context_options is not None:
+            context_schedule = context_options["context_schedule"]
+            context_frames =  (context_options["context_frames"] - 1) // 4 + 1
+            context_stride = context_options["context_stride"] // 4
+            context_overlap = context_options["context_overlap"] // 4
+
+            if context_options["freenoise"]:
+                log.info("Applying FreeNoise")
+                # code and comments from AnimateDiff-Evolved by Kosinkadink (https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved)
+                delta = context_frames - context_overlap
+                for start_idx in range(0, latent_video_length-context_frames, delta):
+                    place_idx = start_idx + context_frames
+                    if place_idx >= latent_video_length:
+                        break
+                    end_idx = place_idx - 1
+
+                    if end_idx + delta >= latent_video_length:
+                        final_delta = latent_video_length - place_idx
+                        list_idx = torch.tensor(list(range(start_idx,start_idx+final_delta)), device=torch.device("cpu"), dtype=torch.long)
+                        list_idx = list_idx[torch.randperm(final_delta, generator=seed_g)]
+                        noise[:, place_idx:place_idx + final_delta, :, :] = noise[:, list_idx, :, :]
+                        break
+                    list_idx = torch.tensor(list(range(start_idx,start_idx+delta)), device=torch.device("cpu"), dtype=torch.long)
+                    list_idx = list_idx[torch.randperm(delta, generator=seed_g)]
+                    noise[:, place_idx:place_idx + delta, :, :] = noise[:, list_idx, :, :]
             
+            log.info(f"Context schedule enabled: {context_frames} frames, {context_stride} stride, {context_overlap} overlap")
+            from .context import get_context_scheduler
+            context = get_context_scheduler(context_schedule)
+
         latent = noise.to(device)
+
 
         d = transformer.dim // transformer.num_heads
         freqs = torch.cat([
-            rope_params(1024, d - 4 * (d // 6), L_test=latent.shape[2], k=riflex_freq_index),
+            rope_params(1024, d - 4 * (d // 6), L_test=latent_video_length, k=riflex_freq_index),
             rope_params(1024, 2 * (d // 6)),
             rope_params(1024, 2 * (d // 6))
         ],
@@ -1028,6 +1092,8 @@ class WanVideoSampler:
         except:
             pass
 
+        log.info(f"Sampling {(latent_video_length-1) * 4 + 1} frames at {latent.shape[3]*8}x{latent.shape[2]*8} with {steps} steps")
+
         with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
             for i, t in enumerate(tqdm(timesteps)):
                 latent_model_input = [latent.to(device)]
@@ -1042,18 +1108,46 @@ class WanVideoSampler:
                     else:
                         disable_enhance()
 
-                #model inference start
-                noise_pred_cond = transformer(
-                    latent_model_input, t=timestep, **arg_c)[0].to(offload_device)
-                if cfg[i] != 1.0:
-                    noise_pred_uncond = transformer(
-                        latent_model_input, t=timestep, **arg_null)[0].to(offload_device)
-                
-                    noise_pred = noise_pred_uncond + cfg[i] * (
-                        noise_pred_cond - noise_pred_uncond)
+                if context_options is not None:
+                    counter = torch.zeros_like(latent_model_input[0], device=offload_device)
+                    noise_pred = torch.zeros_like(latent_model_input[0], device=offload_device)
+                    context_queue = list(context(
+                            i, steps, latent_video_length, context_frames, context_stride, context_overlap,
+                        ))
+                    for c in context_queue:
+                        print(c)
+                        partial_latent_model_input = [latent_model_input[0][:, c, :, :]]
+                        print("partial_latent_model_input", partial_latent_model_input[0].shape)
+                        #model inference start
+                        noise_pred_cond = transformer(
+                            partial_latent_model_input, t=timestep, **arg_c)[0].to(offload_device)
+                        if cfg[i] != 1.0:
+                            noise_pred_uncond = transformer(
+                                partial_latent_model_input, t=timestep, **arg_null)[0].to(offload_device)
+                        
+                            noise_pred_context = noise_pred_uncond + cfg[i] * (
+                                noise_pred_cond - noise_pred_uncond)
+                        else:
+                            noise_pred_context = noise_pred_cond
+                        print(noise_pred.shape)
+                        noise_pred[:, c, :, :] += noise_pred_context
+                        noise_pred = noise_pred.float()
+                        counter[:, c, :, :] += 1
+                        #model inference end
+                    noise_pred /= counter
                 else:
-                    noise_pred = noise_pred_cond
-                #model inference end
+                    #model inference start
+                    noise_pred_cond = transformer(
+                        latent_model_input, t=timestep, **arg_c)[0].to(offload_device)
+                    if cfg[i] != 1.0:
+                        noise_pred_uncond = transformer(
+                            latent_model_input, t=timestep, **arg_null)[0].to(offload_device)
+                    
+                        noise_pred = noise_pred_uncond + cfg[i] * (
+                            noise_pred_cond - noise_pred_uncond)
+                    else:
+                        noise_pred = noise_pred_cond
+                    #model inference end
                 
                 latent = latent.to(offload_device)
                 
@@ -1281,7 +1375,8 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoEmptyEmbeds": WanVideoEmptyEmbeds,
     "WanVideoLoraSelect": WanVideoLoraSelect,
     "WanVideoLoraBlockEdit": WanVideoLoraBlockEdit,
-    "WanVideoEnhanceAVideo": WanVideoEnhanceAVideo
+    "WanVideoEnhanceAVideo": WanVideoEnhanceAVideo,
+    "WanVideoContextOptions": WanVideoContextOptions
 
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1301,5 +1396,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoEmptyEmbeds": "WanVideo Empty Embeds",
     "WanVideoLoraSelect": "WanVideo Lora Select",
     "WanVideoLoraBlockEdit": "WanVideo Lora Block Edit",
-    "WanVideoEnhanceAVideo": "WanVideo Enhance-A-Video"
+    "WanVideoEnhanceAVideo": "WanVideo Enhance-A-Video",
+    "WanVideoContextOptions": "WanVideo Context Options"
     }
