@@ -715,7 +715,7 @@ class WanVideoImageClipEncode:
         self.image_std = [0.26862954, 0.26130258, 0.27577711]
         patch_size = (1, 2, 2)
         vae_stride = (4, 8, 8)
-        sp_size = 1 #no parallelism
+    
         H, W = image.shape[1], image.shape[2]
         max_area = generation_width * generation_height
 
@@ -758,10 +758,7 @@ class WanVideoImageClipEncode:
         # Calculate maximum sequence length
         frames_per_stride = (num_frames - 1) // vae_stride[0] + 1
         patches_per_frame = lat_h * lat_w // (patch_size[1] * patch_size[2])
-        raw_seq_len = frames_per_stride * patches_per_frame
-
-        # Round up to nearest multiple of sp_size
-        max_seq_len = int(math.ceil(raw_seq_len / sp_size)) * sp_size
+        max_seq_len = frames_per_stride * patches_per_frame
 
         vae.to(device)
 
@@ -892,7 +889,7 @@ class WanVideoSampler:
                 "samples": ("LATENT", {"tooltip": "init Latents to use for video2video process"} ),
                 "denoise_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "feta_args": ("FETAARGS", ),
-                #"context_options": ("WANVIDCONTEXT", ),
+                "context_options": ("WANVIDCONTEXT", ),
             }
         }
 
@@ -984,6 +981,8 @@ class WanVideoSampler:
             context_stride = context_options["context_stride"] // 4
             context_overlap = context_options["context_overlap"] // 4
 
+            seq_len = math.ceil((noise.shape[2] * noise.shape[3]) / 4 * context_frames)
+
             if context_options["freenoise"]:
                 log.info("Applying FreeNoise")
                 # code and comments from AnimateDiff-Evolved by Kosinkadink (https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved)
@@ -1021,6 +1020,8 @@ class WanVideoSampler:
 
         if not isinstance(cfg, list):
             cfg = [cfg] * (steps +1)
+
+        print("Seq len:", seq_len)
 
         base_args = {
             'clip_fea': image_embeds.get('clip_context', None),
@@ -1131,7 +1132,6 @@ class WanVideoSampler:
                             noise_pred_context = noise_pred_cond
                         print("noise_pred_context", noise_pred.shape)
                         noise_pred[:, c, :, :] += noise_pred_context
-                        noise_pred = noise_pred.float()
                         counter[:, c, :, :] += 1
                         #model inference end
                     noise_pred /= counter
