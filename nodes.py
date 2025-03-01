@@ -1175,10 +1175,20 @@ class WanVideoSampler:
                         partial_latent_model_input = [latent_model_input[0][:, c, :, :]]
                         # Model inference - returns [frames, channels, height, width]
                         noise_pred_cond = transformer(
-                            partial_latent_model_input, t=timestep, current_step=i,**arg_c)[0].to(intermediate_device)
+                            partial_latent_model_input, 
+                            t=timestep, 
+                            current_step=i,
+                            is_uncond=False,
+                            **arg_c
+                        )[0].to(intermediate_device)
                         if cfg[i] != 1.0:
                             noise_pred_uncond = transformer(
-                                partial_latent_model_input, t=timestep, current_step=i,**arg_null)[0].to(intermediate_device)
+                                partial_latent_model_input, 
+                                t=timestep, 
+                                current_step=i,
+                                is_uncond=True,
+                                **arg_null
+                            )[0].to(intermediate_device)
                         
                             noise_pred_context = noise_pred_uncond + cfg[i] * (
                                 noise_pred_cond - noise_pred_uncond)
