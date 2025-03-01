@@ -641,13 +641,11 @@ class LoadWanVideoClipTextEncoder:
 
         text_encoder_load_device = device if load_device == "main_device" else offload_device
 
-        tokenizer_path = os.path.join(script_directory, "configs", "clip")
-
         dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[precision]
 
         model_path = folder_paths.get_full_path("text_encoders", model_name)
         sd = load_torch_file(model_path, safe_load=True)
-        clip_model = CLIPModel(dtype=dtype, device=device, state_dict=sd, tokenizer_path=tokenizer_path)
+        clip_model = CLIPModel(dtype=dtype, device=device, state_dict=sd)
         clip_model.model.to(text_encoder_load_device)
         del sd
         

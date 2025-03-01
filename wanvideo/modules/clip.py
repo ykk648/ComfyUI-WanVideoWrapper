@@ -393,17 +393,6 @@ class XLMRobertaCLIP(nn.Module):
             proj_dropout=proj_dropout,
             embedding_dropout=embedding_dropout,
             norm_eps=norm_eps)
-        # self.textual = XLMRobertaWithHead(
-        #     vocab_size=vocab_size,
-        #     max_seq_len=max_text_len,
-        #     type_size=type_size,
-        #     pad_id=pad_id,
-        #     dim=text_dim,
-        #     out_dim=embed_dim,
-        #     num_heads=text_heads,
-        #     num_layers=text_layers,
-        #     post_norm=text_post_norm,
-        #     dropout=text_dropout)
         self.log_scale = nn.Parameter(math.log(1 / 0.07) * torch.ones([]))
 
     def forward(self, imgs, txt_ids):
@@ -503,10 +492,9 @@ def clip_xlm_roberta_vit_h_14(
 
 class CLIPModel:
 
-    def __init__(self, dtype, device, state_dict, tokenizer_path):
+    def __init__(self, dtype, device, state_dict):
         self.dtype = dtype
         self.device = device
-        self.tokenizer_path = tokenizer_path
 
         # init model
         with init_empty_weights():
@@ -521,13 +509,6 @@ class CLIPModel:
 
         for name, param in self.model.named_parameters():
             set_module_tensor_to_device(self.model, name, device=device, dtype=dtype, value=state_dict[name])
-        #self.model.load_state_dict(state_dict)
-
-        # init tokenizer
-        self.tokenizer = HuggingfaceTokenizer(
-            name=tokenizer_path,
-            seq_len=self.model.max_text_len - 2,
-            clean='whitespace')
 
     def visual(self, image):
         # forward
