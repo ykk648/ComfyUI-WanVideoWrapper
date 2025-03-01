@@ -74,26 +74,29 @@ class WanVideoBlockSwap:
 #         return (kwargs, )
 
 
-# class WanVideoTeaCache:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {
-#             "required": {
-#                 "rel_l1_thresh": ("FLOAT", {"default": 0.15, "min": 0.0, "max": 1.0, "step": 0.01,
-#                                             "tooltip": "Higher values will make TeaCache more aggressive, faster, but may cause artifacts"}),
-#             },
-#         }
-#     RETURN_TYPES = ("TEACACHEARGS",)
-#     RETURN_NAMES = ("teacache_args",)
-#     FUNCTION = "process"
-#     CATEGORY = "WanVideoWrapper"
-#     DESCRIPTION = "TeaCache settings for WanVideo to speed up inference"
+class WanVideoTeaCache:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "rel_l1_thresh": ("FLOAT", {"default": 0.04, "min": 0.0, "max": 1.0, "step": 0.001,
+                                            "tooltip": "Higher values will make TeaCache more aggressive, faster, but may cause artifacts"}),
+                "start_step": ("INT", {"default": 6, "min": 0, "max": 9999, "step": 1, "tooltip": "Start percentage of the steps to apply TeaCache"}),
+            },
+        }
+    RETURN_TYPES = ("TEACACHEARGS",)
+    RETURN_NAMES = ("teacache_args",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "WORK IN PROGRESS! Naive approach, currently does NOT use calculated coefficiencies. Speeds up inference by skipping steps based on input/output difference"
+    EXPERIMENTAL = True
 
-#     def process(self, rel_l1_thresh):
-#         teacache_args = {
-#             "rel_l1_thresh": rel_l1_thresh,
-#         }
-#         return (teacache_args,)
+    def process(self, rel_l1_thresh, start_step):
+        teacache_args = {
+            "rel_l1_thresh": rel_l1_thresh,
+            "start_step": start_step,
+        }
+        return (teacache_args,)
 
 
 class WanVideoModel(comfy.model_base.BaseModel):
@@ -912,6 +915,7 @@ class WanVideoSampler:
                 "denoise_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "feta_args": ("FETAARGS", ),
                 "context_options": ("WANVIDCONTEXT", ),
+                "teacache_args": ("TEACACHEARGS", ),
             }
         }
 
@@ -921,7 +925,7 @@ class WanVideoSampler:
     CATEGORY = "WanVideoWrapper"
 
     def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
-        force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None):
+        force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, teacache_args=None):
         patcher = model
         model = model.model
         transformer = model.diffusion_model
@@ -1102,7 +1106,15 @@ class WanVideoSampler:
             set_num_frames(latent_video_length)
             enable_enhance()
         else:
-            disable_enhance()   
+            disable_enhance()
+
+        # Initialize TeaCache if enabled
+        if teacache_args is not None:
+            transformer.enable_teacache = True
+            transformer.rel_l1_thresh = teacache_args["rel_l1_thresh"]
+            transformer.teacache_start_step = teacache_args["start_step"]
+        else:
+            transformer.enable_teacache = False
 
         mm.soft_empty_cache()
         gc.collect()
@@ -1163,10 +1175,10 @@ class WanVideoSampler:
                         partial_latent_model_input = [latent_model_input[0][:, c, :, :]]
                         # Model inference - returns [frames, channels, height, width]
                         noise_pred_cond = transformer(
-                            partial_latent_model_input, t=timestep, **arg_c)[0].to(intermediate_device)
+                            partial_latent_model_input, t=timestep, current_step=i,**arg_c)[0].to(intermediate_device)
                         if cfg[i] != 1.0:
                             noise_pred_uncond = transformer(
-                                partial_latent_model_input, t=timestep, **arg_null)[0].to(intermediate_device)
+                                partial_latent_model_input, t=timestep, current_step=i,**arg_null)[0].to(intermediate_device)
                         
                             noise_pred_context = noise_pred_uncond + cfg[i] * (
                                 noise_pred_cond - noise_pred_uncond)
@@ -1193,10 +1205,20 @@ class WanVideoSampler:
                 else:
                     #model inference start
                     noise_pred_cond = transformer(
-                        latent_model_input, t=timestep, **arg_c)[0].to(intermediate_device)
+                        latent_model_input, 
+                        t=timestep, 
+                        current_step=i,
+                        is_uncond=False,
+                        **arg_c
+                    )[0].to(intermediate_device)
                     if cfg[i] != 1.0:
                         noise_pred_uncond = transformer(
-                            latent_model_input, t=timestep, **arg_null)[0].to(intermediate_device)
+                            latent_model_input, 
+                            t=timestep, 
+                            current_step=i,
+                            is_uncond=True,
+                            **arg_null
+                        )[0].to(intermediate_device)
                     
                         noise_pred = noise_pred_uncond + cfg[i] * (
                             noise_pred_cond - noise_pred_uncond)
@@ -1222,6 +1244,9 @@ class WanVideoSampler:
                 else:
                     pbar.update(1)
                 del latent_model_input, timestep
+
+        if teacache_args is not None:
+            log.info(f"TeaCache skipped: {transformer.teacache_skipped_cond_steps} cond steps, {transformer.teacache_skipped_uncond_steps} uncond steps")
 
         if transformer.attention_mode == "spargeattn_tune":
             saved_state_dict = extract_sparse_attention_state_dict(transformer)
@@ -1431,7 +1456,8 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoLoraSelect": WanVideoLoraSelect,
     "WanVideoLoraBlockEdit": WanVideoLoraBlockEdit,
     "WanVideoEnhanceAVideo": WanVideoEnhanceAVideo,
-    "WanVideoContextOptions": WanVideoContextOptions
+    "WanVideoContextOptions": WanVideoContextOptions,
+    "WanVideoTeaCache": WanVideoTeaCache
 
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1452,5 +1478,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoLoraSelect": "WanVideo Lora Select",
     "WanVideoLoraBlockEdit": "WanVideo Lora Block Edit",
     "WanVideoEnhanceAVideo": "WanVideo Enhance-A-Video",
-    "WanVideoContextOptions": "WanVideo Context Options"
+    "WanVideoContextOptions": "WanVideo Context Options",
+    "WanVideoTeaCache": "WanVideo TeaCache"
     }

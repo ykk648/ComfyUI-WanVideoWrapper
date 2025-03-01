@@ -10,10 +10,18 @@ from ...enhance_a_video.enhance import get_feta_scores
 from ...enhance_a_video.globals import is_enhance_enabled
 
 from .attention import attention
-
+import numpy as np
 __all__ = ['WanModel']
 
 from tqdm import tqdm
+
+from ...utils import log
+
+def poly1d(coefficients, x):
+    result = torch.zeros_like(x)
+    for i, coeff in enumerate(coefficients):
+        result += coeff * (x ** (len(coefficients) - 1 - i))
+    return result.abs()
 
 def sinusoidal_embedding_1d(dim, position):
     # preprocess
@@ -491,6 +499,15 @@ class WanModel(ModelMixin, ConfigMixin):
         self.offload_txt_emb = False
         self.offload_img_emb = False
 
+        #init TeaCache variables
+        self.enable_teacache = False
+        self.teacache_counter = 0
+        self.rel_l1_thresh = 0.15
+        self.teacache_start_step= 2
+        # self.l1_history_x = []
+        # self.l1_history_temb = []
+        # self.l1_history_rescaled = []
+
         # embeddings
         self.patch_embedding = nn.Conv3d(
             in_dim, dim, kernel_size=patch_size, stride=patch_size)
@@ -546,6 +563,8 @@ class WanModel(ModelMixin, ConfigMixin):
         y=None,
         device=torch.device('cuda'),
         freqs=None,
+        current_step=0,
+        is_uncond=False
     ):
         r"""
         Forward pass through the diffusion model
@@ -567,7 +586,7 @@ class WanModel(ModelMixin, ConfigMixin):
         Returns:
             List[Tensor]:
                 List of denoised video tensors with original input shapes [C_out, F, H / 8, W / 8]
-        """
+        """        
         if self.model_type == 'i2v':
             assert clip_fea is not None and y is not None
         # params
@@ -618,22 +637,107 @@ class WanModel(ModelMixin, ConfigMixin):
             if self.offload_img_emb:
                 self.img_emb.to(self.offload_device, non_blocking=True)
 
-        # arguments
-        kwargs = dict(
-            e=e0,
-            seq_lens=seq_lens,
-            grid_sizes=grid_sizes,
-            freqs=freqs,
-            context=context,
-            context_lens=context_lens)
+        should_calc = True
+        if self.enable_teacache and current_step >= self.teacache_start_step:
+            if current_step == self.teacache_start_step:
+                log.info("TeaCache: Initializing TeaCache variables")
+                should_calc = True
+                self.accumulated_rel_l1_distance_cond = 0
+                self.accumulated_rel_l1_distance_uncond = 0
+                self.teacache_skipped_cond_steps = 0
+                self.teacache_skipped_uncond_steps = 0
+            else:
+                #coefficients = [7.33226126e+02, -4.01131952e+02, 6.75869174e+01, -3.14987800e+00, 9.61237896e-02] # Hunyuan
+                #coefficients = [-3.10658903e+01, 2.54732368e+01, -5.92380459e+00, 1.75769064e+00, -3.61568434e-03] #Cog2b
+                #coefficients = [-1.53880483e+03, 8.43202495e+02, -1.34363087e+02, 7.97131516e+00, -5.23162339e-02] #Cog5b                    
+                #self.accumulated_rel_l1_distance += poly1d(coefficients, ((e0-self.previous_modulated_input).abs().mean() / self.previous_modulated_input.abs().mean()))
+                
+                prev_input = self.previous_modulated_input_uncond if is_uncond else self.previous_modulated_input_cond
+                acc_distance_attr = 'accumulated_rel_l1_distance_uncond' if is_uncond else 'accumulated_rel_l1_distance_cond'
 
-        
-        for b, block in enumerate(self.blocks):
-            if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
-                block.to(self.main_device)
-            x = block(x, **kwargs)
-            if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
-                block.to(self.offload_device, non_blocking=True)
+                temb_relative_l1 = relative_l1_distance(prev_input, e0)
+                setattr(self, acc_distance_attr, getattr(self, acc_distance_attr) + temb_relative_l1)
+
+                if getattr(self, acc_distance_attr) < self.rel_l1_thresh:
+                    should_calc = False
+                    self.teacache_counter += 1
+                else:
+                    should_calc = True
+                    setattr(self, acc_distance_attr, 0)
+            
+            # if current_step > 0:
+            #     temb_relative_l1 = relative_l1_distance(self.previous_modulated_input, e0)
+            #     print("temb_relative_l1 ", temb_relative_l1)
+            #     self.l1_history_temb.append(temb_relative_l1.cpu())
+            if is_uncond:
+                self.previous_modulated_input_uncond = e0.clone()
+                if not should_calc:
+                    x += self.previous_residual_uncond
+                    #log.info(f"TeaCache: Skipping uncond step {current_step+1}")
+                    self.teacache_skipped_cond_steps += 1
+            else:
+                self.previous_modulated_input_cond = e0.clone()
+                if not should_calc:
+                    x += self.previous_residual_cond
+                    #log.info(f"TeaCache: Skipping cond step {current_step+1}")
+                    self.teacache_skipped_uncond_steps += 1
+
+        if not self.enable_teacache or (self.enable_teacache and should_calc):
+            if self.enable_teacache:
+                ori_hidden_states = x.clone()
+            # arguments
+            kwargs = dict(
+                e=e0,
+                seq_lens=seq_lens,
+                grid_sizes=grid_sizes,
+                freqs=freqs,
+                context=context,
+                context_lens=context_lens)
+
+            for b, block in enumerate(self.blocks):
+                if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
+                    block.to(self.main_device)
+                x = block(x, **kwargs)
+                if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
+                    block.to(self.offload_device, non_blocking=True)
+
+            if self.enable_teacache:
+                if is_uncond:
+                    self.previous_residual_uncond = x - ori_hidden_states
+                else:
+                    self.previous_residual_cond = x - ori_hidden_states
+
+                # if current_step > 0:
+                #   import matplotlib.pyplot as plt
+                #     x_relative_l1 = relative_l1_distance(x,ori_hidden_states)
+                #     print("x_relative_l1 ", x_relative_l1)
+                #     self.l1_history_x.append(x_relative_l1.cpu())
+
+                #     # Rescale using polynomial fitting
+                #     if len(self.l1_history_x) > 1:
+                #         print("self.l1_history_temb ", self.l1_history_temb)
+                #         rescaled_diffs = rescale_differences(
+                #             self.l1_history_temb, 
+                #             self.l1_history_x
+                #         )
+                #         self.l1_history_rescaled = rescaled_diffs#.tolist()
+                #     #print("x_relative_l1 ", x_relative_l1)
+                #     if current_step == self.num_steps-1:
+                #         plt.figure(figsize=(10,5))
+                #         norm_x = normalize_values([x.item() for x in self.l1_history_x])
+                #         norm_temb = normalize_values([x.item() for x in self.l1_history_temb])
+                #         norm_rescaled = normalize_values(self.l1_history_rescaled)
+                        
+                #         plt.plot(norm_x, label='Hidden States L1')
+                #         plt.plot(norm_temb, label='Original Temb L1')
+                #         plt.plot(norm_rescaled, label='Rescaled Temb L1')
+                #         plt.title('Relative L1 Distances Over Time')
+                #         plt.xlabel('Step')
+                #         plt.ylabel('Normalized L1 Distance')
+                #         plt.grid(True)
+                #         plt.legend()
+                #         plt.savefig('l1_distances_plot.png')
+                #         plt.close()
 
         # head
         x = self.head(x, e)
@@ -667,26 +771,32 @@ class WanModel(ModelMixin, ConfigMixin):
             out.append(u)
         return out
 
-    # def init_weights(self):
-    #     r"""
-    #     Initialize model parameters using Xavier initialization.
-    #     """
+def relative_l1_distance(last_tensor, current_tensor):
+    l1_distance = torch.abs(last_tensor - current_tensor).mean()
+    norm = torch.abs(last_tensor).mean()
+    relative_l1_distance = l1_distance / norm
+    return relative_l1_distance.to(torch.float32)
 
-    #     # basic init
-    #     for m in self.modules():
-    #         if isinstance(m, nn.Linear):
-    #             nn.init.xavier_uniform_(m.weight)
-    #             if m.bias is not None:
-    #                 nn.init.zeros_(m.bias)
+def normalize_values(values):
+    min_val = min(values)
+    max_val = max(values)
+    if max_val == min_val:
+        return [0.0] * len(values)
+    return [(x - min_val) / (max_val - min_val) for x in values]
 
-    #     # init embeddings
-    #     nn.init.xavier_uniform_(self.patch_embedding.weight.flatten(1))
-    #     for m in self.text_embedding.modules():
-    #         if isinstance(m, nn.Linear):
-    #             nn.init.normal_(m.weight, std=.02)
-    #     for m in self.time_embedding.modules():
-    #         if isinstance(m, nn.Linear):
-    #             nn.init.normal_(m.weight, std=.02)
-
-    #     # init output layer
-    #     nn.init.zeros_(self.head.head.weight)
+def rescale_differences(input_diffs, output_diffs):
+    """Polynomial fitting between input and output differences"""
+    poly_degree = 4
+    if len(input_diffs) < 2:
+        return input_diffs
+    
+    x = np.array([x.item() for x in input_diffs])
+    y = np.array([y.item() for y in output_diffs])
+    print("x ", x)
+    print("y ", y)
+    
+    # Fit polynomial
+    coeffs = np.polyfit(x, y, poly_degree)
+    
+    # Apply polynomial transformation
+    return np.polyval(coeffs, x)
