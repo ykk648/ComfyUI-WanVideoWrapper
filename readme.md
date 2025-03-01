@@ -19,8 +19,18 @@ Transformer to `ComfyUI/models/diffusion_models`
 
 Vae to `ComfyUI/models/vae`
 
+---
 
-This very firsttest was 512x512x81
+Context window test:
+
+1025 frames using window size of 81 frames, with 16 overlap. With the 1.3B T2V model this used under 5GB VRAM and took 10 minutes to gen on a 5090:
+
+https://github.com/user-attachments/assets/89b393af-cf1b-49ae-aa29-23e57f65911e
+
+
+
+
+This very first test was 512x512x81
 
 ~16GB used with 20/40 blocks offloaded
 
