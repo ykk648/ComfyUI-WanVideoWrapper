@@ -1112,11 +1112,13 @@ class WanVideoSampler:
                         disable_enhance()
 
                 if context_options is not None:
+                    
                     counter = torch.zeros_like(latent_model_input[0], device=offload_device)
                     noise_pred = torch.zeros_like(latent_model_input[0], device=offload_device)
                     context_queue = list(context(
                             i, steps, latent_video_length, context_frames, context_stride, context_overlap,
                         ))
+                    
                     for c in context_queue:
                         partial_latent_model_input = [latent_model_input[0][:, c, :, :]]
                         # Model inference - returns [frames, channels, height, width]
@@ -1130,8 +1132,22 @@ class WanVideoSampler:
                                 noise_pred_cond - noise_pred_uncond)
                         else:
                             noise_pred_context = noise_pred_cond
-                        noise_pred[:, c, :, :] += noise_pred_context
-                        counter[:, c, :, :] += 1
+
+                        window_mask = torch.ones_like(noise_pred_context)
+                        # Apply left-side blending for all except first chunk
+                        if min(c) > 0: 
+                            ramp_up = torch.linspace(0, 1, context_overlap, device=noise_pred.device)
+                            ramp_up = ramp_up.view(1, -1, 1, 1)
+                            window_mask[:, :context_overlap] = ramp_up
+                        
+                        # Apply right-side blending for all except last chunk
+                        if max(c) < latent_video_length - 1:
+                            ramp_down = torch.linspace(1, 0, context_overlap, device=noise_pred.device)
+                            ramp_down = ramp_down.view(1, -1, 1, 1)
+                            window_mask[:, -context_overlap:] = ramp_down
+                        # Apply masked prediction
+                        noise_pred[:, c, :, :] += noise_pred_context * window_mask
+                        counter[:, c, :, :] += window_mask
                         #model inference end
                     noise_pred /= counter
                 else:
