@@ -296,6 +296,16 @@ class WanVideoModelLoader:
 
         model_path = folder_paths.get_full_path_or_raise("diffusion_models", model)
         sd = load_torch_file(model_path, device=transformer_load_device, safe_load=True)
+
+        first_key = next(iter(sd))
+        if first_key.startswith("model.diffusion_model."):
+            # Create new state dict with modified keys
+            new_sd = {}
+            for key, value in sd.items():
+                new_key = key.replace("model.diffusion_model.", "", 1)
+                new_sd[new_key] = value
+            sd = new_sd
+
         
         dim = sd["patch_embedding.weight"].shape[0]
         in_channels = sd["patch_embedding.weight"].shape[1]
