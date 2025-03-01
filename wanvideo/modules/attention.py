@@ -18,7 +18,12 @@ try:
     @torch.compiler.disable()
     def sageattn_func(q, k, v, attn_mask=None, dropout_p=0, is_causal=False):
         return sageattn(q, k, v, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal)
-except ModuleNotFoundError:
+except Exception as e:
+    print(f"Warning: Could not load sageattention: {str(e)}")
+    if isinstance(e, ModuleNotFoundError):
+        print("sageattention package is not installed")
+    elif isinstance(e, ImportError) and "DLL" in str(e):
+        print("sageattention DLL loading error")
     sageattn_func = None
 import warnings
 
