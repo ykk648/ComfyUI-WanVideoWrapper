@@ -12,6 +12,7 @@ from .wanvideo.modules.t5 import T5EncoderModel
 from .wanvideo.utils.fm_solvers import (FlowDPMSolverMultistepScheduler,
                                get_sampling_sigmas, retrieve_timesteps)
 from .wanvideo.utils.fm_solvers_unipc import FlowUniPCMultistepScheduler
+from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
 
 from .enhance_a_video.globals import enable_enhance, disable_enhance, set_enhance_weight, set_num_frames
 
@@ -39,6 +40,8 @@ class WanVideoBlockSwap:
         return {
             "required": {
                 "blocks_to_swap": ("INT", {"default": 20, "min": 0, "max": 40, "step": 1, "tooltip": "Number of double blocks to swap"}),
+                "offload_img_emb": ("BOOLEAN", {"default": False, "tooltip": "Offload img_emb to offload_device"}),
+                "offload_txt_emb": ("BOOLEAN", {"default": False, "tooltip": "Offload time_emb to offload_device"}),
             },
         }
     RETURN_TYPES = ("BLOCKSWAPARGS",)
@@ -708,6 +711,7 @@ class WanVideoImageClipEncode:
                 "noise_aug_strength": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 10.0, "step": 0.001, "tooltip": "Strength of noise augmentation, helpful for I2V where some noise can add motion and give sharper results"}),
                 "latent_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.001, "tooltip": "Additional latent multiplier, helpful for I2V where lower values allow for more motion"}),
                 "clip_embed_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.001, "tooltip": "Additional clip embed multiplier"}),
+                "adjust_resolution": ("BOOLEAN", {"default": True, "tooltip": "Performs the same resolution adjustment as in the original code"}),
 
             }
         }
@@ -717,7 +721,8 @@ class WanVideoImageClipEncode:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, clip, vae, image, num_frames, generation_width, generation_height, force_offload=True, noise_aug_strength=0.0, latent_strength=1.0, clip_embed_strength=1.0):
+    def process(self, clip, vae, image, num_frames, generation_width, generation_height, force_offload=True, noise_aug_strength=0.0, 
+                latent_strength=1.0, clip_embed_strength=1.0, adjust_resolution=True):
 
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
@@ -742,15 +747,21 @@ class WanVideoImageClipEncode:
             clip.model.to(offload_device)
             mm.soft_empty_cache()
 
-        aspect_ratio = H / W
-        lat_h = round(
+        if adjust_resolution:
+            aspect_ratio = H / W
+            lat_h = round(
             np.sqrt(max_area * aspect_ratio) // vae_stride[1] //
             patch_size[1] * patch_size[1])
-        lat_w = round(
-            np.sqrt(max_area / aspect_ratio) // vae_stride[2] //
-            patch_size[2] * patch_size[2])
-        h = lat_h * vae_stride[1]
-        w = lat_w * vae_stride[2]
+            lat_w = round(
+                np.sqrt(max_area / aspect_ratio) // vae_stride[2] //
+                patch_size[2] * patch_size[2])
+            h = lat_h * vae_stride[1]
+            w = lat_w * vae_stride[2]
+        else:
+            h = generation_height
+            w = generation_width
+            lat_h = h // 8
+            lat_w = w // 8
 
         # Step 1: Create initial mask with ones for first frame, zeros for others
         mask = torch.ones(1, num_frames, lat_h, lat_w, device=device)
@@ -888,7 +899,7 @@ class WanVideoSampler:
                 "shift": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 1000.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "force_offload": ("BOOLEAN", {"default": True}),
-                "scheduler": (["unipc", "dpm++", "dpm++_sde"],
+                "scheduler": (["unipc", "dpm++", "dpm++_sde", "euler"],
                     {
                         "default": 'dpm++'
                     }),
@@ -928,6 +939,16 @@ class WanVideoSampler:
             sample_scheduler.set_timesteps(
                 steps, device=device, shift=shift)
             timesteps = sample_scheduler.timesteps
+        elif scheduler == 'euler':
+            sample_scheduler = FlowMatchEulerDiscreteScheduler(
+                num_train_timesteps=1000,
+                shift=shift,
+                use_dynamic_shifting=False)
+            sampling_sigmas = get_sampling_sigmas(steps, shift)
+            timesteps, _ = retrieve_timesteps(
+                sample_scheduler,
+                device=device,
+                sigmas=sampling_sigmas)
         elif 'dpm++' in scheduler:
             if scheduler == 'dpm++_sde':
                 algorithm_type = "sde-dpmsolver++"
@@ -1060,9 +1081,15 @@ class WanVideoSampler:
             for name, param in transformer.named_parameters():
                 if "block" not in name:
                     param.data = param.data.to(device)
+                elif model["block_swap_args"]["offload_txt_emb"] and "txt_emb" in name:
+                    param.data = param.data.to(offload_device)
+                elif model["block_swap_args"]["offload_img_emb"] and "img_emb" in name:
+                    param.data = param.data.to(offload_device)
 
             transformer.block_swap(
                 model["block_swap_args"]["blocks_to_swap"] - 1 ,
+                model["block_swap_args"]["offload_txt_emb"],
+                model["block_swap_args"]["offload_img_emb"],
             )
         else:
             if model["manual_offloading"]:
@@ -1108,6 +1135,8 @@ class WanVideoSampler:
 
         log.info(f"Sampling {(latent_video_length-1) * 4 + 1} frames at {latent.shape[3]*8}x{latent.shape[2]*8} with {steps} steps")
 
+        intermediate_device = device
+
         with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
             for i, t in enumerate(tqdm(timesteps)):
                 latent_model_input = [latent.to(device)]
@@ -1124,8 +1153,8 @@ class WanVideoSampler:
 
                 if context_options is not None:
                     
-                    counter = torch.zeros_like(latent_model_input[0], device=offload_device)
-                    noise_pred = torch.zeros_like(latent_model_input[0], device=offload_device)
+                    counter = torch.zeros_like(latent_model_input[0], device=intermediate_device)
+                    noise_pred = torch.zeros_like(latent_model_input[0], device=intermediate_device)
                     context_queue = list(context(
                             i, steps, latent_video_length, context_frames, context_stride, context_overlap,
                         ))
@@ -1134,10 +1163,10 @@ class WanVideoSampler:
                         partial_latent_model_input = [latent_model_input[0][:, c, :, :]]
                         # Model inference - returns [frames, channels, height, width]
                         noise_pred_cond = transformer(
-                            partial_latent_model_input, t=timestep, **arg_c)[0].to(offload_device)
+                            partial_latent_model_input, t=timestep, **arg_c)[0].to(intermediate_device)
                         if cfg[i] != 1.0:
                             noise_pred_uncond = transformer(
-                                partial_latent_model_input, t=timestep, **arg_null)[0].to(offload_device)
+                                partial_latent_model_input, t=timestep, **arg_null)[0].to(intermediate_device)
                         
                             noise_pred_context = noise_pred_uncond + cfg[i] * (
                                 noise_pred_cond - noise_pred_uncond)
@@ -1164,10 +1193,10 @@ class WanVideoSampler:
                 else:
                     #model inference start
                     noise_pred_cond = transformer(
-                        latent_model_input, t=timestep, **arg_c)[0].to(offload_device)
+                        latent_model_input, t=timestep, **arg_c)[0].to(intermediate_device)
                     if cfg[i] != 1.0:
                         noise_pred_uncond = transformer(
-                            latent_model_input, t=timestep, **arg_null)[0].to(offload_device)
+                            latent_model_input, t=timestep, **arg_null)[0].to(intermediate_device)
                     
                         noise_pred = noise_pred_uncond + cfg[i] * (
                             noise_pred_cond - noise_pred_uncond)
@@ -1175,7 +1204,7 @@ class WanVideoSampler:
                         noise_pred = noise_pred_cond
                     #model inference end
                 
-                latent = latent.to(offload_device)
+                latent = latent.to(intermediate_device)
                 
                 temp_x0 = sample_scheduler.step(
                     noise_pred.unsqueeze(0),
@@ -1188,7 +1217,7 @@ class WanVideoSampler:
                 x0 = [latent.to(device)]
                 
                 if callback is not None:
-                    callback_latent = (latent_model_input[0].cpu() - noise_pred * t.cpu() / 1000).detach().permute(1,0,2,3)
+                    callback_latent = (latent_model_input[0] - noise_pred.to(t.device) * t / 1000).detach().permute(1,0,2,3)
                     callback(i, callback_latent, None, steps)
                 else:
                     pbar.update(1)

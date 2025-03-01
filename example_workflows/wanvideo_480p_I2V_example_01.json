@@ -1,78 +1,7 @@
 {
-  "last_node_id": 36,
-  "last_link_id": 40,
+  "last_node_id": 38,
+  "last_link_id": 42,
   "nodes": [
-    {
-      "id": 21,
-      "type": "WanVideoVAELoader",
-      "pos": [
-        401.8250427246094,
-        393.2132873535156
-      ],
-      "size": [
-        315,
-        82
-      ],
-      "flags": {},
-      "order": 0,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "vae",
-          "type": "VAE",
-          "links": [
-            21,
-            34
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "WanVideoVAELoader"
-      },
-      "widgets_values": [
-        "wanvideo\\Wan2_1_VAE_bf16.safetensors",
-        "bf16"
-      ]
-    },
-    {
-      "id": 18,
-      "type": "LoadImage",
-      "pos": [
-        417.39227294921875,
-        529.9345092773438
-      ],
-      "size": [
-        315,
-        314
-      ],
-      "flags": {},
-      "order": 1,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            18
-          ]
-        },
-        {
-          "name": "MASK",
-          "type": "MASK",
-          "links": null
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "LoadImage"
-      },
-      "widgets_values": [
-        "oldman_upscaled.png",
-        "image"
-      ]
-    },
     {
       "id": 32,
       "type": "WanVideoBlockSwap",
@@ -82,10 +11,10 @@
       ],
       "size": [
         315,
-        58
+        106
       ],
       "flags": {},
-      "order": 2,
+      "order": 0,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -102,7 +31,9 @@
         "Node name for S&R": "WanVideoBlockSwap"
       },
       "widgets_values": [
-        10
+        10,
+        false,
+        false
       ]
     },
     {
@@ -114,10 +45,10 @@
       ],
       "size": [
         377.1661376953125,
-        115.05413055419922
+        130
       ],
       "flags": {},
-      "order": 3,
+      "order": 1,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -136,7 +67,8 @@
       "widgets_values": [
         "umt5-xxl-enc-bf16.safetensors",
         "bf16",
-        "offload_device"
+        "offload_device",
+        "disabled"
       ]
     },
     {
@@ -191,7 +123,7 @@
         106
       ],
       "flags": {},
-      "order": 4,
+      "order": 2,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -214,62 +146,293 @@
       ]
     },
     {
-      "id": 17,
-      "type": "WanVideoImageClipEncode",
+      "id": 35,
+      "type": "WanVideoTorchCompileSettings",
       "pos": [
-        875.01025390625,
-        278.4588623046875
+        124.67726135253906,
+        -627.7935180664062
       ],
       "size": [
-        315,
-        170
+        390.5999755859375,
+        178
       ],
       "flags": {},
-      "order": 11,
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "torch_compile_args",
+          "type": "WANCOMPILEARGS",
+          "links": [],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WanVideoTorchCompileSettings"
+      },
+      "widgets_values": [
+        "inductor",
+        false,
+        "default",
+        false,
+        64,
+        true
+      ]
+    },
+    {
+      "id": 37,
+      "type": "Note",
+      "pos": [
+        170.94039916992188,
+        -750.3395385742188
+      ],
+      "size": [
+        303.0501403808594,
+        65.95614624023438
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "If you have Triton installed, connect this for ~30% speed increase"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 36,
+      "type": "Note",
+      "pos": [
+        712.7784423828125,
+        -580.95947265625
+      ],
+      "size": [
+        378.52294921875,
+        144.30191040039062
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "fp8_fast seems to cause huge quality degradation\n\nfp_16_fast enables \"Full FP16 Accmumulation in FP16 GEMMs\" feature available in the very latest pytorch nightly, this is around 20% speed boost. \n\nSageattn if you have it installed can be used for almost double inference speed"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 22,
+      "type": "WanVideoModelLoader",
+      "pos": [
+        620.3950805664062,
+        -357.8426818847656
+      ],
+      "size": [
+        477.4410095214844,
+        226.43276977539062
+      ],
+      "flags": {},
+      "order": 9,
       "mode": 0,
       "inputs": [
         {
-          "name": "clip",
-          "type": "WANCLIP",
-          "link": 17
+          "name": "compile_args",
+          "type": "WANCOMPILEARGS",
+          "shape": 7,
+          "link": null
         },
         {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 18
+          "name": "block_swap_args",
+          "type": "BLOCKSWAPARGS",
+          "shape": 7,
+          "link": 39
         },
         {
-          "name": "vae",
-          "type": "VAE",
-          "link": 21
+          "name": "lora",
+          "type": "WANVIDLORA",
+          "shape": 7,
+          "link": null
         }
       ],
       "outputs": [
         {
-          "name": "image_embeds",
-          "type": "WANVIDIMAGE_EMBEDS",
+          "name": "model",
+          "type": "WANVIDEOMODEL",
           "links": [
-            32
+            29
           ],
           "slot_index": 0
         }
       ],
       "properties": {
-        "Node name for S&R": "WanVideoImageClipEncode"
+        "Node name for S&R": "WanVideoModelLoader"
       },
       "widgets_values": [
-        512,
-        512,
-        81,
-        true
+        "WanVideo\\Wan2_1-I2V-14B-480P_fp8_e4m3fn.safetensors",
+        "fp16",
+        "fp8_e4m3fn",
+        "offload_device",
+        "sdpa"
+      ]
+    },
+    {
+      "id": 27,
+      "type": "WanVideoSampler",
+      "pos": [
+        1349.4732666015625,
+        -233.91836547851562
+      ],
+      "size": [
+        315,
+        534.1923217773438
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "WANVIDEOMODEL",
+          "link": 29
+        },
+        {
+          "name": "text_embeds",
+          "type": "WANVIDEOTEXTEMBEDS",
+          "link": 30
+        },
+        {
+          "name": "image_embeds",
+          "type": "WANVIDIMAGE_EMBEDS",
+          "link": 32
+        },
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "shape": 7,
+          "link": null
+        },
+        {
+          "name": "feta_args",
+          "type": "FETAARGS",
+          "shape": 7,
+          "link": null
+        },
+        {
+          "name": "context_options",
+          "type": "WANVIDCONTEXT",
+          "shape": 7,
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "links": [
+            33
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WanVideoSampler"
+      },
+      "widgets_values": [
+        10,
+        6,
+        5,
+        123,
+        "fixed",
+        true,
+        "unipc",
+        0,
+        1,
+        ""
+      ]
+    },
+    {
+      "id": 21,
+      "type": "WanVideoVAELoader",
+      "pos": [
+        361.2858581542969,
+        388.70892333984375
+      ],
+      "size": [
+        315,
+        82
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vae",
+          "type": "WANVAE",
+          "links": [
+            21,
+            34
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WanVideoVAELoader"
+      },
+      "widgets_values": [
+        "wanvideo\\Wan2_1_VAE_bf16.safetensors",
+        "bf16"
+      ]
+    },
+    {
+      "id": 18,
+      "type": "LoadImage",
+      "pos": [
+        367.8443298339844,
+        527.23193359375
+      ],
+      "size": [
+        315,
+        314
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            18
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "oldman_upscaled.png",
+        "image"
       ]
     },
     {
       "id": 28,
       "type": "WanVideoDecode",
       "pos": [
-        1319.96875,
-        11.251319885253906
+        1346.09375,
+        -467.1110534667969
       ],
       "size": [
         315,
@@ -281,7 +444,7 @@
       "inputs": [
         {
           "name": "vae",
-          "type": "VAE",
+          "type": "WANVAE",
           "link": 34
         },
         {
@@ -295,7 +458,7 @@
           "name": "images",
           "type": "IMAGE",
           "links": [
-            36
+            41
           ],
           "slot_index": 0
         }
@@ -312,47 +475,74 @@
       ]
     },
     {
-      "id": 33,
-      "type": "Note",
+      "id": 38,
+      "type": "GetImageSizeAndCount",
       "pos": [
-        227.3764190673828,
-        -205.28524780273438
+        1703.7633056640625,
+        -346.5655517578125
       ],
       "size": [
-        351.70458984375,
-        60
-      ],
-      "flags": {},
-      "order": 5,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [],
-      "properties": {},
-      "widgets_values": [
-        "Models:\nhttps://huggingface.co/Kijai/WanVideo_comfy/tree/main"
-      ],
-      "color": "#432",
-      "bgcolor": "#653"
-    },
-    {
-      "id": 30,
-      "type": "VHS_VideoCombine",
-      "pos": [
-        1712.420654296875,
-        -353.76507568359375
-      ],
-      "size": [
-        214.7587890625,
-        542.7587890625
+        277.20001220703125,
+        86
       ],
       "flags": {},
       "order": 14,
       "mode": 0,
       "inputs": [
         {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 41
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            42
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "count",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "GetImageSizeAndCount"
+      }
+    },
+    {
+      "id": 30,
+      "type": "VHS_VideoCombine",
+      "pos": [
+        1988.0869140625,
+        -413.2225341796875
+      ],
+      "size": [
+        557.9904174804688,
+        885.9904174804688
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
           "name": "images",
           "type": "IMAGE",
-          "link": 36
+          "link": 42
         },
         {
           "name": "audio",
@@ -398,194 +588,82 @@
           "hidden": false,
           "paused": false,
           "params": {
-            "filename": "WanVideo2_1_00011.mp4",
+            "filename": "WanVideo2_1_00115.mp4",
             "subfolder": "",
             "type": "output",
             "format": "video/h264-mp4",
             "frame_rate": 16,
-            "workflow": "WanVideo2_1_00011.png",
-            "fullpath": "N:\\AI\\ComfyUI\\output\\WanVideo2_1_00011.mp4"
+            "workflow": "WanVideo2_1_00115.png",
+            "fullpath": "N:\\AI\\ComfyUI\\output\\WanVideo2_1_00115.mp4"
           }
         }
       }
     },
     {
-      "id": 27,
-      "type": "WanVideoSampler",
+      "id": 17,
+      "type": "WanVideoImageClipEncode",
       "pos": [
-        1315.2401123046875,
-        -356.4367980957031
+        875.01025390625,
+        278.4588623046875
       ],
       "size": [
         315,
-        242
+        266
       ],
       "flags": {},
-      "order": 12,
+      "order": 11,
       "mode": 0,
       "inputs": [
         {
-          "name": "model",
-          "type": "WANVIDEOMODEL",
-          "link": 29
+          "name": "clip",
+          "type": "WANCLIP",
+          "link": 17
         },
         {
-          "name": "text_embeds",
-          "type": "WANVIDEOTEXTEMBEDS",
-          "link": 30
+          "name": "image",
+          "type": "IMAGE",
+          "link": 18
         },
         {
-          "name": "image_embeds",
-          "type": "WANVIDIMAGE_EMBEDS",
-          "link": 32
+          "name": "vae",
+          "type": "WANVAE",
+          "link": 21
         }
       ],
       "outputs": [
         {
-          "name": "samples",
-          "type": "LATENT",
+          "name": "image_embeds",
+          "type": "WANVIDIMAGE_EMBEDS",
           "links": [
-            33
+            32
           ],
           "slot_index": 0
         }
       ],
       "properties": {
-        "Node name for S&R": "WanVideoSampler"
+        "Node name for S&R": "WanVideoImageClipEncode"
       },
       "widgets_values": [
-        10,
-        6,
-        5,
-        1057359483639286,
-        "fixed",
+        832,
+        480,
+        81,
         true,
-        "unipc"
-      ]
-    },
-    {
-      "id": 35,
-      "type": "WanVideoTorchCompileSettings",
-      "pos": [
-        124.67726135253906,
-        -627.7935180664062
-      ],
-      "size": [
-        390.5999755859375,
-        178
-      ],
-      "flags": {},
-      "order": 6,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "torch_compile_args",
-          "type": "COMPILEARGS",
-          "links": [],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "WanVideoTorchCompileSettings"
-      },
-      "widgets_values": [
-        "inductor",
-        false,
-        "default",
-        false,
-        64,
+        0,
+        1,
+        1,
         true
       ]
     },
     {
-      "id": 22,
-      "type": "WanVideoModelLoader",
-      "pos": [
-        620.3950805664062,
-        -357.8426818847656
-      ],
-      "size": [
-        477.4410095214844,
-        226.43276977539062
-      ],
-      "flags": {},
-      "order": 9,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "compile_args",
-          "type": "COMPILEARGS",
-          "shape": 7,
-          "link": null
-        },
-        {
-          "name": "block_swap_args",
-          "type": "BLOCKSWAPARGS",
-          "shape": 7,
-          "link": 39
-        },
-        {
-          "name": "lora",
-          "type": "HYVIDLORA",
-          "shape": 7,
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "model",
-          "type": "WANVIDEOMODEL",
-          "links": [
-            29
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "WanVideoModelLoader"
-      },
-      "widgets_values": [
-        "WanVideo\\Wan2_1-I2V-14B-480P_fp8_e4m3fn.safetensors",
-        "bf16",
-        "fp8_e4m3fn",
-        "offload_device",
-        "sageattn"
-      ]
-    },
-    {
-      "id": 34,
+      "id": 33,
       "type": "Note",
       "pos": [
-        912.0381469726562,
-        501.89813232421875
+        234.58334350585938,
+        -189.06956481933594
       ],
       "size": [
-        262.5184020996094,
-        58
-      ],
-      "flags": {},
-      "order": 7,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [],
-      "properties": {},
-      "widgets_values": [
-        "Under 81 frames doesn't seem to work?"
-      ],
-      "color": "#432",
-      "bgcolor": "#653"
-    },
-    {
-      "id": 36,
-      "type": "Note",
-      "pos": [
-        796.0189208984375,
-        -521.5020751953125
-      ],
-      "size": [
-        298.2554016113281,
-        108.62744140625
+        351.70458984375,
+        60
       ],
       "flags": {},
       "order": 8,
@@ -594,7 +672,7 @@
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "sdpa should work too, haven't tested flaash\n\nfp8_fast seems to cause huge quality degradation"
+        "Models:\nhttps://huggingface.co/Kijai/WanVideo_comfy/tree/main"
       ],
       "color": "#432",
       "bgcolor": "#653"
@@ -674,20 +752,28 @@
       "VAE"
     ],
     [
-      36,
-      28,
-      0,
-      30,
-      0,
-      "IMAGE"
-    ],
-    [
       39,
       32,
       0,
       22,
       1,
       "BLOCKSWAPARGS"
+    ],
+    [
+      41,
+      28,
+      0,
+      38,
+      0,
+      "IMAGE"
+    ],
+    [
+      42,
+      38,
+      0,
+      30,
+      0,
+      "IMAGE"
     ]
   ],
   "groups": [],
@@ -696,13 +782,14 @@
     "ds": {
       "scale": 0.672749994932598,
       "offset": [
-        427.5980150909793,
-        736.9619463805877
+        341.6634266370342,
+        770.6955320763833
       ]
     },
     "node_versions": {
-      "ComfyUI-WanVideoWrapper": "c83f47e4d97b5891058555df16db5e33d16afab1",
-      "comfy-core": "0.3.14",
+      "ComfyUI-WanVideoWrapper": "66c8ebe4d375e5dc1a510745931ae9bd14ec7887",
+      "comfy-core": "0.3.18",
+      "ComfyUI-KJNodes": "9a15e22f5e9416c0968ce3de33923f8f601257dd",
       "ComfyUI-VideoHelperSuite": "2c25b8b53835aaeb63f831b3137c705cf9f85dce"
     },
     "VHS_latentpreview": true,

@@ -488,6 +488,8 @@ class WanModel(ModelMixin, ConfigMixin):
         self.offload_device = offload_device
 
         self.blocks_to_swap = -1
+        self.offload_txt_emb = False
+        self.offload_img_emb = False
 
         # embeddings
         self.patch_embedding = nn.Conv3d(
@@ -522,9 +524,11 @@ class WanModel(ModelMixin, ConfigMixin):
         # initialize weights
         #self.init_weights()
 
-    def block_swap(self, blocks_to_swap):
+    def block_swap(self, blocks_to_swap, offload_txt_emb=False, offload_img_emb=False):
         print(f"Swapping {blocks_to_swap + 1} transformer blocks")
         self.blocks_to_swap = blocks_to_swap
+        self.offload_img_emb = offload_img_emb
+        self.offload_txt_emb = offload_txt_emb
        
         for b, block in tqdm(enumerate(self.blocks), total=len(self.blocks), desc="Initializing block swap"):
             if b > self.blocks_to_swap:
@@ -595,16 +599,24 @@ class WanModel(ModelMixin, ConfigMixin):
 
         # context
         context_lens = None
+        if self.offload_txt_emb:
+            self.text_embedding.to(self.main_device)
         context = self.text_embedding(
             torch.stack([
                 torch.cat(
                     [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
                 for u in context
             ]))
+        if self.offload_txt_emb:
+            self.text_embedding.to(self.offload_device, non_blocking=True)
 
         if clip_fea is not None:
+            if self.offload_img_emb:
+                self.img_emb.to(self.main_device)
             context_clip = self.img_emb(clip_fea)  # bs x 257 x dim
             context = torch.concat([context_clip, context], dim=1)
+            if self.offload_img_emb:
+                self.img_emb.to(self.offload_device, non_blocking=True)
 
         # arguments
         kwargs = dict(
