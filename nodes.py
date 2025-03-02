@@ -1148,11 +1148,7 @@ class WanVideoSampler:
             'device': device,
             'freqs': freqs,
         }
-        if transformer.model_type == "i2v":
-            args.update({
-                 'y': [image_embeds["image_embeds"].to(device)],
-            })
-        
+           
         pbar = ProgressBar(steps)
 
         from latent_preview import prepare_callback
@@ -1269,10 +1265,17 @@ class WanVideoSampler:
                         # Use the appropriate prompt for this section
                         positive_prompt = text_embeds["prompt_embeds"][prompt_index]
 
+                        img_emb = image_embeds.get("image_embeds", None)
+                        if img_emb is not None:
+                            print("img_emb shape", img_emb.shape)
+                            partial_img_emb = img_emb[:, c, :, :]
+                            partial_img_emb[:, 0, :, :] = img_emb[:, 0, :, :].to(intermediate_device)
+
                         partial_latent_model_input = [latent_model_input[0][:, c, :, :]]
                         # Model inference - returns [frames, channels, height, width]
                         noise_pred_cond = transformer(
                             partial_latent_model_input, 
+                            y=[partial_img_emb],
                             t=timestep, 
                             current_step=i,
                             is_uncond=False,
@@ -1282,6 +1285,7 @@ class WanVideoSampler:
                         if cfg[i] != 1.0:
                             noise_pred_uncond = transformer(
                                 partial_latent_model_input, 
+                                y=[partial_img_emb],
                                 t=timestep, 
                                 current_step=i,
                                 is_uncond=True,
@@ -1318,12 +1322,14 @@ class WanVideoSampler:
                         t=timestep, 
                         current_step=i,
                         is_uncond=False,
+                        y=[image_embeds.get("image_embeds", None)],
                         context = [text_embeds["prompt_embeds"][0]],
                         **args
                     )[0].to(intermediate_device)
                     if cfg[i] != 1.0:
                         noise_pred_uncond = transformer(
                             latent_model_input, 
+                            y=[image_embeds.get("image_embeds", None)],
                             t=timestep, 
                             current_step=i,
                             is_uncond=True,
