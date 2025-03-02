@@ -1194,6 +1194,7 @@ class WanVideoSampler:
         else:
             transformer.enable_teacache = False
 
+        mm.unload_all_models()
         mm.soft_empty_cache()
         gc.collect()
 
