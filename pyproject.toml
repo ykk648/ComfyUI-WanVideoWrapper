@@ -3,7 +3,7 @@ name = "ComfyUI-WanVideoWrapper"
 description = "ComfyUI diffusers wrapper nodes for WanVideo"
 version = "1.0.4"
 license = {file = "LICENSE"}
-dependencies = ["accelerate >= 1.2.1", "diffusers >= 0.31.0", "ftfy"]
+dependencies = ["accelerate >= 1.2.1", "diffusers >= 0.32.0", "ftfy"]
 
 [project.urls]
 Repository = "https://github.com/kijai/ComfyUI-WanVideoWrapper"

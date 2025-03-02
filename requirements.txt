@@ -1,6 +1,6 @@
 ftfy
-accelerate
+accelerate>=1.2.1
 einops
-diffusers
+diffusers>=0.32.0
 sentencepiece>=0.2.0
 protobuf
