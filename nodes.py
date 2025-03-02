@@ -24,6 +24,7 @@ import comfy.model_management as mm
 from comfy.utils import load_torch_file, save_torch_file, ProgressBar, common_upscale
 import comfy.model_base
 import comfy.latent_formats
+from comfy.clip_vision import clip_preprocess, ClipVisionModel
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
 
@@ -672,8 +673,8 @@ class LoadWanVideoClipTextEncoder:
             }
         }
 
-    RETURN_TYPES = ("WANCLIP",)
-    RETURN_NAMES = ("wan_clip_model", )
+    RETURN_TYPES = ("CLIP_VISION",) 
+    RETURN_NAMES = ("wan_clip_vision", )
     FUNCTION = "loadmodel"
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "Loads Hunyuan text_encoder model from 'ComfyUI/models/LLM'"
@@ -756,11 +757,6 @@ class WanVideoTextEmbedBridge:
 
     def process(self, positive, negative):
 
-        device = mm.get_torch_device()
-        offload_device = mm.unet_offload_device()
-        print(type(positive[0][0]))
-        print(positive[0][0].shape)
-
         prompt_embeds_dict = {
                 "prompt_embeds": positive[0][0],
                 "negative_prompt_embeds": negative[0][0],
@@ -772,7 +768,7 @@ class WanVideoImageClipEncode:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-            "clip": ("WANCLIP",),
+            "clip_vision": ("CLIP_VISION",),
             "image": ("IMAGE", {"tooltip": "Image to encode"}),
             "vae": ("WANVAE",),
             "generation_width": ("INT", {"default": 832, "min": 64, "max": 2048, "step": 8, "tooltip": "Width of the image to encode"}),
@@ -794,7 +790,7 @@ class WanVideoImageClipEncode:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, clip, vae, image, num_frames, generation_width, generation_height, force_offload=True, noise_aug_strength=0.0, 
+    def process(self, clip_vision, vae, image, num_frames, generation_width, generation_height, force_offload=True, noise_aug_strength=0.0, 
                 latent_strength=1.0, clip_embed_strength=1.0, adjust_resolution=True):
 
         device = mm.get_torch_device()
@@ -808,16 +804,19 @@ class WanVideoImageClipEncode:
         H, W = image.shape[1], image.shape[2]
         max_area = generation_width * generation_height
 
-        from comfy.clip_vision import clip_preprocess
-        pixel_values = clip_preprocess(image.to(device), size=224, mean=self.image_mean, std=self.image_std, crop=True).float()
-        clip.model.to(device)
-        clip_context = clip.visual(pixel_values)
-
+        
+        print(clip_vision)
+        clip_vision.model.to(device)
+        if isinstance(clip_vision, ClipVisionModel):
+            clip_context = clip_vision.encode_image(image).last_hidden_state.to(device)
+        else:
+            pixel_values = clip_preprocess(image.to(device), size=224, mean=self.image_mean, std=self.image_std, crop=True).float()
+            clip_context = clip_vision.visual(pixel_values)
         if clip_embed_strength != 1.0:
             clip_context *= clip_embed_strength
         
         if force_offload:
-            clip.model.to(offload_device)
+            clip_vision.model.to(offload_device)
             mm.soft_empty_cache()
 
         if adjust_resolution:
@@ -1137,7 +1136,7 @@ class WanVideoSampler:
         }
         if transformer.model_type == "i2v":
             base_args.update({
-                 'y': [image_embeds["image_embeds"]],
+                 'y': [image_embeds["image_embeds"].to(device)],
             })
 
         arg_c = base_args.copy()
@@ -1560,7 +1559,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoVAELoader": "WanVideo VAE Loader",
     "LoadWanVideoT5TextEncoder": "Load WanVideo T5 TextEncoder",
     "WanVideoImageClipEncode": "WanVideo ImageClip Encode",
-    "LoadWanVideoClipTextEncoder": "Load WanVideo Clip TextEncoder",
+    "LoadWanVideoClipTextEncoder": "Load WanVideo Clip Encoder",
     "WanVideoEncode": "WanVideo Encode",
     "WanVideoBlockSwap": "WanVideo BlockSwap",
     "WanVideoTorchCompileSettings": "WanVideo Torch Compile Settings",
