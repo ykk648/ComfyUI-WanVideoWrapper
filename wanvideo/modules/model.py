@@ -15,7 +15,7 @@ __all__ = ['WanModel']
 
 from tqdm import tqdm
 
-from ...utils import log
+from ...utils import log, get_module_memory_mb
 
 def poly1d(coefficients, x):
     result = torch.zeros_like(x)
@@ -547,12 +547,27 @@ class WanModel(ModelMixin, ConfigMixin):
         self.blocks_to_swap = blocks_to_swap
         self.offload_img_emb = offload_img_emb
         self.offload_txt_emb = offload_txt_emb
+
+        total_offload_memory = 0
+        total_main_memory = 0
        
         for b, block in tqdm(enumerate(self.blocks), total=len(self.blocks), desc="Initializing block swap"):
+            block_memory = get_module_memory_mb(block)
+            
             if b > self.blocks_to_swap:
                 block.to(self.main_device)
+                total_main_memory += block_memory
             else:
                 block.to(self.offload_device)
+                total_offload_memory += block_memory
+                
+            #print(f"Block {b}: {block_memory:.2f}MB on {block.parameters().__next__().device}")
+        log.info("----------------------")
+        log.info(f"Block swap memory summary:")
+        log.info(f"Transformer blocks on {self.offload_device}: {total_offload_memory:.2f}MB")
+        log.info(f"Transformer blocks on {self.main_device}: {total_main_memory:.2f}MB")
+        log.info(f"Total Memory: {(total_offload_memory + total_main_memory):.2f}MB")
+        log.info("----------------------")
 
     def forward(
         self,

@@ -22,3 +22,10 @@ def print_memory(device):
     log.info(f"Max reserved memory: {max_reserved=:.3f} GB")
     #memory_summary = torch.cuda.memory_summary(device=device, abbreviated=False)
     #log.info(f"Memory Summary:\n{memory_summary}")
+
+def get_module_memory_mb(module):
+    memory = 0
+    for param in module.parameters():
+        if param.data is not None:
+            memory += param.nelement() * param.element_size()
+    return memory / (1024 * 1024)  # Convert to MB

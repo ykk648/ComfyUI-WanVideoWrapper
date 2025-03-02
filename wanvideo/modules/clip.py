@@ -9,8 +9,6 @@ import torch.nn.functional as F
 import torchvision.transforms as T
 
 from .attention import attention
-from .tokenizers import HuggingfaceTokenizer
-from .xlm_roberta import XLMRoberta
 
 __all__ = [
     'XLMRobertaCLIP',
@@ -155,60 +153,6 @@ class AttentionBlock(nn.Module):
             x = x + self.mlp(self.norm2(x))
         return x
 
-
-class AttentionPool(nn.Module):
-
-    def __init__(self,
-                 dim,
-                 mlp_ratio,
-                 num_heads,
-                 activation='gelu',
-                 proj_dropout=0.0,
-                 norm_eps=1e-5):
-        assert dim % num_heads == 0
-        super().__init__()
-        self.dim = dim
-        self.mlp_ratio = mlp_ratio
-        self.num_heads = num_heads
-        self.head_dim = dim // num_heads
-        self.proj_dropout = proj_dropout
-        self.norm_eps = norm_eps
-
-        # layers
-        gain = 1.0 / math.sqrt(dim)
-        self.cls_embedding = nn.Parameter(gain * torch.randn(1, 1, dim))
-        self.to_q = nn.Linear(dim, dim)
-        self.to_kv = nn.Linear(dim, dim * 2)
-        self.proj = nn.Linear(dim, dim)
-        self.norm = LayerNorm(dim, eps=norm_eps)
-        self.mlp = nn.Sequential(
-            nn.Linear(dim, int(dim * mlp_ratio)),
-            QuickGELU() if activation == 'quick_gelu' else nn.GELU(),
-            nn.Linear(int(dim * mlp_ratio), dim), nn.Dropout(proj_dropout))
-
-    def forward(self, x):
-        """
-        x:  [B, L, C].
-        """
-        b, s, c, n, d = *x.size(), self.num_heads, self.head_dim
-
-        # compute query, key, value
-        q = self.to_q(self.cls_embedding).view(1, 1, n, d).expand(b, -1, -1, -1)
-        k, v = self.to_kv(x).view(b, s, 2, n, d).unbind(2)
-
-        # compute attention
-        x = flash_attention(q, k, v, version=2)
-        x = x.reshape(b, 1, c)
-
-        # output
-        x = self.proj(x)
-        x = F.dropout(x, self.proj_dropout, self.training)
-
-        # mlp
-        x = x + self.mlp(self.norm(x))
-        return x[:, 0]
-
-
 class VisionTransformer(nn.Module):
 
     def __init__(self,
@@ -275,9 +219,6 @@ class VisionTransformer(nn.Module):
             self.head = nn.Parameter(gain * torch.randn(dim, out_dim))
         elif pool_type == 'token_fc':
             self.head = nn.Linear(dim, out_dim)
-        elif pool_type == 'attn_pool':
-            self.head = AttentionPool(dim, mlp_ratio, num_heads, activation,
-                                      proj_dropout, norm_eps)
 
     def forward(self, x, interpolation=False, use_31_block=False):
         b = x.size(0)
@@ -301,31 +242,6 @@ class VisionTransformer(nn.Module):
         else:
             x = self.transformer(x)
             return x
-
-
-class XLMRobertaWithHead(XLMRoberta):
-
-    def __init__(self, **kwargs):
-        self.out_dim = kwargs.pop('out_dim')
-        super().__init__(**kwargs)
-
-        # head
-        mid_dim = (self.dim + self.out_dim) // 2
-        self.head = nn.Sequential(
-            nn.Linear(self.dim, mid_dim, bias=False), nn.GELU(),
-            nn.Linear(mid_dim, self.out_dim, bias=False))
-
-    def forward(self, ids):
-        # xlm-roberta
-        x = super().forward(ids)
-
-        # average pooling
-        mask = ids.ne(self.pad_id).unsqueeze(-1).to(x)
-        x = (x * mask).sum(dim=1) / mask.sum(dim=1)
-
-        # head
-        x = self.head(x)
-        return x
 
 
 class XLMRobertaCLIP(nn.Module):
