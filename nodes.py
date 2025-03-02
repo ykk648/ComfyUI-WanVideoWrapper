@@ -302,7 +302,7 @@ class WanVideoModelLoader:
             if hasattr(torch.backends.cuda.matmul, "allow_fp16_accumulation"):
                 torch.backends.cuda.matmul.allow_fp16_accumulation = True
             else:
-                log.warning("torch.backends.cuda.matmul.allow_fp16_accumulation is not available in this version of torch, requires torch 2.7.0 nightly currently")
+                raise ValueError("torch.backends.cuda.matmul.allow_fp16_accumulation is not available in this version of torch, requires torch 2.7.0.dev2025 02 26 nightly minimum currently")
         else:
             if hasattr(torch.backends.cuda.matmul, "allow_fp16_accumulation"):
                 torch.backends.cuda.matmul.allow_fp16_accumulation = False
