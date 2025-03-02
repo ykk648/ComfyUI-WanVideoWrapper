@@ -756,10 +756,10 @@ class WanVideoTextEmbedBridge:
     DESCRIPTION = "Bridge between ComfyUI native text embedding and WanVideoWrapper text embedding"
 
     def process(self, positive, negative):
-
+        device=mm.get_torch_device()
         prompt_embeds_dict = {
-                "prompt_embeds": positive[0][0],
-                "negative_prompt_embeds": negative[0][0],
+                "prompt_embeds": positive[0][0].to(device),
+                "negative_prompt_embeds": negative[0][0].to(device),
             }
         return (prompt_embeds_dict,)
     
@@ -1140,9 +1140,9 @@ class WanVideoSampler:
             })
 
         arg_c = base_args.copy()
-        arg_c.update({'context': [text_embeds["prompt_embeds"][0].to(device)]})
+        arg_c.update({'context': [text_embeds["prompt_embeds"][0]]})
         arg_null = base_args.copy()
-        arg_null.update({'context': text_embeds["negative_prompt_embeds"].to(device)})
+        arg_null.update({'context': text_embeds["negative_prompt_embeds"]})
         
         pbar = ProgressBar(steps)
 
