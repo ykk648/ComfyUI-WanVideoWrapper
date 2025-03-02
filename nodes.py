@@ -739,6 +739,34 @@ class WanVideoTextEncode:
             }
         return (prompt_embeds_dict,)
     
+class WanVideoTextEmbedBridge:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "positive": ("CONDITIONING",),
+            "negative": ("CONDITIONING",),
+            },
+        }
+
+    RETURN_TYPES = ("WANVIDEOTEXTEMBEDS", )
+    RETURN_NAMES = ("text_embeds",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Bridge between ComfyUI native text embedding and WanVideoWrapper text embedding"
+
+    def process(self, positive, negative):
+
+        device = mm.get_torch_device()
+        offload_device = mm.unet_offload_device()
+        print(type(positive[0][0]))
+        print(positive[0][0].shape)
+
+        prompt_embeds_dict = {
+                "prompt_embeds": positive[0][0],
+                "negative_prompt_embeds": negative[0][0],
+            }
+        return (prompt_embeds_dict,)
+    
 #region clip image encode
 class WanVideoImageClipEncode:
     @classmethod
@@ -1113,9 +1141,9 @@ class WanVideoSampler:
             })
 
         arg_c = base_args.copy()
-        arg_c.update({'context': [text_embeds["prompt_embeds"][0]]})
+        arg_c.update({'context': [text_embeds["prompt_embeds"][0].to(device)]})
         arg_null = base_args.copy()
-        arg_null.update({'context': text_embeds["negative_prompt_embeds"]})
+        arg_null.update({'context': text_embeds["negative_prompt_embeds"].to(device)})
         
         pbar = ProgressBar(steps)
 
@@ -1519,7 +1547,8 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoEnhanceAVideo": WanVideoEnhanceAVideo,
     "WanVideoContextOptions": WanVideoContextOptions,
     "WanVideoTeaCache": WanVideoTeaCache,
-    "WanVideoVRAMManagement": WanVideoVRAMManagement
+    "WanVideoVRAMManagement": WanVideoVRAMManagement,
+    "WanVideoTextEmbedBridge": WanVideoTextEmbedBridge,
 
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1542,5 +1571,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoEnhanceAVideo": "WanVideo Enhance-A-Video",
     "WanVideoContextOptions": "WanVideo Context Options",
     "WanVideoTeaCache": "WanVideo TeaCache",
-    "WanVideoVRAMManagement": "WanVideo VRAM Management"
+    "WanVideoVRAMManagement": "WanVideo VRAM Management",
+    "WanVideoTextEmbedBridge": "WanVideo TextEmbed Bridge",
     }
