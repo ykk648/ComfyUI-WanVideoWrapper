@@ -609,12 +609,13 @@ class WanModel(ModelMixin, ConfigMixin):
         """        
         if self.model_type == 'i2v':
             assert clip_fea is not None and y is not None
-        
+        # params
+        #device = self.patch_embedding.weight.device
         if freqs.device != device:
             freqs = freqs.to(device)
-
-        if y is not None:
-            x = torch.cat([x, y], dim=0)
+            
+        if y:
+            x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
 
         # embeddings
         x = [self.patch_embedding(u.unsqueeze(0)) for u in x]
