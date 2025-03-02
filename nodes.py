@@ -695,6 +695,7 @@ class LoadWanVideoClipTextEncoder:
         del sd
         
         return (clip_model,)
+    
 
 class WanVideoTextEncode:
     @classmethod
@@ -713,6 +714,7 @@ class WanVideoTextEncode:
     RETURN_NAMES = ("text_embeds",)
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Encodes text prompts into text embeddings. For context windowing you can input multiple prompts separated by '|'"
 
     def process(self, t5, positive_prompt, negative_prompt,force_offload=True):
 
@@ -721,11 +723,16 @@ class WanVideoTextEncode:
         encoder = t5["model"]
         dtype = t5["dtype"]
 
+        # Split positive prompts and process each
+        positive_prompts = [p.strip() for p in positive_prompt.split('|')]
+
         encoder.model.to(device)
        
         with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=True):
-            context = encoder([positive_prompt], device)
+            context = encoder(positive_prompts, device)
             context_null = encoder([negative_prompt], device)
+
+
         context = [t.to(device) for t in context]
         context_null = [t.to(device) for t in context_null]
 
@@ -1086,11 +1093,18 @@ class WanVideoSampler:
             context_stride = context_options["context_stride"] // 4
             context_overlap = context_options["context_overlap"] // 4
 
+            # Get total number of prompts
+            num_prompts = len(text_embeds["prompt_embeds"])
+            log.info(f"Number of prompts: {num_prompts}")
+            # Calculate which section this context window belongs to
+            section_size = latent_video_length / num_prompts
+            log.info(f"Section size: {section_size}")
+
             seq_len = math.ceil((noise.shape[2] * noise.shape[3]) / 4 * context_frames)
 
             if context_options["freenoise"]:
                 log.info("Applying FreeNoise")
-                # code and comments from AnimateDiff-Evolved by Kosinkadink (https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved)
+                # code from AnimateDiff-Evolved by Kosinkadink (https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved)
                 delta = context_frames - context_overlap
                 for start_idx in range(0, latent_video_length-context_frames, delta):
                     place_idx = start_idx + context_frames
@@ -1128,21 +1142,16 @@ class WanVideoSampler:
 
         print("Seq len:", seq_len)
 
-        base_args = {
+        args = {
             'clip_fea': image_embeds.get('clip_context', None),
             'seq_len': seq_len,
             'device': device,
             'freqs': freqs,
         }
         if transformer.model_type == "i2v":
-            base_args.update({
+            args.update({
                  'y': [image_embeds["image_embeds"].to(device)],
             })
-
-        arg_c = base_args.copy()
-        arg_c.update({'context': [text_embeds["prompt_embeds"][0]]})
-        arg_null = base_args.copy()
-        arg_null.update({'context': text_embeds["negative_prompt_embeds"]})
         
         pbar = ProgressBar(steps)
 
@@ -1228,6 +1237,8 @@ class WanVideoSampler:
 
         intermediate_device = device
 
+       
+
         with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
             for i, t in enumerate(tqdm(timesteps)):
                 latent_model_input = [latent.to(device)]
@@ -1251,6 +1262,13 @@ class WanVideoSampler:
                         ))
                     
                     for c in context_queue:
+                        print(c)
+                        prompt_index = min(int(max(c) / section_size), num_prompts - 1)
+                        log.info(f"Prompt index: {prompt_index}")
+                        
+                        # Use the appropriate prompt for this section
+                        positive_prompt = text_embeds["prompt_embeds"][prompt_index]
+
                         partial_latent_model_input = [latent_model_input[0][:, c, :, :]]
                         # Model inference - returns [frames, channels, height, width]
                         noise_pred_cond = transformer(
@@ -1258,7 +1276,8 @@ class WanVideoSampler:
                             t=timestep, 
                             current_step=i,
                             is_uncond=False,
-                            **arg_c
+                            context = [positive_prompt],
+                            **args
                         )[0].to(intermediate_device)
                         if cfg[i] != 1.0:
                             noise_pred_uncond = transformer(
@@ -1266,7 +1285,8 @@ class WanVideoSampler:
                                 t=timestep, 
                                 current_step=i,
                                 is_uncond=True,
-                                **arg_null
+                                context = text_embeds["negative_prompt_embeds"],
+                                **args
                             )[0].to(intermediate_device)
                         
                             noise_pred_context = noise_pred_uncond + cfg[i] * (
@@ -1298,7 +1318,8 @@ class WanVideoSampler:
                         t=timestep, 
                         current_step=i,
                         is_uncond=False,
-                        **arg_c
+                        context = [text_embeds["prompt_embeds"][0]],
+                        **args
                     )[0].to(intermediate_device)
                     if cfg[i] != 1.0:
                         noise_pred_uncond = transformer(
@@ -1306,7 +1327,8 @@ class WanVideoSampler:
                             t=timestep, 
                             current_step=i,
                             is_uncond=True,
-                            **arg_null
+                            context = text_embeds["negative_prompt_embeds"],
+                            **args
                         )[0].to(intermediate_device)
                     
                         noise_pred = noise_pred_uncond + cfg[i] * (
@@ -1549,7 +1571,6 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoTeaCache": WanVideoTeaCache,
     "WanVideoVRAMManagement": WanVideoVRAMManagement,
     "WanVideoTextEmbedBridge": WanVideoTextEmbedBridge,
-
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
