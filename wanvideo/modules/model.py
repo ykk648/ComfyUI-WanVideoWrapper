@@ -566,7 +566,7 @@ class WanModel(ModelMixin, ConfigMixin):
         log.info(f"Block swap memory summary:")
         log.info(f"Transformer blocks on {self.offload_device}: {total_offload_memory:.2f}MB")
         log.info(f"Transformer blocks on {self.main_device}: {total_main_memory:.2f}MB")
-        log.info(f"Total Memory: {(total_offload_memory + total_main_memory):.2f}MB")
+        log.info(f"Total memory used by transformer blocks: {(total_offload_memory + total_main_memory):.2f}MB")
         log.info("----------------------")
 
     def forward(
