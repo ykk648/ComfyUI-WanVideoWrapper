@@ -1017,6 +1017,9 @@ class WanVideoSampler:
 
             seq_len = math.ceil((noise.shape[2] * noise.shape[3]) / 4 * context_frames)
 
+            if feta_args is not None:
+                set_num_frames(context_frames)
+
             if context_options["freenoise"]:
                 log.info("Applying FreeNoise")
                 # code and comments from AnimateDiff-Evolved by Kosinkadink (https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved)
