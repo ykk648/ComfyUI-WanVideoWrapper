@@ -82,6 +82,7 @@ class WanVideoTeaCache:
                 "rel_l1_thresh": ("FLOAT", {"default": 0.04, "min": 0.0, "max": 1.0, "step": 0.001,
                                             "tooltip": "Higher values will make TeaCache more aggressive, faster, but may cause artifacts"}),
                 "start_step": ("INT", {"default": 6, "min": 0, "max": 9999, "step": 1, "tooltip": "Start percentage of the steps to apply TeaCache"}),
+                "cache_device": (["main_device", "offload_device"], {"default": "offload_device", "tooltip": "Device to cache to"}),
             },
         }
     RETURN_TYPES = ("TEACACHEARGS",)
@@ -91,10 +92,15 @@ class WanVideoTeaCache:
     DESCRIPTION = "WORK IN PROGRESS! Naive approach, currently does NOT use calculated coefficiencies. Speeds up inference by skipping steps based on input/output difference"
     EXPERIMENTAL = True
 
-    def process(self, rel_l1_thresh, start_step):
+    def process(self, rel_l1_thresh, start_step, cache_device):
+        if cache_device == "main_device":
+            teacache_device = mm.get_torch_device()
+        else:
+            teacache_device = mm.unet_offload_device()
         teacache_args = {
             "rel_l1_thresh": rel_l1_thresh,
             "start_step": start_step,
+            "cache_device": teacache_device
         }
         return (teacache_args,)
 
@@ -1114,6 +1120,7 @@ class WanVideoSampler:
             transformer.enable_teacache = True
             transformer.rel_l1_thresh = teacache_args["rel_l1_thresh"]
             transformer.teacache_start_step = teacache_args["start_step"]
+            transformer.teacache_cache_device = teacache_args["cache_device"]
         else:
             transformer.enable_teacache = False
 

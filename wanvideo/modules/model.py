@@ -504,6 +504,7 @@ class WanModel(ModelMixin, ConfigMixin):
         self.teacache_counter = 0
         self.rel_l1_thresh = 0.15
         self.teacache_start_step= 2
+        self.teacache_cache_device = main_device
         # self.l1_history_x = []
         # self.l1_history_temb = []
         # self.l1_history_rescaled = []
@@ -672,13 +673,13 @@ class WanModel(ModelMixin, ConfigMixin):
             if is_uncond:
                 self.previous_modulated_input_uncond = e0.clone()
                 if not should_calc:
-                    x += self.previous_residual_uncond
+                    x += self.previous_residual_uncond.to(x.device)
                     #log.info(f"TeaCache: Skipping uncond step {current_step+1}")
                     self.teacache_skipped_cond_steps += 1
             else:
                 self.previous_modulated_input_cond = e0.clone()
                 if not should_calc:
-                    x += self.previous_residual_cond
+                    x += self.previous_residual_cond.to(x.device)
                     #log.info(f"TeaCache: Skipping cond step {current_step+1}")
                     self.teacache_skipped_uncond_steps += 1
 
@@ -703,9 +704,9 @@ class WanModel(ModelMixin, ConfigMixin):
 
             if self.enable_teacache:
                 if is_uncond:
-                    self.previous_residual_uncond = x - ori_hidden_states
+                    self.previous_residual_uncond = (x - ori_hidden_states).to(self.teacache_cache_device)
                 else:
-                    self.previous_residual_cond = x - ori_hidden_states
+                    self.previous_residual_cond = (x - ori_hidden_states).to(self.teacache_cache_device)
 
                 # if current_step > 0:
                 #   import matplotlib.pyplot as plt
