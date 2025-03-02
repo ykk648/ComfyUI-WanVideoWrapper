@@ -410,10 +410,10 @@ class WanVideoModelLoader:
                 total_params_in_model = sum(p.numel() for p in patcher.model.diffusion_model.parameters())
                 log.info(f"Total number of parameters in the loaded model: {total_params_in_model}")
 
-                keep_percentage = vram_management_args["offload_percent"]
-                params_to_keep = int(total_params_in_model * keep_percentage)
-                params_to_offload = total_params_in_model - params_to_keep
-                log.info(f"Selected params to offload: {params_to_offload}")
+                offload_percent = vram_management_args["offload_percent"]
+                offload_params = int(total_params_in_model * offload_percent)
+                params_to_keep = total_params_in_model - offload_params
+                log.info(f"Selected params to offload: {offload_params}")
             
                 enable_vram_management(
                     patcher.model.diffusion_model,
@@ -432,7 +432,7 @@ class WanVideoModelLoader:
                         computation_dtype=base_dtype,
                         computation_device=device,
                     ),
-                    max_num_param=params_to_offload,
+                    max_num_param=params_to_keep,
                     overflow_module_config = dict(
                         offload_dtype=dtype,
                         offload_device=offload_device,
@@ -515,7 +515,7 @@ class WanVideoModelLoader:
         patcher.model["manual_offloading"] = manual_offloading
         patcher.model["quantization"] = "disabled"
         patcher.model["block_swap_args"] = block_swap_args
-        patcher.model["auto_cpu_offload"] = auto_cpu_offload
+        patcher.model["auto_cpu_offload"] = True if vram_management_args is not None else False
 
         for model in mm.current_loaded_models:
             if model._model() == patcher:
