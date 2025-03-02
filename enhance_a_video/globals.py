@@ -8,6 +8,7 @@ ENABLE_FETA= False
 def set_num_frames(num_frames: int):
     global NUM_FRAMES
     NUM_FRAMES = num_frames
+    print(f"NUM_FRAMES: {NUM_FRAMES}")
 
 @torch.compiler.disable()
 def get_num_frames() -> int:

@@ -863,9 +863,9 @@ class WanVideoContextOptions:
     def INPUT_TYPES(s):
         return {"required": {
             "context_schedule": (["uniform_standard", "uniform_looped", "static_standard"],),
-            "context_frames": ("INT", {"default": 65, "min": 2, "max": 1000, "step": 1, "tooltip": "Number of pixel frames in the context, NOTE: the latent space has 4 frames in 1"} ),
+            "context_frames": ("INT", {"default": 81, "min": 2, "max": 1000, "step": 1, "tooltip": "Number of pixel frames in the context, NOTE: the latent space has 4 frames in 1"} ),
             "context_stride": ("INT", {"default": 4, "min": 4, "max": 100, "step": 1, "tooltip": "Context stride as pixel frames, NOTE: the latent space has 4 frames in 1"} ),
-            "context_overlap": ("INT", {"default": 4, "min": 4, "max": 100, "step": 1, "tooltip": "Context overlap as pixel frames, NOTE: the latent space has 4 frames in 1"} ),
+            "context_overlap": ("INT", {"default": 16, "min": 4, "max": 100, "step": 1, "tooltip": "Context overlap as pixel frames, NOTE: the latent space has 4 frames in 1"} ),
             "freenoise": ("BOOLEAN", {"default": True, "tooltip": "Shuffle the noise"}),
             }
         }
@@ -1017,9 +1017,6 @@ class WanVideoSampler:
 
             seq_len = math.ceil((noise.shape[2] * noise.shape[3]) / 4 * context_frames)
 
-            if feta_args is not None:
-                set_num_frames(context_frames)
-
             if context_options["freenoise"]:
                 log.info("Applying FreeNoise")
                 # code and comments from AnimateDiff-Evolved by Kosinkadink (https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved)
@@ -1104,7 +1101,10 @@ class WanVideoSampler:
             set_enhance_weight(feta_args["weight"])
             feta_start_percent = feta_args["start_percent"]
             feta_end_percent = feta_args["end_percent"]
-            set_num_frames(latent_video_length)
+            if context_options is not None:
+                set_num_frames(context_frames)
+            else:
+                set_num_frames(latent_video_length)
             enable_enhance()
         else:
             disable_enhance()
