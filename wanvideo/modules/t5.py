@@ -504,14 +504,8 @@ class T5EncoderModel:
         for name, param in model.named_parameters():
             dtype_to_use = dtype if any(keyword in name for keyword in params_to_keep) else cast_dtype
             set_module_tensor_to_device(model, name, device=device, dtype=dtype_to_use, value=state_dict[name])
-
-        #model.load_state_dict(state_dict)
+        del state_dict
         self.model = model
-        # if shard_fn is not None:
-        #     self.model = shard_fn(self.model, sync_module_states=False)
-        # else:
-        #     self.model.to(self.device)
-        # init tokenizer
         self.tokenizer = HuggingfaceTokenizer(
             name=tokenizer_path, seq_len=text_len, clean='whitespace')
 

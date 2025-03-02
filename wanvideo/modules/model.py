@@ -14,7 +14,8 @@ import numpy as np
 __all__ = ['WanModel']
 
 from tqdm import tqdm
-
+import gc
+import comfy.model_management as mm
 from ...utils import log, get_module_memory_mb
 
 def poly1d(coefficients, x):
@@ -340,7 +341,7 @@ class WanAttentionBlock(nn.Module):
             freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
         """
         assert e.dtype == torch.float32
-        e = (self.modulation.to(torch.float32) + e.to(torch.float32)).chunk(6, dim=1)
+        e = (self.modulation.to(torch.float32).to(e.device) + e.to(torch.float32)).chunk(6, dim=1)
         assert e[0].dtype == torch.float32
 
         # self-attention
@@ -385,7 +386,7 @@ class Head(nn.Module):
         """
         assert e.dtype == torch.float32
         e_unsqueezed = e.unsqueeze(1).to(torch.float32)
-        e = (self.modulation.to(torch.float32) + e_unsqueezed).chunk(2, dim=1)
+        e = (self.modulation.to(torch.float32).to(e.device) + e_unsqueezed).chunk(2, dim=1)
         normed = self.norm(x).to(torch.float32)
         x = self.head(normed * (1 + e[1].to(torch.float32)) + e[0].to(torch.float32))
         return x
@@ -560,6 +561,9 @@ class WanModel(ModelMixin, ConfigMixin):
             else:
                 block.to(self.offload_device)
                 total_offload_memory += block_memory
+
+        mm.soft_empty_cache()
+        gc.collect()
                 
             #print(f"Block {b}: {block_memory:.2f}MB on {block.parameters().__next__().device}")
         log.info("----------------------")

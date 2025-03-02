@@ -52,27 +52,23 @@ class WanVideoBlockSwap:
 
     def setargs(self, **kwargs):
         return (kwargs, )
-    
-# class WanVideoEnhanceAVideo:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {
-#             "required": {
-#                 "weight": ("FLOAT", {"default": 2.0, "min": 0, "max": 100, "step": 0.01, "tooltip": "The feta Weight of the Enhance-A-Video"}),
-#                 "blocks": ("BOOLEAN", {"default": True, "tooltip": "Enable Enhance-A-Video for selected blocks"}),
-#                 "start_percent": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Start percentage of the steps to apply Enhance-A-Video"}),
-#                 "end_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "End percentage of the steps to apply Enhance-A-Video"}),
-#             },
-#         }
-#     RETURN_TYPES = ("FETAARGS",)
-#     RETURN_NAMES = ("feta_args",)
-#     FUNCTION = "setargs"
-#     CATEGORY = "WanVideoWrapper"
-#     DESCRIPTION = "https://github.com/NUS-HPC-AI-Lab/Enhance-A-Video"
 
-#     def setargs(self, **kwargs):
-#         return (kwargs, )
+class WanVideoVRAMManagement:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "offload_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Percentage of parameters to offload"}),
+            },
+        }
+    RETURN_TYPES = ("VRAM_MANAGEMENTARGS",)
+    RETURN_NAMES = ("vram_management_args",)
+    FUNCTION = "setargs"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Alternative offloading method from DiffSynth-Studio, more aggressive in reducing memory use than block swapping, but can be slower"
 
+    def setargs(self, **kwargs):
+        return (kwargs, )
 
 class WanVideoTeaCache:
     @classmethod
@@ -272,7 +268,7 @@ class WanVideoModelLoader:
                 "compile_args": ("WANCOMPILEARGS", ),
                 "block_swap_args": ("BLOCKSWAPARGS", ),
                 "lora": ("WANVIDLORA", {"default": None}),
-
+                "vram_management_args": ("VRAM_MANAGEMENTARGS", {"default": None, "tooltip": "Alternative offloading method from DiffSynth-Studio, more aggressive in reducing memory use than block swapping, but can be slower"}),
             }
         }
 
@@ -282,7 +278,8 @@ class WanVideoModelLoader:
     CATEGORY = "WanVideoWrapper"
 
     def loadmodel(self, model, base_precision, load_device,  quantization,
-                  compile_args=None, attention_mode="sdpa", block_swap_args=None, lora=None):
+                  compile_args=None, attention_mode="sdpa", block_swap_args=None, lora=None, auto_cpu_offload=False, vram_management_args=None):
+        assert not (vram_management_args is not None and block_swap_args is not None), "Can't use both block_swap_args and vram_management_args at the same time"        
         transformer = None
         mm.unload_all_models()
         mm.soft_empty_cache()
@@ -406,6 +403,46 @@ class WanVideoModelLoader:
                 print(params_to_keep)
                 convert_fp8_linear(patcher.model.diffusion_model, base_dtype, params_to_keep=params_to_keep)
 
+            if vram_management_args is not None:
+                from .diffsynth.vram_management import enable_vram_management, AutoWrappedModule, AutoWrappedLinear
+                from .wanvideo.modules.model import WanLayerNorm, WanRMSNorm
+
+                total_params_in_model = sum(p.numel() for p in patcher.model.diffusion_model.parameters())
+                log.info(f"Total number of parameters in the loaded model: {total_params_in_model}")
+
+                keep_percentage = vram_management_args["offload_percent"]
+                params_to_keep = int(total_params_in_model * keep_percentage)
+                params_to_offload = total_params_in_model - params_to_keep
+                log.info(f"Selected params to offload: {params_to_offload}")
+            
+                enable_vram_management(
+                    patcher.model.diffusion_model,
+                    module_map = {
+                        torch.nn.Linear: AutoWrappedLinear,
+                        torch.nn.Conv3d: AutoWrappedModule,
+                        torch.nn.LayerNorm: AutoWrappedModule,
+                        WanLayerNorm: AutoWrappedModule,
+                        WanRMSNorm: AutoWrappedModule,
+                    },
+                    module_config = dict(
+                        offload_dtype=dtype,
+                        offload_device=offload_device,
+                        onload_dtype=dtype,
+                        onload_device=device,
+                        computation_dtype=base_dtype,
+                        computation_device=device,
+                    ),
+                    max_num_param=params_to_offload,
+                    overflow_module_config = dict(
+                        offload_dtype=dtype,
+                        offload_device=offload_device,
+                        onload_dtype=dtype,
+                        onload_device=offload_device,
+                        computation_dtype=base_dtype,
+                        computation_device=device,
+                    ),
+                )
+
             #compile
             if compile_args is not None:
                 torch._dynamo.config.cache_size_limit = compile_args["dynamo_cache_size_limit"]
@@ -478,6 +515,7 @@ class WanVideoModelLoader:
         patcher.model["manual_offloading"] = manual_offloading
         patcher.model["quantization"] = "disabled"
         patcher.model["block_swap_args"] = block_swap_args
+        patcher.model["auto_cpu_offload"] = auto_cpu_offload
 
         for model in mm.current_loaded_models:
             if model._model() == patcher:
@@ -1099,9 +1137,14 @@ class WanVideoSampler:
                 model["block_swap_args"]["offload_txt_emb"],
                 model["block_swap_args"]["offload_img_emb"],
             )
-        else:
-            if model["manual_offloading"]:
-                transformer.to(device)
+        elif model["auto_cpu_offload"]:
+            for module in transformer.modules():
+                if hasattr(module, "offload"):
+                    module.offload()
+                if hasattr(module, "onload"):
+                    module.onload()
+        elif model["manual_offloading"]:
+            transformer.to(device)
         #feta
         if feta_args is not None:
             set_enhance_weight(feta_args["weight"])
@@ -1475,7 +1518,8 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoLoraBlockEdit": WanVideoLoraBlockEdit,
     "WanVideoEnhanceAVideo": WanVideoEnhanceAVideo,
     "WanVideoContextOptions": WanVideoContextOptions,
-    "WanVideoTeaCache": WanVideoTeaCache
+    "WanVideoTeaCache": WanVideoTeaCache,
+    "WanVideoVRAMManagement": WanVideoVRAMManagement
 
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1497,5 +1541,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoLoraBlockEdit": "WanVideo Lora Block Edit",
     "WanVideoEnhanceAVideo": "WanVideo Enhance-A-Video",
     "WanVideoContextOptions": "WanVideo Context Options",
-    "WanVideoTeaCache": "WanVideo TeaCache"
+    "WanVideoTeaCache": "WanVideo TeaCache",
+    "WanVideoVRAMManagement": "WanVideo VRAM Management"
     }
