@@ -36,18 +36,18 @@ def sinusoidal_embedding_1d(dim, position):
     return x
 
 
-def rope_params(max_seq_len, dim, theta=10000, L_test=81, k=0):
+def rope_params(max_seq_len, dim, theta=10000, L_test=25, k=0):
     assert dim % 2 == 0
-    freqs = torch.outer(
-        torch.arange(max_seq_len),
-        1.0 / torch.pow(theta,
-                        torch.arange(0, dim, 2).to(torch.float64).div(dim)))
+    exponents = torch.arange(0, dim, 2, dtype=torch.float64).div(dim)
+    inv_theta_pow = 1.0 / torch.pow(theta, exponents)
+    
     if k > 0:
         print(f"RifleX: Using {k}th freq")
-        freqs[k-1] = 0.9 * 2 * torch.pi / L_test
+        inv_theta_pow[k-1] = 0.9 * 2 * torch.pi / L_test
+        
+    freqs = torch.outer(torch.arange(max_seq_len), inv_theta_pow)
     freqs = torch.polar(torch.ones_like(freqs), freqs)
     return freqs
-
 
 from comfy.model_management import get_torch_device, get_autocast_device
 @torch.autocast(device_type=get_autocast_device(get_torch_device()), enabled=False)
