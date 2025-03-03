@@ -1268,7 +1268,6 @@ class WanVideoSampler:
                         img_emb = image_embeds.get("image_embeds", None)
                         partial_img_emb = None
                         if img_emb is not None:
-                            print("img_emb shape", img_emb.shape)
                             partial_img_emb = img_emb[:, c, :, :]
                             partial_img_emb[:, 0, :, :] = img_emb[:, 0, :, :].to(intermediate_device)
 
@@ -1377,8 +1376,8 @@ class WanVideoSampler:
                 mm.soft_empty_cache()
                 gc.collect()
 
-        print_memory(device)
         try:
+            print_memory(device)
             torch.cuda.reset_peak_memory_stats(device)
         except:
             pass

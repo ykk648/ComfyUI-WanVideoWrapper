@@ -477,7 +477,7 @@ class T5EncoderModel:
         self,
         text_len,
         dtype=torch.bfloat16,
-        device=torch.cuda.current_device(),
+        device=torch.device('cuda'),
         state_dict=None,
         tokenizer_path=None,
         quantization="disabled",
