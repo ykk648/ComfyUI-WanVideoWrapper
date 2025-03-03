@@ -19,7 +19,19 @@ Transformer to `ComfyUI/models/diffusion_models`
 
 Vae to `ComfyUI/models/vae`
 
+You can also use the native ComfyUI text encoding and clip vision loader with the wrapper instead of the original models:
+
+![image](https://github.com/user-attachments/assets/6a2fd9a5-8163-4c93-b362-92ef34dbd3a4)
+
 ---
+
+Examples:
+---
+
+TeaCache (temporary WIP naive version, waiting on the official one) I2V:
+
+https://github.com/user-attachments/assets/504a9a50-3337-43d2-97b8-8e1661f29f46
+
 
 Context window test:
 
@@ -27,7 +39,7 @@ Context window test:
 
 https://github.com/user-attachments/assets/89b393af-cf1b-49ae-aa29-23e57f65911e
 
-
+---
 
 
 This very first test was 512x512x81
