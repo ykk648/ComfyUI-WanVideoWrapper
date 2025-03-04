@@ -279,7 +279,7 @@ class WanVideoModelLoader:
     CATEGORY = "WanVideoWrapper"
 
     def loadmodel(self, model, base_precision, load_device,  quantization,
-                  compile_args=None, attention_mode="sdpa", block_swap_args=None, lora=None, auto_cpu_offload=False, vram_management_args=None):
+                  compile_args=None, attention_mode="sdpa", block_swap_args=None, lora=None, vram_management_args=None):
         assert not (vram_management_args is not None and block_swap_args is not None), "Can't use both block_swap_args and vram_management_args at the same time"        
         transformer = None
         mm.unload_all_models()
@@ -982,7 +982,7 @@ class WanVideoSampler:
                     {
                         "default": 'unipc'
                     }),
-                "riflex_freq_index": ("INT", {"default": 0, "min": 0, "max": 1000, "step": 1, "tooltip": "Frequency index for RIFLEX, disabled when 0, default 4. Allows for new frames to be generated after without looping"}),
+                "riflex_freq_index": ("INT", {"default": 0, "min": 0, "max": 1000, "step": 1, "tooltip": "Frequency index for RIFLEX, disabled when 0, default 6. Allows for new frames to be generated after without looping"}),
 
 
             },
@@ -1233,8 +1233,6 @@ class WanVideoSampler:
         log.info(f"Sampling {(latent_video_length-1) * 4 + 1} frames at {latent.shape[3]*8}x{latent.shape[2]*8} with {steps} steps")
 
         intermediate_device = device
-
-       
 
         with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
             for i, t in enumerate(tqdm(timesteps)):
