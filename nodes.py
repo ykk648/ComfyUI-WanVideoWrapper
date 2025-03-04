@@ -1084,10 +1084,6 @@ class WanVideoSampler:
             
         latent_video_length = noise.shape[1]
 
-        if samples is not None:
-            latent_timestep = timesteps[:1].to(noise)
-            noise = noise * latent_timestep / 1000 + (1 - latent_timestep / 1000) * samples["samples"].squeeze(0).to(noise)
-
         if context_options is not None:
             context_schedule = context_options["context_schedule"]
             context_frames =  (context_options["context_frames"] - 1) // 4 + 1
@@ -1126,6 +1122,10 @@ class WanVideoSampler:
             log.info(f"Context schedule enabled: {context_frames} frames, {context_stride} stride, {context_overlap} overlap")
             from .context import get_context_scheduler
             context = get_context_scheduler(context_schedule)
+
+        if samples is not None:
+            latent_timestep = timesteps[:1].to(noise)
+            noise = noise * latent_timestep / 1000 + (1 - latent_timestep / 1000) * samples["samples"].squeeze(0).to(noise)
 
         latent = noise.to(device)
 
