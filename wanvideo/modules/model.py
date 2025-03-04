@@ -504,7 +504,8 @@ class WanModel(ModelMixin, ConfigMixin):
         self.enable_teacache = False
         self.teacache_counter = 0
         self.rel_l1_thresh = 0.15
-        self.teacache_start_step= 2
+        self.teacache_start_step= 0
+        self.teacache_end_step = -1
         self.teacache_cache_device = main_device
         # self.l1_history_x = []
         # self.l1_history_temb = []
@@ -658,7 +659,7 @@ class WanModel(ModelMixin, ConfigMixin):
                 self.img_emb.to(self.offload_device, non_blocking=True)
 
         should_calc = True
-        if self.enable_teacache and current_step >= self.teacache_start_step:
+        if self.enable_teacache and self.teacache_start_step <= current_step <= self.teacache_end_step:
             if current_step == self.teacache_start_step:
                 log.info("TeaCache: Initializing TeaCache variables")
                 should_calc = True
@@ -669,7 +670,7 @@ class WanModel(ModelMixin, ConfigMixin):
             else:
                 #coefficients = [7.33226126e+02, -4.01131952e+02, 6.75869174e+01, -3.14987800e+00, 9.61237896e-02] # Hunyuan
                 #coefficients = [-3.10658903e+01, 2.54732368e+01, -5.92380459e+00, 1.75769064e+00, -3.61568434e-03] #Cog2b
-                #coefficients = [-1.53880483e+03, 8.43202495e+02, -1.34363087e+02, 7.97131516e+00, -5.23162339e-02] #Cog5b                    
+                #coefficients = [-1.53880483e+03, 8.43202495e+02, -1.34363087e+02, 7.97131516e+00, -5.23162339e-02] #Cog5b                   
                 #self.accumulated_rel_l1_distance += poly1d(coefficients, ((e0-self.previous_modulated_input).abs().mean() / self.previous_modulated_input.abs().mean()))
                 
                 prev_input = self.previous_modulated_input_uncond if is_uncond else self.previous_modulated_input_cond
