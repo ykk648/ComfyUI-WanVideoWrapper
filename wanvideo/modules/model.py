@@ -619,11 +619,11 @@ class WanModel(ModelMixin, ConfigMixin):
         if freqs.device != device:
             freqs = freqs.to(device)
             
-        if y:
-            x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
+        if y is not None:
+            x = torch.cat([x, y], dim=0)
 
         # embeddings
-        x = [self.patch_embedding(u.unsqueeze(0)) for u in x]
+        x = [self.patch_embedding(x.unsqueeze(0))]
         grid_sizes = torch.stack(
             [torch.tensor(u.shape[2:], dtype=torch.long) for u in x])
         x = [u.flatten(2).transpose(1, 2) for u in x]
@@ -665,11 +665,11 @@ class WanModel(ModelMixin, ConfigMixin):
         should_calc = True
         accumulated_rel_l1_distance = torch.tensor(0.0, dtype=torch.float32, device=device)
         if self.enable_teacache and self.teacache_start_step <= current_step <= self.teacache_end_step:
-            if current_step == self.teacache_start_step:
-                should_calc = True
-                if pred_id is None:
-                    pred_id = self.teacache_state.new_prediction()
-                    log.info(f"TeaCache: Initializing TeaCache variables for {pred_id}")
+            if pred_id is None:
+                pred_id = self.teacache_state.new_prediction()
+                #log.info(current_step)
+                #log.info(f"TeaCache: Initializing TeaCache variables for model pred: {pred_id}")
+                should_calc = True                
             else:
                 previous_modulated_input = self.teacache_state.get(pred_id)['previous_modulated_input']
                 previous_modulated_input = previous_modulated_input.to(device)
@@ -786,7 +786,7 @@ class TeaCacheState:
             self.states[pred_id][key] = value
     
     def get(self, pred_id):
-        return self.states.get(pred_id)
+        return self.states.get(pred_id, {})
 
     def report(self):
         for pred_id in self.states:
