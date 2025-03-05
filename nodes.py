@@ -76,7 +76,7 @@ class WanVideoTeaCache:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "rel_l1_thresh": ("FLOAT", {"default": 0.1, "min": 0.0, "max": 1.0, "step": 0.001,
+                "rel_l1_thresh": ("FLOAT", {"default": 0.3, "min": 0.0, "max": 1.0, "step": 0.001,
                                             "tooltip": "Higher values will make TeaCache more aggressive, faster, but may cause artifacts"}),
                 "start_step": ("INT", {"default": 1, "min": 0, "max": 9999, "step": 1, "tooltip": "Start percentage of the steps to apply TeaCache"}),
                 "end_step": ("INT", {"default": -1, "min": -1, "max": 9999, "step": 1, "tooltip": "End steps to apply TeaCache"}),
