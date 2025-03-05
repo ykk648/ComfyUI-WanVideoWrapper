@@ -81,16 +81,17 @@ class WanVideoTeaCache:
                 "start_step": ("INT", {"default": 6, "min": 0, "max": 9999, "step": 1, "tooltip": "Start percentage of the steps to apply TeaCache"}),
                 "end_step": ("INT", {"default": -1, "min": -1, "max": 9999, "step": 1, "tooltip": "End steps to apply TeaCache"}),
                 "cache_device": (["main_device", "offload_device"], {"default": "offload_device", "tooltip": "Device to cache to"}),
+                "use_coefficients": ("BOOLEAN", {"default": True, "tooltip": "Use calculated coefficients for more accuracy"}),
             },
         }
     RETURN_TYPES = ("TEACACHEARGS",)
     RETURN_NAMES = ("teacache_args",)
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
-    DESCRIPTION = "WORK IN PROGRESS! Naive approach, currently does NOT use calculated coefficiencies. Speeds up inference by skipping steps based on input/output difference"
+    DESCRIPTION = "Speeds up inference by skipping steps"
     EXPERIMENTAL = True
 
-    def process(self, rel_l1_thresh, start_step, end_step, cache_device):
+    def process(self, rel_l1_thresh, start_step, end_step, cache_device, use_coefficients):
         if cache_device == "main_device":
             teacache_device = mm.get_torch_device()
         else:
@@ -99,7 +100,8 @@ class WanVideoTeaCache:
             "rel_l1_thresh": rel_l1_thresh,
             "start_step": start_step,
             "end_step": end_step,
-            "cache_device": teacache_device
+            "cache_device": teacache_device,
+            "use_coefficients": use_coefficients,
         }
         return (teacache_args,)
 
@@ -330,6 +332,18 @@ class WanVideoModelLoader:
 
         log.info(f"Model type: {model_type}, num_heads: {num_heads}, num_layers: {num_layers}")
 
+        teacache_coefficients_map = {
+            "1_3B": [2.39676752e+03, -1.31110545e+03, 2.01331979e+02, -8.29855975e+00, 1.37887774e-01],
+            "14B": [-5784.54975374, 5449.50911966, -1811.16591783, 256.27178429, -13.02252404],
+            "i2v_480": [-3.02331670e+02, 2.23948934e+02, -5.25463970e+01, 5.87348440e+00, -2.01973289e-01],
+            "i2v_720": [-114.36346466, 65.26524496, -18.82220707, 4.91518089, -0.23412683],
+        }
+        if model_type == "i2v":
+            model_variant = "i2v_480" if "480" in model else "i2v_720"
+        elif model_type == "t2v":
+            model_variant = "14B" if dim == 5120 else "1_3B"
+        log.info(f"Model variant detected: {model_variant}")
+        
         TRANSFORMER_CONFIG= {
             "dim": dim,
             "ffn_dim": ffn_dim,
@@ -344,6 +358,7 @@ class WanVideoModelLoader:
             "attention_mode": attention_mode,
             "main_device": device,
             "offload_device": offload_device,
+            "teacache_coefficients": teacache_coefficients_map[model_variant],
         }
 
         with init_empty_weights():
@@ -354,7 +369,7 @@ class WanVideoModelLoader:
             WanVideoModelConfig(base_dtype),
             model_type=comfy.model_base.ModelType.FLOW,
             device=device,
-        )        
+        )
           
 
         if not "torchao" in quantization:
@@ -1031,7 +1046,7 @@ class WanVideoSampler:
     def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
         force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, 
         teacache_args=None, flowedit_args=None):
-        assert not (context_options and teacache_args), "Context options cannot currently be used together with teacache."
+        #assert not (context_options and teacache_args), "Context options cannot currently be used together with teacache."
         patcher = model
         model = model.model
         transformer = model.diffusion_model
@@ -1233,12 +1248,18 @@ class WanVideoSampler:
             transformer.teacache_start_step = teacache_args["start_step"]
             transformer.teacache_cache_device = teacache_args["cache_device"]
             transformer.teacache_end_step = len(timesteps)-1 if teacache_args["end_step"] == -1 else teacache_args["end_step"]
+            transformer.teacache_use_coefficients = teacache_args["use_coefficients"]
         else:
             transformer.enable_teacache = False
 
         mm.unload_all_models()
         mm.soft_empty_cache()
         gc.collect()
+
+        self.teacache_state = [None, None]
+        self.teacache_state_source = [None, None]
+        self.teacache_states_context = []
+
 
         if "sparge" in transformer.attention_mode:
             from spas_sage_attn.autotune import (
@@ -1288,7 +1309,7 @@ class WanVideoSampler:
                 drift_timesteps = torch.cat([drift_timesteps, torch.tensor([0]).to(drift_timesteps.device)]).to(drift_timesteps.device)
                 timesteps[-drift_steps:] = drift_timesteps[-drift_steps:]
 
-        def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_embeds=None):
+        def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_embeds=None, teacache_state=None):
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
                 base_params = {
                     'clip_fea': image_embeds["clip_context"] if image_embeds and "clip_context" in image_embeds else None,
@@ -1301,26 +1322,30 @@ class WanVideoSampler:
                 }
                 
                 # Get conditional prediction
-                noise_pred_cond = transformer(
+                noise_pred_cond, teacache_state_cond = transformer(
                     [z],
                     is_uncond=False,
                     context=[positive_embeds],
+                    pred_id=teacache_state[0],
                     **base_params
-                )[0].to(intermediate_device)
+                )
+                noise_pred_cond = noise_pred_cond.to(intermediate_device)
                 
                 # If cfg_scale is 1.0, return conditional prediction directly
                 if cfg_scale == 1.0:
-                    return noise_pred_cond
+                    return noise_pred_cond, [teacache_state_cond]
                 
                 # Get unconditional prediction and apply cfg
-                noise_pred_uncond = transformer(
+                noise_pred_uncond, teacache_state_uncond = transformer(
                     [z],
                     is_uncond=True,
                     context=negative_embeds,
+                    pred_id=teacache_state[1],
                     **base_params
-                )[0].to(intermediate_device)
+                )
+                noise_pred_uncond= noise_pred_uncond.to(intermediate_device)
                 
-                return noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond)
+                return noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond), [teacache_state_cond, teacache_state_uncond]
         
         try:
             torch.cuda.reset_peak_memory_stats(device)
@@ -1364,8 +1389,10 @@ class WanVideoSampler:
                         counter = torch.zeros_like(zt_src, device=intermediate_device)
                         vt_src = torch.zeros_like(zt_src, device=intermediate_device)
                         context_queue = list(context(idx, steps, latent_video_length, context_frames, context_stride, context_overlap))
-                        for c in context_queue:
+                        for i, c in enumerate(context_queue):
                             print(c)
+                            if teacache_args is not None and i >= len(self.teacache_states_context):
+                                self.teacache_states_context.append(self.teacache_state)
                             prompt_index = min(int(max(c) / section_size), num_prompts - 1)
                             log.info(f"Prompt index: {prompt_index}")
                             positive = source_embeds["prompt_embeds"][prompt_index]
@@ -1374,14 +1401,19 @@ class WanVideoSampler:
                                 partial_img_emb = img_emb[:, c, :, :]
                                 partial_img_emb[:, 0, :, :] = img_emb[:, 0, :, :].to(intermediate_device)
                             partial_zt_src = zt_src[:, c, :, :]
-                            vt_src_context = predict_with_cfg(partial_zt_src, cfg[idx], positive, source_embeds["negative_prompt_embeds"],timestep, idx, partial_img_emb)
-                            print("vt_src", vt_src.shape)
+                            vt_src_context, self.teacache_states_context[i] = predict_with_cfg(partial_zt_src, cfg[idx], positive, source_embeds["negative_prompt_embeds"],timestep, idx, partial_img_emb, self.teacache_states_context[i])
                             window_mask = create_window_mask(vt_src_context, c, latent_video_length, context_overlap)
                             vt_src[:, c, :, :] += vt_src_context * window_mask
                             counter[:, c, :, :] += window_mask
                         vt_src /= counter
                     else:
-                        vt_src = predict_with_cfg(zt_src, cfg[idx], source_embeds["prompt_embeds"][0], source_embeds["negative_prompt_embeds"],timestep, idx, source_image_embeds)
+                        vt_src, self.teacache_state_source = predict_with_cfg(
+                            zt_src, cfg[idx], 
+                            source_embeds["prompt_embeds"][0], 
+                            source_embeds["negative_prompt_embeds"],
+                            timestep, idx, source_image_embeds,
+                            teacache_state=self.teacache_state_source,
+                            )
                 else:
                     if idx == len(timesteps) - drift_steps:
                         x_tgt = zt_tgt
@@ -1392,10 +1424,12 @@ class WanVideoSampler:
                     counter = torch.zeros_like(zt_tgt, device=intermediate_device)
                     vt_tgt = torch.zeros_like(zt_tgt, device=intermediate_device)
                     context_queue = list(context(idx, steps, latent_video_length, context_frames, context_stride, context_overlap))
-                    for c in context_queue:
-                        print(c)
+                    for i, c in enumerate(context_queue):
+                        print(i)
+                        if teacache_args is not None and i >= len(self.teacache_states_context):
+                            self.teacache_states_context.append(self.teacache_state)
                         prompt_index = min(int(max(c) / section_size), num_prompts - 1)
-                        log.info(f"Prompt index: {prompt_index}")
+                        #log.info(f"Prompt index: {prompt_index}")
                         positive = text_embeds["prompt_embeds"][prompt_index]
                         img_emb = image_embeds.get("image_embeds", None)
                         partial_img_emb = None
@@ -1403,13 +1437,19 @@ class WanVideoSampler:
                             partial_img_emb = img_emb[:, c, :, :]
                             partial_img_emb[:, 0, :, :] = img_emb[:, 0, :, :].to(intermediate_device)
                         partial_zt_tgt = zt_tgt[:, c, :, :]
-                        vt_tgt_context = predict_with_cfg(partial_zt_tgt, cfg[idx], positive, text_embeds["negative_prompt_embeds"],timestep, idx, partial_img_emb)
+                        vt_tgt_context, self.teacache_states_context[i] = predict_with_cfg(partial_zt_tgt, cfg[idx], positive, text_embeds["negative_prompt_embeds"],timestep, idx, partial_img_emb, self.teacache_states_context[i])
                         window_mask = create_window_mask(vt_tgt_context, c, latent_video_length, context_overlap)
                         vt_tgt[:, c, :, :] += vt_tgt_context * window_mask
                         counter[:, c, :, :] += window_mask
                     vt_tgt /= counter
                 else:
-                    vt_tgt = predict_with_cfg(zt_tgt, cfg[idx], text_embeds["prompt_embeds"][0], text_embeds["negative_prompt_embeds"], timestep, idx, image_embeds)
+                    vt_tgt, self.teacache_state = predict_with_cfg(
+                        zt_tgt, cfg[idx], 
+                        text_embeds["prompt_embeds"][0], 
+                        text_embeds["negative_prompt_embeds"], 
+                        timestep, idx, image_embeds,
+                        teacache_state=self.teacache_state,
+                        )
                 v_delta = vt_tgt - vt_src
                 x_tgt = x_tgt.to(torch.float32)
                 v_delta = v_delta.to(torch.float32)
@@ -1423,10 +1463,12 @@ class WanVideoSampler:
                         idx, steps, latent_video_length, context_frames, context_stride, context_overlap,
                     ))
                 
-                for c in context_queue:
-                    print(c)
+                for i, c in enumerate(context_queue):
+                    print(i)
+                    if teacache_args is not None and i >= len(self.teacache_states_context):
+                        self.teacache_states_context.append(self.teacache_state)
                     prompt_index = min(int(max(c) / section_size), num_prompts - 1)
-                    log.info(f"Prompt index: {prompt_index}")
+                    #log.info(f"Prompt index: {prompt_index}")
                     
                     # Use the appropriate prompt for this section
                     positive = text_embeds["prompt_embeds"][prompt_index]
@@ -1439,7 +1481,13 @@ class WanVideoSampler:
 
                     partial_latent_model_input = latent_model_input[:, c, :, :]
 
-                    noise_pred_context = predict_with_cfg(partial_latent_model_input, cfg[idx], positive, text_embeds["negative_prompt_embeds"], timestep, idx, partial_img_emb)
+                    noise_pred_context, self.teacache_states_context[i] = predict_with_cfg(
+                        partial_latent_model_input, 
+                        cfg[idx], positive, 
+                        text_embeds["negative_prompt_embeds"], 
+                        timestep, idx, partial_img_emb,
+                        self.teacache_states_context[i],
+                        )
 
                     window_mask = create_window_mask(noise_pred_context, c, latent_video_length, context_overlap)
                     # Apply masked prediction
@@ -1448,7 +1496,15 @@ class WanVideoSampler:
                 noise_pred /= counter
             #normal inference
             else:
-                noise_pred = predict_with_cfg(latent_model_input, cfg[idx], text_embeds["prompt_embeds"][0], text_embeds["negative_prompt_embeds"], timestep, idx, image_embeds)
+                noise_pred, self.teacache_state = predict_with_cfg(
+                    latent_model_input, 
+                    cfg[idx], 
+                    text_embeds["prompt_embeds"][0], 
+                    text_embeds["negative_prompt_embeds"], 
+                    timestep, idx, image_embeds,
+                    teacache_state=self.teacache_state,
+                )
+               # print(self.teacache_state)
             
             if flowedit_args is None:
                 latent = latent.to(intermediate_device)
@@ -1476,7 +1532,8 @@ class WanVideoSampler:
                     pbar.update(1)
                 
         if teacache_args is not None:
-            log.info(f"TeaCache skipped: {transformer.teacache_skipped_cond_steps} cond steps, {transformer.teacache_skipped_uncond_steps} uncond steps")
+            log.info(f"TeaCache skipped: {transformer.teacache_state.get(0)['skipped_steps']}")
+            transformer.teacache_state.clear_all()
 
         if transformer.attention_mode == "spargeattn_tune":
             saved_state_dict = extract_sparse_attention_state_dict(transformer)

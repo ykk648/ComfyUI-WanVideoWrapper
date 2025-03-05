@@ -436,7 +436,8 @@ class WanModel(ModelMixin, ConfigMixin):
                  eps=1e-6,
                  attention_mode='sdpa',
                  main_device=torch.device('cuda'),
-                 offload_device=torch.device('cpu')):
+                 offload_device=torch.device('cpu'),
+                 teacache_coefficients=[],):
         r"""
         Initialize the diffusion model backbone.
 
@@ -502,11 +503,13 @@ class WanModel(ModelMixin, ConfigMixin):
 
         #init TeaCache variables
         self.enable_teacache = False
-        self.teacache_counter = 0
         self.rel_l1_thresh = 0.15
         self.teacache_start_step= 0
         self.teacache_end_step = -1
         self.teacache_cache_device = main_device
+        self.teacache_state = TeaCacheState()
+        self.teacache_coefficients = teacache_coefficients
+        self.teacache_use_coefficients = False
         # self.l1_history_x = []
         # self.l1_history_temb = []
         # self.l1_history_rescaled = []
@@ -585,7 +588,8 @@ class WanModel(ModelMixin, ConfigMixin):
         device=torch.device('cuda'),
         freqs=None,
         current_step=0,
-        is_uncond=False
+        is_uncond=False,
+        pred_id=None
     ):
         r"""
         Forward pass through the diffusion model
@@ -659,53 +663,47 @@ class WanModel(ModelMixin, ConfigMixin):
                 self.img_emb.to(self.offload_device, non_blocking=True)
 
         should_calc = True
+        accumulated_rel_l1_distance = torch.tensor(0.0, dtype=torch.float32, device=device)
         if self.enable_teacache and self.teacache_start_step <= current_step <= self.teacache_end_step:
             if current_step == self.teacache_start_step:
-                log.info("TeaCache: Initializing TeaCache variables")
                 should_calc = True
-                self.accumulated_rel_l1_distance_cond = 0
-                self.accumulated_rel_l1_distance_uncond = 0
-                self.teacache_skipped_cond_steps = 0
-                self.teacache_skipped_uncond_steps = 0
+                if pred_id is None:
+                    pred_id = self.teacache_state.new_prediction()
+                    log.info(f"TeaCache: Initializing TeaCache variables for {pred_id}")
             else:
-                #coefficients = [7.33226126e+02, -4.01131952e+02, 6.75869174e+01, -3.14987800e+00, 9.61237896e-02] # Hunyuan
-                #coefficients = [-3.10658903e+01, 2.54732368e+01, -5.92380459e+00, 1.75769064e+00, -3.61568434e-03] #Cog2b
-                #coefficients = [-1.53880483e+03, 8.43202495e+02, -1.34363087e+02, 7.97131516e+00, -5.23162339e-02] #Cog5b                   
-                #self.accumulated_rel_l1_distance += poly1d(coefficients, ((e0-self.previous_modulated_input).abs().mean() / self.previous_modulated_input.abs().mean()))
-                
-                prev_input = self.previous_modulated_input_uncond if is_uncond else self.previous_modulated_input_cond
-                acc_distance_attr = 'accumulated_rel_l1_distance_uncond' if is_uncond else 'accumulated_rel_l1_distance_cond'
+                previous_modulated_input = self.teacache_state.get(pred_id)['previous_modulated_input']
+                previous_modulated_input = previous_modulated_input.to(device)
+                previous_residual = self.teacache_state.get(pred_id)['previous_residual']
+                accumulated_rel_l1_distance = self.teacache_state.get(pred_id)['accumulated_rel_l1_distance']
 
-                temb_relative_l1 = relative_l1_distance(prev_input, e0)
-                setattr(self, acc_distance_attr, getattr(self, acc_distance_attr) + temb_relative_l1)
+                if self.teacache_use_coefficients:
+                    rescale_func = np.poly1d(self.teacache_coefficients)
+                    accumulated_rel_l1_distance += rescale_func(((e-previous_modulated_input).abs().mean() / previous_modulated_input.abs().mean()).cpu().item())
+                else:
+                    temb_relative_l1 = relative_l1_distance(previous_modulated_input, e0)
+                    accumulated_rel_l1_distance = accumulated_rel_l1_distance.to(e0.device) + temb_relative_l1
 
-                if getattr(self, acc_distance_attr) < self.rel_l1_thresh:
+                #print("accumulated_rel_l1_distance", accumulated_rel_l1_distance)
+
+                if accumulated_rel_l1_distance < self.rel_l1_thresh:
                     should_calc = False
-                    self.teacache_counter += 1
                 else:
                     should_calc = True
-                    setattr(self, acc_distance_attr, 0)
-            
-            # if current_step > 0:
-            #     temb_relative_l1 = relative_l1_distance(self.previous_modulated_input, e0)
-            #     print("temb_relative_l1 ", temb_relative_l1)
-            #     self.l1_history_temb.append(temb_relative_l1.cpu())
-            if is_uncond:
-                self.previous_modulated_input_uncond = e0.clone()
-                if not should_calc:
-                    x += self.previous_residual_uncond.to(x.device)
-                    #log.info(f"TeaCache: Skipping uncond step {current_step+1}")
-                    self.teacache_skipped_cond_steps += 1
-            else:
-                self.previous_modulated_input_cond = e0.clone()
-                if not should_calc:
-                    x += self.previous_residual_cond.to(x.device)
-                    #log.info(f"TeaCache: Skipping cond step {current_step+1}")
-                    self.teacache_skipped_uncond_steps += 1
+                    accumulated_rel_l1_distance = torch.tensor(0.0, dtype=torch.float32, device=device)
+
+            previous_modulated_input = e.clone() if self.teacache_use_coefficients else e0.clone()
+            if not should_calc:
+                x += previous_residual.to(x.device)
+                #log.info(f"TeaCache: Skipping uncond step {current_step+1}")
+                self.teacache_state.update(
+                    pred_id,
+                    accumulated_rel_l1_distance=accumulated_rel_l1_distance,
+                    skipped_steps=self.teacache_state.get(pred_id)['skipped_steps'] + 1,
+                )
 
         if not self.enable_teacache or (self.enable_teacache and should_calc):
             if self.enable_teacache:
-                ori_hidden_states = x.clone()
+                original_x = x.clone()
             # arguments
             kwargs = dict(
                 e=e0,
@@ -722,50 +720,20 @@ class WanModel(ModelMixin, ConfigMixin):
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.offload_device, non_blocking=True)
 
-            if self.enable_teacache:
-                if is_uncond:
-                    self.previous_residual_uncond = (x - ori_hidden_states).to(self.teacache_cache_device)
-                else:
-                    self.previous_residual_cond = (x - ori_hidden_states).to(self.teacache_cache_device)
-
-                # if current_step > 0:
-                #   import matplotlib.pyplot as plt
-                #     x_relative_l1 = relative_l1_distance(x,ori_hidden_states)
-                #     print("x_relative_l1 ", x_relative_l1)
-                #     self.l1_history_x.append(x_relative_l1.cpu())
-
-                #     # Rescale using polynomial fitting
-                #     if len(self.l1_history_x) > 1:
-                #         print("self.l1_history_temb ", self.l1_history_temb)
-                #         rescaled_diffs = rescale_differences(
-                #             self.l1_history_temb, 
-                #             self.l1_history_x
-                #         )
-                #         self.l1_history_rescaled = rescaled_diffs#.tolist()
-                #     #print("x_relative_l1 ", x_relative_l1)
-                #     if current_step == self.num_steps-1:
-                #         plt.figure(figsize=(10,5))
-                #         norm_x = normalize_values([x.item() for x in self.l1_history_x])
-                #         norm_temb = normalize_values([x.item() for x in self.l1_history_temb])
-                #         norm_rescaled = normalize_values(self.l1_history_rescaled)
-                        
-                #         plt.plot(norm_x, label='Hidden States L1')
-                #         plt.plot(norm_temb, label='Original Temb L1')
-                #         plt.plot(norm_rescaled, label='Rescaled Temb L1')
-                #         plt.title('Relative L1 Distances Over Time')
-                #         plt.xlabel('Step')
-                #         plt.ylabel('Normalized L1 Distance')
-                #         plt.grid(True)
-                #         plt.legend()
-                #         plt.savefig('l1_distances_plot.png')
-                #         plt.close()
+            if self.enable_teacache and pred_id is not None:
+                self.teacache_state.update(
+                    pred_id,
+                    previous_residual=(x - original_x),
+                    accumulated_rel_l1_distance=accumulated_rel_l1_distance,
+                    previous_modulated_input=previous_modulated_input
+                )
+                #self.teacache_state.report()
 
         # head
         x = self.head(x, e)
-
         # unpatchify
         x = self.unpatchify(x, grid_sizes)
-        return [u.float() for u in x]
+        return x, pred_id
 
     def unpatchify(self, x, grid_sizes):
         r"""
@@ -784,19 +752,59 @@ class WanModel(ModelMixin, ConfigMixin):
         """
 
         c = self.out_dim
-        out = []
-        for u, v in zip(x, grid_sizes.tolist()):
-            u = u[:math.prod(v)].view(*v, *self.patch_size, c)
-            u = torch.einsum('fhwpqrc->cfphqwr', u)
-            u = u.reshape(c, *[i * j for i, j in zip(v, self.patch_size)])
-            out.append(u)
-        return out
+        for v in grid_sizes.tolist():
+            x = x[:math.prod(v)].view(*v, *self.patch_size, c)
+            x = torch.einsum('fhwpqrc->cfphqwr', x)
+            x = x.reshape(c, *[i * j for i, j in zip(v, self.patch_size)])
+        return x
+
+class TeaCacheState:
+    def __init__(self, cache_device='cpu'):
+        self.cache_device = cache_device
+        self.states = {}
+        self._next_pred_id = 0
+    
+    def new_prediction(self):
+        """Create new prediction state and return its ID"""
+        pred_id = self._next_pred_id
+        self._next_pred_id += 1
+        self.states[pred_id] = {
+            'previous_residual': None,
+            'accumulated_rel_l1_distance': 0,
+            'previous_modulated_input': None,
+            'skipped_steps': 0
+        }
+        return pred_id
+    
+    def update(self, pred_id, **kwargs):
+        """Update state for specific prediction"""
+        if pred_id not in self.states:
+            return None
+        for key, value in kwargs.items():
+            if isinstance(value, torch.Tensor):
+                value = value.to(self.cache_device)
+            self.states[pred_id][key] = value
+    
+    def get(self, pred_id):
+        return self.states.get(pred_id)
+
+    def report(self):
+        for pred_id in self.states:
+            log.info(f"Prediction {pred_id}: {self.states[pred_id]}")
+    
+    def clear_prediction(self, pred_id):
+        if pred_id in self.states:
+            del self.states[pred_id]
+    
+    def clear_all(self):
+        self.states.clear()
+        self._next_pred_id = 0
 
 def relative_l1_distance(last_tensor, current_tensor):
-    l1_distance = torch.abs(last_tensor - current_tensor).mean()
+    l1_distance = torch.abs(last_tensor.to(current_tensor.device) - current_tensor).mean()
     norm = torch.abs(last_tensor).mean()
     relative_l1_distance = l1_distance / norm
-    return relative_l1_distance.to(torch.float32)
+    return relative_l1_distance.to(torch.float32).to(current_tensor.device)
 
 def normalize_values(values):
     min_val = min(values)
