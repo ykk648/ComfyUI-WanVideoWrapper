@@ -977,6 +977,9 @@ class WanVideoFlowEdit:
                 "drift_flow_shift": ("FLOAT", {"default": 3.0, "min": 1.0, "max": 30.0, "step": 0.01}),
                 "source_cfg": ("FLOAT", {"default": 6.0, "min": 0.0, "max": 30.0, "step": 0.01}),
                 "drift_cfg": ("FLOAT", {"default": 6.0, "min": 0.0, "max": 30.0, "step": 0.01}),
+            },
+            "optional": {
+                "source_image_embeds": ("WANVIDIMAGE_EMBEDS", ),
             }
         }
 
@@ -1256,6 +1259,7 @@ class WanVideoSampler:
 
         if flowedit_args is not None:
             source_embeds = flowedit_args["source_embeds"]
+            source_image_embeds = flowedit_args.get("source_image_embeds", image_embeds)
             skip_steps = flowedit_args["skip_steps"]
             drift_steps = flowedit_args["drift_steps"]
             source_cfg = flowedit_args["source_cfg"]
@@ -1365,9 +1369,8 @@ class WanVideoSampler:
                             prompt_index = min(int(max(c) / section_size), num_prompts - 1)
                             log.info(f"Prompt index: {prompt_index}")
                             positive = source_embeds["prompt_embeds"][prompt_index]
-                            img_emb = image_embeds.get("image_embeds", None)
                             partial_img_emb = None
-                            if img_emb is not None:
+                            if source_image_embeds is not None:
                                 partial_img_emb = img_emb[:, c, :, :]
                                 partial_img_emb[:, 0, :, :] = img_emb[:, 0, :, :].to(intermediate_device)
                             partial_zt_src = zt_src[:, c, :, :]
@@ -1378,7 +1381,7 @@ class WanVideoSampler:
                             counter[:, c, :, :] += window_mask
                         vt_src /= counter
                     else:
-                        vt_src = predict_with_cfg(zt_src, cfg[idx], source_embeds["prompt_embeds"][0], source_embeds["negative_prompt_embeds"],timestep, idx, image_embeds)
+                        vt_src = predict_with_cfg(zt_src, cfg[idx], source_embeds["prompt_embeds"][0], source_embeds["negative_prompt_embeds"],timestep, idx, source_image_embeds)
                 else:
                     if idx == len(timesteps) - drift_steps:
                         x_tgt = zt_tgt
