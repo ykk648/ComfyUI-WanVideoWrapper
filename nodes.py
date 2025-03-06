@@ -77,11 +77,11 @@ class WanVideoTeaCache:
         return {
             "required": {
                 "rel_l1_thresh": ("FLOAT", {"default": 0.3, "min": 0.0, "max": 1.0, "step": 0.001,
-                                            "tooltip": "Higher values will make TeaCache more aggressive, faster, but may cause artifacts"}),
+                                            "tooltip": "Higher values will make TeaCache more aggressive, faster, but may cause artifacts."}),
                 "start_step": ("INT", {"default": 1, "min": 0, "max": 9999, "step": 1, "tooltip": "Start percentage of the steps to apply TeaCache"}),
                 "end_step": ("INT", {"default": -1, "min": -1, "max": 9999, "step": 1, "tooltip": "End steps to apply TeaCache"}),
                 "cache_device": (["main_device", "offload_device"], {"default": "offload_device", "tooltip": "Device to cache to"}),
-                "use_coefficients": ("BOOLEAN", {"default": True, "tooltip": "Use calculated coefficients for more accuracy"}),
+                "use_coefficients": ("BOOLEAN", {"default": True, "tooltip": "Use calculated coefficients for more accuracy. When enabled therel_l1_thresh should be about 10 times higher than without"}),
             },
         }
     RETURN_TYPES = ("TEACACHEARGS",)
@@ -1136,18 +1136,21 @@ class WanVideoSampler:
         latent_video_length = noise.shape[1]
 
         if context_options is not None:
-            def create_window_mask(noise_pred_context, c, latent_video_length, context_overlap):
+            def create_window_mask(noise_pred_context, c, latent_video_length, context_overlap, looped=False):
                 window_mask = torch.ones_like(noise_pred_context)
-                # Apply left-side blending for all except first chunk
-                if min(c) > 0: 
+                
+                # Apply left-side blending for all except first chunk (or always in loop mode)
+                if min(c) > 0 or (looped and max(c) == latent_video_length - 1):
                     ramp_up = torch.linspace(0, 1, context_overlap, device=noise_pred_context.device)
                     ramp_up = ramp_up.view(1, -1, 1, 1)
                     window_mask[:, :context_overlap] = ramp_up
-                # Apply right-side blending for all except last chunk
-                if max(c) < latent_video_length - 1:
+                    
+                # Apply right-side blending for all except last chunk (or always in loop mode)
+                if max(c) < latent_video_length - 1 or (looped and min(c) == 0):
                     ramp_down = torch.linspace(1, 0, context_overlap, device=noise_pred_context.device)
                     ramp_down = ramp_down.view(1, -1, 1, 1)
                     window_mask[:, -context_overlap:] = ramp_down
+                    
                 return window_mask
             
             context_schedule = context_options["context_schedule"]
@@ -1163,6 +1166,7 @@ class WanVideoSampler:
             # Calculate which section this context window belongs to
             section_size = latent_video_length / num_prompts
             log.info(f"Section size: {section_size}")
+            is_looped = context_schedule == "uniform_looped"
 
             seq_len = math.ceil((noise.shape[2] * noise.shape[3]) / 4 * context_frames)
 
@@ -1367,7 +1371,6 @@ class WanVideoSampler:
 
         intermediate_device = device
         
-        
         for idx, t in enumerate(tqdm(timesteps)):    
             if flowedit_args is not None:
                 if idx < skip_steps:
@@ -1533,8 +1536,7 @@ class WanVideoSampler:
                     if teacache_args is not None:
                         self.window_tracker.teacache_states[window_id] = new_teacache
 
-                    window_mask = create_window_mask(noise_pred_context, c, latent_video_length, context_overlap)
-                    # Apply masked prediction
+                    window_mask = create_window_mask(noise_pred_context, c, latent_video_length, context_overlap, looped=is_looped)                    
                     noise_pred[:, c, :, :] += noise_pred_context * window_mask
                     counter[:, c, :, :] += window_mask
                 noise_pred /= counter

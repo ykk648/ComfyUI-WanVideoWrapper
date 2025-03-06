@@ -820,7 +820,7 @@
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "TeaCache could be considered to be sort of an automated step skipper, it will compare the current and previous model inputs/outputs and their relative distances to determine if the step can be skipped-\n\nThe relative l1 threshold -value determines how aggressive this is, higher values are faster but quality suffers more. Start step should be around 10-20% into the process, very first steps should NEVER be skipped with this model or it kills the motion."
+        "TeaCache could be considered to be sort of an automated step skipper \n\nThe relative l1 threshold -value determines how aggressive this is, higher values are faster but quality suffers more. Very first steps should NEVER be skipped with this model or it kills the motion. When using the pre-calculated coefficients, the treshold value should be much higher than with the default coefficients."
       ],
       "color": "#432",
       "bgcolor": "#653"
