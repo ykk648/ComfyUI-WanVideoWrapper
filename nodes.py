@@ -467,9 +467,11 @@ class WanVideoModelLoader:
             #compile
             if compile_args is not None:
                 torch._dynamo.config.cache_size_limit = compile_args["dynamo_cache_size_limit"]
-                if compile_args["compile_transformer_blocks"]:
+                if compile_args["compile_transformer_blocks_only"]:
                     for i, block in enumerate(patcher.model.diffusion_model.blocks):
                         patcher.model.diffusion_model.blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
+                else:
+                    patcher.model.diffusion_model = torch.compile(patcher.model.diffusion_model, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])        
         elif "torchao" in quantization:
             try:
                 from torchao.quantization import (
@@ -602,17 +604,17 @@ class WanVideoTorchCompileSettings:
                 "mode": (["default", "max-autotune", "max-autotune-no-cudagraphs", "reduce-overhead"], {"default": "default"}),
                 "dynamic": ("BOOLEAN", {"default": False, "tooltip": "Enable dynamic mode"}),
                 "dynamo_cache_size_limit": ("INT", {"default": 64, "min": 0, "max": 1024, "step": 1, "tooltip": "torch._dynamo.config.cache_size_limit"}),
-                "compile_transformer_blocks": ("BOOLEAN", {"default": True, "tooltip": "Compile single blocks"}),
+                "compile_transformer_blocks_only": ("BOOLEAN", {"default": True, "tooltip": "Compile only the transformer blocks, usually enough and can make compilation faster and less error prone"}),
 
             },
         }
     RETURN_TYPES = ("WANCOMPILEARGS",)
     RETURN_NAMES = ("torch_compile_args",)
-    FUNCTION = "loadmodel"
+    FUNCTION = "set_args"
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "torch.compile settings, when connected to the model loader, torch.compile of the selected layers is attempted. Requires Triton and torch 2.5.0 is recommended"
 
-    def loadmodel(self, backend, fullgraph, mode, dynamic, dynamo_cache_size_limit, compile_transformer_blocks):
+    def set_args(self, backend, fullgraph, mode, dynamic, dynamo_cache_size_limit, compile_transformer_blocks_only):
 
         compile_args = {
             "backend": backend,
@@ -620,7 +622,7 @@ class WanVideoTorchCompileSettings:
             "mode": mode,
             "dynamic": dynamic,
             "dynamo_cache_size_limit": dynamo_cache_size_limit,
-            "compile_transformer_blocks": compile_transformer_blocks,
+            "compile_transformer_blocks_only": compile_transformer_blocks_only,
         }
 
         return (compile_args, )
