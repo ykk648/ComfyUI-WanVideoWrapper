@@ -28,7 +28,11 @@ You can also use the native ComfyUI text encoding and clip vision loader with th
 Examples:
 ---
 
-TeaCache (temporary WIP naive version, waiting on the official one) I2V:
+TeaCache (with the old temporary WIP naive version, I2V):
+
+**Note that with the new version the threshold values should be 10x higher**
+
+Range of 0.25-0.30 seems good when using the coefficients, start step can be 0, with more aggressive threshold values it may make sense to start later to avoid any potential step skips early on, that generally ruin the motion.
 
 https://github.com/user-attachments/assets/504a9a50-3337-43d2-97b8-8e1661f29f46
 
