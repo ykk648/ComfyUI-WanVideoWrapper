@@ -35,7 +35,9 @@
         "bf16",
         "offload_device",
         "disabled"
-      ]
+      ],
+      "color": "#332922",
+      "bgcolor": "#593930"
     },
     {
       "id": 37,
@@ -115,40 +117,9 @@
         272,
         144,
         128
-      ]
-    },
-    {
-      "id": 38,
-      "type": "WanVideoVAELoader",
-      "pos": [
-        1687.4093017578125,
-        -582.2750854492188
       ],
-      "size": [
-        315,
-        82
-      ],
-      "flags": {},
-      "order": 2,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "vae",
-          "type": "WANVAE",
-          "links": [
-            43
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "WanVideoVAELoader"
-      },
-      "widgets_values": [
-        "wanvideo\\Wan2_1_VAE_bf16.safetensors",
-        "bf16"
-      ]
+      "color": "#322",
+      "bgcolor": "#533"
     },
     {
       "id": 36,
@@ -162,7 +133,7 @@
         171.9547576904297
       ],
       "flags": {},
-      "order": 3,
+      "order": 2,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -172,67 +143,6 @@
       ],
       "color": "#432",
       "bgcolor": "#653"
-    },
-    {
-      "id": 22,
-      "type": "WanVideoModelLoader",
-      "pos": [
-        620.3950805664062,
-        -357.8426818847656
-      ],
-      "size": [
-        477.4410095214844,
-        226.43276977539062
-      ],
-      "flags": {},
-      "order": 19,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "compile_args",
-          "type": "WANCOMPILEARGS",
-          "shape": 7,
-          "link": null
-        },
-        {
-          "name": "block_swap_args",
-          "type": "BLOCKSWAPARGS",
-          "shape": 7,
-          "link": 50
-        },
-        {
-          "name": "lora",
-          "type": "WANVIDLORA",
-          "shape": 7,
-          "link": null
-        },
-        {
-          "name": "vram_management_args",
-          "type": "VRAM_MANAGEMENTARGS",
-          "shape": 7,
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "model",
-          "type": "WANVIDEOMODEL",
-          "links": [
-            29
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "WanVideoModelLoader"
-      },
-      "widgets_values": [
-        "WanVideo\\Wan2_1-T2V-14B_fp8_e4m3fn.safetensors",
-        "fp16",
-        "fp8_e4m3fn",
-        "offload_device",
-        "sdpa"
-      ]
     },
     {
       "id": 42,
@@ -246,7 +156,7 @@
         152.77333068847656
       ],
       "flags": {},
-      "order": 4,
+      "order": 3,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -256,83 +166,6 @@
       ],
       "color": "#432",
       "bgcolor": "#653"
-    },
-    {
-      "id": 46,
-      "type": "WanVideoTextEmbedBridge",
-      "pos": [
-        1036.8792724609375,
-        570.4955444335938
-      ],
-      "size": [
-        315,
-        46
-      ],
-      "flags": {},
-      "order": 20,
-      "mode": 2,
-      "inputs": [
-        {
-          "name": "positive",
-          "type": "CONDITIONING",
-          "link": 54
-        },
-        {
-          "name": "negative",
-          "type": "CONDITIONING",
-          "link": 55
-        }
-      ],
-      "outputs": [
-        {
-          "name": "text_embeds",
-          "type": "WANVIDEOTEXTEMBEDS",
-          "links": null
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "WanVideoTextEmbedBridge"
-      }
-    },
-    {
-      "id": 16,
-      "type": "WanVideoTextEncode",
-      "pos": [
-        675.8850708007812,
-        -36.032100677490234
-      ],
-      "size": [
-        420.30511474609375,
-        261.5306701660156
-      ],
-      "flags": {},
-      "order": 16,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "t5",
-          "type": "WANTEXTENCODER",
-          "link": 15
-        }
-      ],
-      "outputs": [
-        {
-          "name": "text_embeds",
-          "type": "WANVIDEOTEXTEMBEDS",
-          "links": [
-            30
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "WanVideoTextEncode"
-      },
-      "widgets_values": [
-        "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
-        "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
-        true
-      ]
     },
     {
       "id": 50,
@@ -370,7 +203,9 @@
       },
       "widgets_values": [
         "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走"
-      ]
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
     },
     {
       "id": 48,
@@ -384,7 +219,7 @@
         98.00003051757812
       ],
       "flags": {},
-      "order": 5,
+      "order": 4,
       "mode": 2,
       "inputs": [],
       "outputs": [
@@ -405,7 +240,9 @@
         "umt5_xxl_fp16.safetensors",
         "wan",
         "default"
-      ]
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
     },
     {
       "id": 51,
@@ -419,7 +256,7 @@
         88
       ],
       "flags": {},
-      "order": 6,
+      "order": 5,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -466,7 +303,9 @@
       },
       "widgets_values": [
         "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall"
-      ]
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
     },
     {
       "id": 27,
@@ -551,8 +390,7 @@
         true,
         "unipc",
         0,
-        1,
-        ""
+        1
       ]
     },
     {
@@ -567,7 +405,7 @@
         58
       ],
       "flags": {},
-      "order": 7,
+      "order": 6,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -596,7 +434,7 @@
         88
       ],
       "flags": {},
-      "order": 8,
+      "order": 7,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -619,7 +457,7 @@
         159.47401428222656
       ],
       "flags": {},
-      "order": 9,
+      "order": 8,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -639,10 +477,10 @@
       ],
       "size": [
         315,
-        130
+        154
       ],
       "flags": {},
-      "order": 10,
+      "order": 9,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -658,10 +496,11 @@
         "Node name for S&R": "WanVideoTeaCache"
       },
       "widgets_values": [
-        0.030000000000000006,
-        6,
+        0.25,
+        1,
         -1,
-        "offload_device"
+        "offload_device",
+        "true"
       ]
     },
     {
@@ -676,7 +515,7 @@
         106
       ],
       "flags": {},
-      "order": 11,
+      "order": 10,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -709,7 +548,7 @@
         88
       ],
       "flags": {},
-      "order": 12,
+      "order": 11,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -732,7 +571,7 @@
         178
       ],
       "flags": {},
-      "order": 13,
+      "order": 12,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -767,7 +606,7 @@
         88
       ],
       "flags": {},
-      "order": 14,
+      "order": 13,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -790,7 +629,7 @@
         106
       ],
       "flags": {},
-      "order": 15,
+      "order": 14,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -810,7 +649,9 @@
         20,
         false,
         false
-      ]
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
     },
     {
       "id": 30,
@@ -821,7 +662,7 @@
       ],
       "size": [
         1245.8460693359375,
-        1055.2188720703125
+        334
       ],
       "flags": {},
       "order": 23,
@@ -886,6 +727,184 @@
           }
         }
       }
+    },
+    {
+      "id": 22,
+      "type": "WanVideoModelLoader",
+      "pos": [
+        620.3950805664062,
+        -357.8426818847656
+      ],
+      "size": [
+        477.4410095214844,
+        226.43276977539062
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "compile_args",
+          "type": "WANCOMPILEARGS",
+          "shape": 7,
+          "link": null
+        },
+        {
+          "name": "block_swap_args",
+          "type": "BLOCKSWAPARGS",
+          "shape": 7,
+          "link": 50
+        },
+        {
+          "name": "lora",
+          "type": "WANVIDLORA",
+          "shape": 7,
+          "link": null
+        },
+        {
+          "name": "vram_management_args",
+          "type": "VRAM_MANAGEMENTARGS",
+          "shape": 7,
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "WANVIDEOMODEL",
+          "links": [
+            29
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WanVideoModelLoader"
+      },
+      "widgets_values": [
+        "WanVideo\\Wan2_1-T2V-14B_fp8_e4m3fn.safetensors",
+        "fp16",
+        "fp8_e4m3fn",
+        "offload_device",
+        "sdpa"
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 16,
+      "type": "WanVideoTextEncode",
+      "pos": [
+        675.8850708007812,
+        -36.032100677490234
+      ],
+      "size": [
+        420.30511474609375,
+        261.5306701660156
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "t5",
+          "type": "WANTEXTENCODER",
+          "link": 15
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text_embeds",
+          "type": "WANVIDEOTEXTEMBEDS",
+          "links": [
+            30
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WanVideoTextEncode"
+      },
+      "widgets_values": [
+        "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
+        "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+        true
+      ],
+      "color": "#332922",
+      "bgcolor": "#593930"
+    },
+    {
+      "id": 38,
+      "type": "WanVideoVAELoader",
+      "pos": [
+        1687.4093017578125,
+        -582.2750854492188
+      ],
+      "size": [
+        315,
+        82
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vae",
+          "type": "WANVAE",
+          "links": [
+            43
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WanVideoVAELoader"
+      },
+      "widgets_values": [
+        "wanvideo\\Wan2_1_VAE_bf16.safetensors",
+        "bf16"
+      ],
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 46,
+      "type": "WanVideoTextEmbedBridge",
+      "pos": [
+        1036.8792724609375,
+        570.4955444335938
+      ],
+      "size": [
+        315,
+        46
+      ],
+      "flags": {},
+      "order": 20,
+      "mode": 2,
+      "inputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 54
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 55
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text_embeds",
+          "type": "WANVIDEOTEXTEMBEDS",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WanVideoTextEmbedBridge"
+      },
+      "widgets_values": []
     }
   ],
   "links": [
@@ -1020,15 +1039,15 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.611590904484182,
+      "scale": 0.7400249944258603,
       "offset": [
-        238.14121489210675,
-        1082.2774342540883
+        174.8364183273494,
+        1243.2697711976823
       ]
     },
     "node_versions": {
-      "ComfyUI-WanVideoWrapper": "721cd65e7b5224c70a3d20446d9d561f1732216b",
-      "comfy-core": "0.3.19",
+      "ComfyUI-WanVideoWrapper": "bc11af31e4e720e6926a0612e88b65c3d1c49fc7",
+      "comfy-core": "0.3.23",
       "ComfyUI-VideoHelperSuite": "2c25b8b53835aaeb63f831b3137c705cf9f85dce"
     },
     "VHS_latentpreview": true,
