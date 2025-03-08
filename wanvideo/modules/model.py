@@ -588,7 +588,6 @@ class WanModel(ModelMixin, ConfigMixin):
         device=torch.device('cuda'),
         freqs=None,
         current_step=0,
-        is_uncond=False,
         pred_id=None
     ):
         r"""

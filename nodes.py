@@ -77,7 +77,7 @@ class WanVideoTeaCache:
         return {
             "required": {
                 "rel_l1_thresh": ("FLOAT", {"default": 0.3, "min": 0.0, "max": 1.0, "step": 0.001,
-                                            "tooltip": "Higher values will make TeaCache more aggressive, faster, but may cause artifacts."}),
+                                            "tooltip": "Higher values will make TeaCache more aggressive, faster, but may cause artifacts. Good value range for 1.3B: 0.05 - 0.08, for other models 0.15-0.30"}),
                 "start_step": ("INT", {"default": 1, "min": 0, "max": 9999, "step": 1, "tooltip": "Start percentage of the steps to apply TeaCache"}),
                 "end_step": ("INT", {"default": -1, "min": -1, "max": 9999, "step": 1, "tooltip": "End steps to apply TeaCache"}),
                 "cache_device": (["main_device", "offload_device"], {"default": "offload_device", "tooltip": "Device to cache to"}),
@@ -88,7 +88,28 @@ class WanVideoTeaCache:
     RETURN_NAMES = ("teacache_args",)
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
-    DESCRIPTION = "Speeds up inference by skipping steps"
+    DESCRIPTION = """
+Patch WanVideo model to use TeaCache. Speeds up inference by caching the output and  
+applying it instead of doing the step.  Best results are achieved by choosing the  
+appropriate coefficients for the model. Early steps should never be skipped, with too  
+aggressive values this can happen and the motion suffers. Starting later can help with that too.   
+When NOT using coefficients, the threshold value should be  
+about 10 times smaller than the value used with coefficients.  
+
+Official recommended values https://github.com/ali-vilab/TeaCache/tree/main/TeaCache4Wan2.1:
+
+
+<pre style='font-family:monospace'>
++-------------------+--------+---------+--------+
+|       Model       |  Low   | Medium  |  High  |
++-------------------+--------+---------+--------+
+| Wan2.1 t2v 1.3B  |  0.05  |  0.07   |  0.08  |
+| Wan2.1 t2v 14B   |  0.14  |  0.15   |  0.20  |
+| Wan2.1 i2v 480P  |  0.13  |  0.19   |  0.26  |
+| Wan2.1 i2v 720P  |  0.18  |  0.20   |  0.30  |
++-------------------+--------+---------+--------+
+</pre> 
+"""
     EXPERIMENTAL = True
 
     def process(self, rel_l1_thresh, start_step, end_step, cache_device, use_coefficients):
@@ -1344,7 +1365,6 @@ class WanVideoSampler:
                 # Get conditional prediction
                 noise_pred_cond, teacache_state_cond = transformer(
                     z,
-                    is_uncond=False,
                     context=[positive_embeds],
                     pred_id=teacache_state[0] if teacache_state else None,
                     **base_params
@@ -1358,7 +1378,6 @@ class WanVideoSampler:
                 # Get unconditional prediction and apply cfg
                 noise_pred_uncond, teacache_state_uncond = transformer(
                     z,
-                    is_uncond=True,
                     context=negative_embeds,
                     pred_id=teacache_state[1] if teacache_state else None,
                     **base_params
