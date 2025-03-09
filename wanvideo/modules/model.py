@@ -182,9 +182,9 @@ class WanSelfAttention(nn.Module):
                     ).permute(0, 2, 1, 3)
                 #print("inner attention", x.shape) #inner attention torch.Size([1, 12, 32760, 128])
         else:
+            q=rope_apply(q, grid_sizes, freqs)
+            k=rope_apply(k, grid_sizes, freqs)
             if is_enhance_enabled():
-                q=rope_apply(q, grid_sizes, freqs)
-                k=rope_apply(k, grid_sizes, freqs)
                 feta_scores = get_feta_scores(q, k)
 
             x = attention(
@@ -200,7 +200,7 @@ class WanSelfAttention(nn.Module):
         x = self.o(x)
 
         if is_enhance_enabled():
-                x *= feta_scores
+            x *= feta_scores
 
         return x
 
