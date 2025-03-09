@@ -2,6 +2,7 @@ import torch
 from einops import rearrange
 from .globals import get_enhance_weight, get_num_frames
 
+@torch.compiler.disable()
 def get_feta_scores(query, key):
     img_q, img_k = query, key
    
@@ -26,6 +27,7 @@ def get_feta_scores(query, key):
     
     return feta_score(query_image, key_image, C, num_frames)
 
+@torch.compiler.disable()
 def feta_score(query_image, key_image, head_dim, num_frames):
     scale = head_dim**-0.5
     query_image = query_image * scale
