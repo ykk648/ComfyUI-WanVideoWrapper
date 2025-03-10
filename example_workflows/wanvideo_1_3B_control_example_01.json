@@ -185,7 +185,7 @@
         "Node name for S&R": "WanVideoTeaCache"
       },
       "widgets_values": [
-        0.2750000000000001,
+        0.1,
         1,
         -1,
         "offload_device",
