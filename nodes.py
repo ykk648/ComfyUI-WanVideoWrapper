@@ -1455,6 +1455,7 @@ class WanVideoSampler:
                 
                 control_enabled = False
                 if control_latents is not None:
+                    control_enabled = True
                     current_step_percentage = idx / len(timesteps)
                     if not control_start_percent <= current_step_percentage <= control_end_percent:
                         image_cond = None
