@@ -520,6 +520,10 @@ class WanModel(ModelMixin, ConfigMixin):
         # embeddings
         self.patch_embedding = nn.Conv3d(
             in_dim, dim, kernel_size=patch_size, stride=patch_size)
+        
+        self.original_patch_embedding = self.patch_embedding
+        self.expanded_patch_embedding = self.patch_embedding
+
         self.text_embedding = nn.Sequential(
             nn.Linear(text_dim, dim), nn.GELU(approximate='tanh'),
             nn.Linear(dim, dim))
@@ -591,7 +595,8 @@ class WanModel(ModelMixin, ConfigMixin):
         device=torch.device('cuda'),
         freqs=None,
         current_step=0,
-        pred_id=None
+        pred_id=None,
+        control_enabled=False,
     ):
         r"""
         Forward pass through the diffusion model
@@ -625,7 +630,11 @@ class WanModel(ModelMixin, ConfigMixin):
             x = torch.cat([x, y], dim=0)
 
         # embeddings
-        x = [self.patch_embedding(x.unsqueeze(0))]
+        if control_enabled:
+            x = [self.expanded_patch_embedding(x.unsqueeze(0))]
+        else:
+            x = [self.original_patch_embedding(x.unsqueeze(0))]
+
         grid_sizes = torch.stack(
             [torch.tensor(u.shape[2:], dtype=torch.long) for u in x])
         x = [u.flatten(2).transpose(1, 2) for u in x]
