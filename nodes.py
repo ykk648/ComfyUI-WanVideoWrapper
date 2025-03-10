@@ -448,7 +448,7 @@ class WanVideoModelLoader:
                     patcher, _ = load_lora_for_models(patcher, None, lora_sd, lora_strength, 0)
                     del lora_sd
 
-                patcher.patch_model(transformer_load_device)
+                patcher.patch_model(device)
 
             del sd
             gc.collect()
