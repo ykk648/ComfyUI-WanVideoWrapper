@@ -1451,16 +1451,16 @@ class WanVideoSampler:
 
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, teacache_state=None):
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
-
-                current_step_percentage = idx / len(timesteps)
-                if not control_start_percent <= current_step_percentage <= control_end_percent:
-                    image_cond = None
-                    control_enabled = False
-                    if patcher.is_patched:
-                        patcher.unpatch_model(device)
-                        patcher.is_patched = False
-                else:
-                    control_enabled = True
+                
+                control_enabled = False
+                if control_latents is not None:
+                    current_step_percentage = idx / len(timesteps)
+                    if not control_start_percent <= current_step_percentage <= control_end_percent:
+                        image_cond = None
+                        control_enabled = False
+                        if patcher.is_patched:
+                            patcher.unpatch_model(device)
+                            patcher.is_patched = False
     
                 base_params = {
                     'clip_fea': clip_fea,
