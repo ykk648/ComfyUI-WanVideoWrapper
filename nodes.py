@@ -1212,6 +1212,7 @@ class WanVideoSampler:
         seed_g.manual_seed(seed)
         image_cond = None
         clip_fea = None
+        control_latents = None
         if transformer.model_type == "i2v":
             lat_h = image_embeds.get("lat_h", None)
             lat_w = image_embeds.get("lat_w", None)
