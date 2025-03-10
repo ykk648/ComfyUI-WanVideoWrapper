@@ -1,6 +1,5 @@
 import os
 import torch
-import torch.nn.functional as F
 import gc
 from .utils import log, print_memory
 import numpy as np
@@ -1417,9 +1416,10 @@ class WanVideoSampler:
 
         intermediate_device = device
 
-        # diff diff
+        # diff diff prep
         masks = None
         if samples is not None and mask is not None:
+            mask = 1 - mask
             thresholds = torch.arange(len(timesteps), dtype=original_image.dtype) / len(timesteps)
             thresholds = thresholds.unsqueeze(1).unsqueeze(1).unsqueeze(1).unsqueeze(1).to(device)
             masks = mask.repeat(len(timesteps), 1, 1, 1, 1).to(device) 
@@ -1439,7 +1439,7 @@ class WanVideoSampler:
                     )
                     mask = masks[idx]
                     mask = mask.to(latent)
-                    latent = image_latent * mask + latent * (1 - mask)
+                    latent = image_latent * mask + latent * (1-mask)
                     # end diff diff
 
             latent_model_input = latent.to(device)
