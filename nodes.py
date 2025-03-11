@@ -1428,7 +1428,7 @@ class WanVideoSampler:
             source_embeds = flowedit_args["source_embeds"]
             source_image_embeds = flowedit_args.get("source_image_embeds", image_embeds)
             source_image_cond = source_image_embeds.get("image_embeds", None)
-            source_clip_fea = source_image_embeds["clip_context"]
+            source_clip_fea = source_image_embeds.get("clip_fea", None)
             skip_steps = flowedit_args["skip_steps"]
             drift_steps = flowedit_args["drift_steps"]
             source_cfg = flowedit_args["source_cfg"]
