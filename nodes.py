@@ -304,8 +304,8 @@ class WanVideoModelLoader:
                     "flash_attn_2",
                     "flash_attn_3",
                     "sageattn",
-                    "spargeattn",
-                    "spargeattn_tune",
+                    #"spargeattn", needs tuning
+                    #"spargeattn_tune",
                     ], {"default": "sdpa"}),
                 "compile_args": ("WANCOMPILEARGS", ),
                 "block_swap_args": ("BLOCKSWAPARGS", ),
@@ -436,7 +436,6 @@ class WanVideoModelLoader:
             patcher.is_patched = False
             
             if lora is not None:
-               
                 for l in lora:
                     log.info(f"Loading LoRA: {l['name']} with strength: {l['strength']}")
                     lora_path = l["path"]
@@ -479,7 +478,7 @@ class WanVideoModelLoader:
                     
                     del lora_sd
 
-                patcher.patch_model(device)
+                patcher.load(device, force_patch_weights=True, full_load=True)
                 patcher.is_patched = True
 
             del sd
@@ -1154,6 +1153,7 @@ class WanVideoSampler:
                 "context_options": ("WANVIDCONTEXT", ),
                 "teacache_args": ("TEACACHEARGS", ),
                 "flowedit_args": ("FLOWEDITARGS", ),
+                "batched_cfg": ("BOOLEAN", {"default": False, "tooltip": "Batc cond and uncond for faster sampling, possibly faster on some hardware, uses more memory"}),
             }
         }
 
@@ -1164,7 +1164,7 @@ class WanVideoSampler:
 
     def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
         force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, 
-        teacache_args=None, flowedit_args=None):
+        teacache_args=None, flowedit_args=None, batched_cfg=False):
         #assert not (context_options and teacache_args), "Context options cannot currently be used together with teacache."
         patcher = model
         model = model.model
@@ -1235,6 +1235,7 @@ class WanVideoSampler:
                 device=torch.device("cpu"))
             seq_len = image_embeds["max_seq_len"]
             image_cond = image_embeds.get("image_embeds", None)
+            print("image_cond", image_cond.shape)
             clip_fea = image_embeds.get("clip_context", None)
             
         else: #t2v
@@ -1482,29 +1483,35 @@ class WanVideoSampler:
                     'control_enabled': control_enabled,
                 }
                 
-                # Get conditional prediction
-                noise_pred_cond, teacache_state_cond = transformer(
-                    z,
-                    context=[positive_embeds],
-                    pred_id=teacache_state[0] if teacache_state else None,
-                    **base_params
-                )
-                noise_pred_cond = noise_pred_cond.to(intermediate_device)
+                if not batched_cfg:
+                    #cond
+                    noise_pred_cond, teacache_state_cond = transformer(
+                        [z], context=[positive_embeds],
+                        pred_id=teacache_state[0] if teacache_state else None,
+                        **base_params
+                    )
+                    noise_pred_cond = noise_pred_cond[0].to(intermediate_device)
+                    if math.isclose(cfg_scale, 1.0): #skip uncond
+                        return noise_pred_cond, [teacache_state_cond]
+                    #uncond
+                    noise_pred_uncond, teacache_state_uncond = transformer(
+                        [z], context=negative_embeds,
+                        pred_id=teacache_state[1] if teacache_state else None,
+                        **base_params
+                    )
+                    noise_pred_uncond=noise_pred_uncond[0].to(intermediate_device)
+                    return noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond), [teacache_state_cond, teacache_state_uncond]
+                #batched
+                else:
+                    [noise_pred_cond, noise_pred_uncond], teacache_state_cond = transformer(
+                        [z] + [z], context= [positive_embeds] + negative_embeds,
+                        pred_id=teacache_state[0] if teacache_state else None,
+                        **base_params
+                    )
+                    noise_pred_uncond=noise_pred_uncond.to(intermediate_device)
+
                 
-                # If cfg_scale is 1.0, return conditional prediction directly
-                if math.isclose(cfg_scale, 1.0):
-                    return noise_pred_cond, [teacache_state_cond]
-                
-                # Get unconditional prediction and apply cfg
-                noise_pred_uncond, teacache_state_uncond = transformer(
-                    z,
-                    context=negative_embeds,
-                    pred_id=teacache_state[1] if teacache_state else None,
-                    **base_params
-                )
-                noise_pred_uncond= noise_pred_uncond.to(intermediate_device)
-                
-                return noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond), [teacache_state_cond, teacache_state_uncond]
+                return noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond), [teacache_state_cond]
         
         try:
             torch.cuda.reset_peak_memory_stats(device)
@@ -1687,16 +1694,25 @@ class WanVideoSampler:
 
                     partial_img_emb = None
                     if image_cond is not None:
+                        log.info(f"Image cond shape: {image_cond.shape}")
+                        num_windows= 2
+                        section_size = latent_video_length / num_windows
+                        image_index = min(int(max(c) / section_size), num_windows - 1)
                         partial_img_emb = image_cond[:, c, :, :]
                         partial_image_cond = image_cond[:, 0, :, :].to(intermediate_device)
-                        if min(c) > 0: #wip
-                            control_strength = 1.0
-                            fade_rate = 0.01
-                            frame_position = min(c)
-                            strength = max(control_strength * (1.0 - (frame_position * fade_rate)), 0.1)
-                            partial_image_cond *= strength
-                        partial_img_emb[:, 0, :, :] =  partial_image_cond
-
+                        log.info(f"image_index: {image_index}")
+                        if hasattr(self, "previous_noise_pred_context") and image_index > 0: #wip
+                            if idx >= 6:
+                                #strength = 0.5
+                                #partial_image_cond *= strength
+                                print("partial_img_emb.shape", partial_img_emb.shape)
+                                mask = torch.ones(4, partial_img_emb.shape[2], partial_img_emb.shape[3], device=partial_img_emb.device, dtype=partial_img_emb.dtype) #torch.Size([20, 10, 104, 60])
+                                print("mask.shape", mask.shape)
+                                print("self.previous_noise_pred_context.shape", self.previous_noise_pred_context.shape) #torch.Size([16, 10, 104, 60])
+                                partial_img_emb[:, 0, :, :] =  torch.cat([self.previous_noise_pred_context[:, -1, :, :], mask], dim=0)
+                            else:
+                                partial_img_emb[:, 0, :, :] =  partial_image_cond
+                      
                     partial_latent_model_input = latent_model_input[:, c, :, :]
 
                     noise_pred_context, new_teacache = predict_with_cfg(
@@ -1705,8 +1721,15 @@ class WanVideoSampler:
                         text_embeds["negative_prompt_embeds"], 
                         timestep, idx, partial_img_emb, clip_fea,
                         current_teacache)
+
+                    if callback is not None:
+                        callback_latent = (noise_pred.to(t.device) * t / 1000).detach().permute(1,0,2,3)
+                        callback(idx, callback_latent, None, steps)
+
                     if teacache_args is not None:
                         self.window_tracker.teacache_states[window_id] = new_teacache
+                    if image_index > 0:
+                        self.previous_noise_pred_context = noise_pred_context
 
                     window_mask = create_window_mask(noise_pred_context, c, latent_video_length, context_overlap, looped=is_looped)                    
                     noise_pred[:, c, :, :] += noise_pred_context * window_mask

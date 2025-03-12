@@ -54,33 +54,42 @@ from comfy.model_management import get_torch_device, get_autocast_device
 @torch.autocast(device_type=get_autocast_device(get_torch_device()), enabled=False)
 @torch.compiler.disable()
 def rope_apply(x, grid_sizes, freqs):
-    n, c = x.size(2), x.size(3) // 2
-
-    # split freqs
-    freqs = freqs.split([c - 2 * (c // 3), c // 3, c // 3], dim=1)
-
-    # loop over samples
+    batch_size, max_seq, n, c_total = x.shape
+    c = c_total // 2
+    
+    # Static splits
+    c1 = c - 2 * (c // 3)
+    c2 = c // 3
+    c3 = c // 3
+    freqs_split = freqs.split([c1, c2, c3], dim=1)
+    
+    def process_chunk(x_chunk, f, h, w, freqs_split):
+        seq_len = f * h * w
+        x_complex = torch.view_as_complex(x_chunk.reshape(seq_len, n, c, 2))
+        
+        f1 = freqs_split[0][:f].view(f, 1, 1, -1)
+        f2 = freqs_split[1][:h].view(1, h, 1, -1)
+        f3 = freqs_split[2][:w].view(1, 1, w, -1)
+        
+        freq_cat = torch.cat([
+            f1.repeat(1, h, w, 1),
+            f2.repeat(f, 1, w, 1),
+            f3.repeat(f, h, 1, 1)
+        ], dim=-1).reshape(seq_len, 1, c)
+        
+        x_i = torch.view_as_real(x_complex * freq_cat)
+        return x_i.reshape(seq_len, n, c_total)
+    
     output = []
     for i, (f, h, w) in enumerate(grid_sizes.tolist()):
         seq_len = f * h * w
-
-        # precompute multipliers
-        x_i = torch.view_as_complex(x[i, :seq_len].to(torch.float64).reshape(
-            seq_len, n, -1, 2))
-        freqs_i = torch.cat([
-            freqs[0][:f].view(f, 1, 1, -1).expand(f, h, w, -1),
-            freqs[1][:h].view(1, h, 1, -1).expand(f, h, w, -1),
-            freqs[2][:w].view(1, 1, w, -1).expand(f, h, w, -1)
-        ],
-                            dim=-1).reshape(seq_len, 1, -1)
-
-        # apply rotary embedding
-        x_i = torch.view_as_real(x_i * freqs_i).flatten(2)
-        x_i = torch.cat([x_i, x[i, seq_len:]])
-
-        # append to collection
+        x_i = process_chunk(x[i, :seq_len], f, h, w, freqs_split)
+        
+        if seq_len < max_seq:
+            x_i = torch.cat([x_i, x[i, seq_len:]], dim=0)
         output.append(x_i)
-    return torch.stack(output).float()
+    
+    return torch.stack(output)
 
 
 class WanRMSNorm(nn.Module):
@@ -627,13 +636,19 @@ class WanModel(ModelMixin, ConfigMixin):
             freqs = freqs.to(device)
             
         if y is not None:
-            x = torch.cat([x, y], dim=0)
+            x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
 
         # embeddings
         if control_enabled:
-            x = [self.expanded_patch_embedding(x.unsqueeze(0))]
+            x = [
+            self.expanded_patch_embedding(u.unsqueeze(0))
+            for u in x
+            ]
         else:
-            x = [self.original_patch_embedding(x.unsqueeze(0))]
+            x = [
+            self.original_patch_embedding(u.unsqueeze(0))
+            for u in x
+            ]
 
         grid_sizes = torch.stack(
             [torch.tensor(u.shape[2:], dtype=torch.long) for u in x])
@@ -743,8 +758,9 @@ class WanModel(ModelMixin, ConfigMixin):
         # head
         x = self.head(x, e)
         # unpatchify
-        x = self.unpatchify(x, grid_sizes)
-        return x, pred_id
+        x = self.unpatchify(x, grid_sizes) # type: ignore[arg-type]
+        x = [u.float() for u in x]
+        return (x, pred_id) if pred_id is not None else (x, None)
 
     def unpatchify(self, x, grid_sizes):
         r"""
@@ -763,11 +779,13 @@ class WanModel(ModelMixin, ConfigMixin):
         """
 
         c = self.out_dim
-        for v in grid_sizes.tolist():
-            x = x[:math.prod(v)].view(*v, *self.patch_size, c)
-            x = torch.einsum('fhwpqrc->cfphqwr', x)
-            x = x.reshape(c, *[i * j for i, j in zip(v, self.patch_size)])
-        return x
+        out = []
+        for u, v in zip(x, grid_sizes.tolist()):
+            u = u[: math.prod(v)].view(*v, *self.patch_size, c)
+            u = torch.einsum("fhwpqrc->cfphqwr", u)
+            u = u.reshape(c, *[i * j for i, j in zip(v, self.patch_size)])
+            out.append(u)
+        return out
 
 class TeaCacheState:
     def __init__(self, cache_device='cpu'):
