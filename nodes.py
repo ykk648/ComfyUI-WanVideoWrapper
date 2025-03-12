@@ -1273,7 +1273,7 @@ class WanVideoSampler:
                 
                 if not patcher.is_patched:
                     print("Patching model for control")
-                    patcher = apply_lora(patcher, device, device, params_to_keep=None, dtype=None, base_dtype=None, sd=None, low_mem_load=False)
+                    patcher = apply_lora(patcher, device, device, low_mem_load=False)
                     patcher.is_patched = True
             
         latent_video_length = noise.shape[1]
