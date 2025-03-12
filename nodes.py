@@ -1,7 +1,7 @@
 import os
 import torch
 import gc
-from .utils import log, print_memory
+from .utils import log, print_memory, apply_lora
 import numpy as np
 import math
 from tqdm import tqdm
@@ -424,6 +424,8 @@ class WanVideoModelLoader:
             else:
                 dtype = base_dtype
             params_to_keep = {"norm", "head", "bias", "time_in", "vector_in", "patch_embedding", "time_", "img_emb", "modulation"}
+            if lora is not None:
+                transformer_load_device = device
             for name, param in transformer.named_parameters():
                 #print("Assigning Parameter name: ", name)
                 dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
@@ -477,9 +479,9 @@ class WanVideoModelLoader:
                     patcher, _ = load_lora_for_models(patcher, None, lora_sd, lora_strength, 0)
                     
                     del lora_sd
-                #from .utils import load_lora
-                #patcher = load_lora(patcher, device)
-                patcher.load(device, full_load=True)
+                
+                patcher = apply_lora(patcher, device)
+                #patcher.load(device, full_load=True)
                 patcher.is_patched = True
 
             del sd
@@ -1261,7 +1263,7 @@ class WanVideoSampler:
                 
                 if not patcher.is_patched:
                     print("Patching model for control")
-                    patcher.patch_model(device)
+                    patcher = apply_lora(patcher, device)
                     patcher.is_patched = True
             
         latent_video_length = noise.shape[1]

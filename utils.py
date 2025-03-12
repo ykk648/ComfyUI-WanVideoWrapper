@@ -30,3 +30,35 @@ def get_module_memory_mb(module):
         if param.data is not None:
             memory += param.nelement() * param.element_size()
     return memory / (1024 * 1024)  # Convert to MB
+
+def apply_lora(model, device_to=None):
+        to_load = []
+        for n, m in model.model.named_modules():
+            params = []
+            skip = False
+            for name, param in m.named_parameters(recurse=False):
+                params.append(name)
+            for name, param in m.named_parameters(recurse=True):
+                if name not in params:
+                    skip = True # skip random weights in non leaf modules
+                    break
+            if not skip and (hasattr(m, "comfy_cast_weights") or len(params) > 0):
+                to_load.append((n, m, params))
+
+        to_load.sort(reverse=True)
+        for x in to_load:
+            n = x[0]
+            m = x[1]
+            params = x[2]
+            if hasattr(m, "comfy_patched_weights"):
+                if m.comfy_patched_weights == True:
+                    continue
+
+            for param in params:
+                model.patch_weight_to_device("{}.{}".format(n, param), device_to=device_to)
+
+            m.comfy_patched_weights = True
+      
+        model.current_weight_patches_uuid = model.patches_uuid
+        return model
+        
