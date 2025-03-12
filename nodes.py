@@ -1093,6 +1093,10 @@ class WanVideoContextOptions:
             "context_overlap": ("INT", {"default": 16, "min": 4, "max": 100, "step": 1, "tooltip": "Context overlap as pixel frames, NOTE: the latent space has 4 frames in 1"} ),
             "freenoise": ("BOOLEAN", {"default": True, "tooltip": "Shuffle the noise"}),
             "verbose": ("BOOLEAN", {"default": False, "tooltip": "Print debug output"}),
+            },
+            "optional": {
+                "image_cond_start_step": ("INT", {"default": 6, "min": 0, "max": 10000, "step": 1, "tooltip": "!EXPERIMENTAL! Start step of using previous window results as input instead of the init image"}),
+                "image_cond_window_count": ("INT", {"default": 2, "min": 1, "max": 10000, "step": 1, "tooltip": "!EXPERIMENTAL! Number of image 'prompt windows'"}),
             }
         }
 
@@ -1102,14 +1106,16 @@ class WanVideoContextOptions:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "Context options for WanVideo, allows splitting the video into context windows and attemps blending them for longer generations than the model and memory otherwise would allow."
 
-    def process(self, context_schedule, context_frames, context_stride, context_overlap, freenoise, verbose):
+    def process(self, context_schedule, context_frames, context_stride, context_overlap, freenoise, verbose, image_cond_start_step=6, image_cond_window_count=2):
         context_options = {
             "context_schedule":context_schedule,
             "context_frames":context_frames,
             "context_stride":context_stride,
             "context_overlap":context_overlap,
             "freenoise":freenoise,
-            "verbose":verbose
+            "verbose":verbose,
+            "image_cond_start_step": image_cond_start_step,
+            "image_cond_window_count": image_cond_window_count
         }
 
         return (context_options,)
@@ -1709,14 +1715,14 @@ class WanVideoSampler:
                     partial_img_emb = None
                     if image_cond is not None:
                         log.info(f"Image cond shape: {image_cond.shape}")
-                        num_windows= 2
+                        num_windows= context_options["image_cond_window_count"]
                         section_size = latent_video_length / num_windows
                         image_index = min(int(max(c) / section_size), num_windows - 1)
                         partial_img_emb = image_cond[:, c, :, :]
                         partial_image_cond = image_cond[:, 0, :, :].to(intermediate_device)
                         log.info(f"image_index: {image_index}")
                         if hasattr(self, "previous_noise_pred_context") and image_index > 0: #wip
-                            if idx >= 6:
+                            if idx >= context_options["image_cond_start_step"]:
                                 #strength = 0.5
                                 #partial_image_cond *= strength
                                 print("partial_img_emb.shape", partial_img_emb.shape)
@@ -1736,9 +1742,9 @@ class WanVideoSampler:
                         timestep, idx, partial_img_emb, clip_fea,
                         current_teacache)
 
-                    if callback is not None:
-                        callback_latent = (noise_pred.to(t.device) * t / 1000).detach().permute(1,0,2,3)
-                        callback(idx, callback_latent, None, steps)
+                    # if callback is not None:
+                    #     callback_latent = (noise_pred.to(t.device) * t / 1000).detach().permute(1,0,2,3)
+                    #     callback(idx, callback_latent, None, steps)
 
                     if teacache_args is not None:
                         self.window_tracker.teacache_states[window_id] = new_teacache
