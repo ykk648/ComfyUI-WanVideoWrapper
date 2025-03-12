@@ -477,6 +477,8 @@ class WanVideoModelLoader:
                     patcher, _ = load_lora_for_models(patcher, None, lora_sd, lora_strength, 0)
                     
                     del lora_sd
+                #from .utils import load_lora
+                #patcher = load_lora(patcher, device)
                 patcher.load(device, full_load=True)
                 patcher.is_patched = True
 
@@ -1478,7 +1480,7 @@ class WanVideoSampler:
                     'freqs': freqs,
                     't': timestep,
                     'current_step': idx,
-                    'y': [image_cond],
+                    'y': [image_cond] if image_cond is not None else None,
                     'control_enabled': control_enabled,
                 }
                 
