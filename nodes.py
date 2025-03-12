@@ -236,6 +236,7 @@ class WanVideoLoraSelect:
             "optional": {
                 "prev_lora":("WANVIDLORA", {"default": None, "tooltip": "For loading multiple LoRAs"}),
                 "blocks":("SELECTEDBLOCKS", ),
+                "low_mem_load": ("BOOLEAN", {"default": False, "tooltip": "Load the LORA model with less VRAM usage, slower loading"}),
             }
         }
 
@@ -245,14 +246,15 @@ class WanVideoLoraSelect:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "Select a LoRA model from ComfyUI/models/loras"
 
-    def getlorapath(self, lora, strength, blocks=None, prev_lora=None, fuse_lora=False):
+    def getlorapath(self, lora, strength, blocks=None, prev_lora=None, low_mem_load=False):
         loras_list = []
 
         lora = {
             "path": folder_paths.get_full_path("loras", lora),
             "strength": strength,
             "name": lora.split(".")[0],
-            "blocks": blocks
+            "blocks": blocks,
+            "low_mem_load": low_mem_load,
         }
         if prev_lora is not None:
             loras_list.extend(prev_lora)
@@ -321,7 +323,11 @@ class WanVideoModelLoader:
 
     def loadmodel(self, model, base_precision, load_device,  quantization,
                   compile_args=None, attention_mode="sdpa", block_swap_args=None, lora=None, vram_management_args=None):
-        assert not (vram_management_args is not None and block_swap_args is not None), "Can't use both block_swap_args and vram_management_args at the same time"        
+        assert not (vram_management_args is not None and block_swap_args is not None), "Can't use both block_swap_args and vram_management_args at the same time"
+        if lora is not None:
+            for l in lora:
+                lora_low_mem_load = l.get("low_mem_load") if lora is not None else False
+
         transformer = None
         mm.unload_all_models()
         mm.cleanup_models()
@@ -416,7 +422,6 @@ class WanVideoModelLoader:
           
 
         if not "torchao" in quantization:
-            log.info("Using accelerate to load and assign model weights to device...")
             if quantization == "fp8_e4m3fn" or quantization == "fp8_e4m3fn_fast" or quantization == "fp8_scaled":
                 dtype = torch.float8_e4m3fn
             elif quantization == "fp8_e5m2":
@@ -424,12 +429,17 @@ class WanVideoModelLoader:
             else:
                 dtype = base_dtype
             params_to_keep = {"norm", "head", "bias", "time_in", "vector_in", "patch_embedding", "time_", "img_emb", "modulation"}
-            if lora is not None:
-                transformer_load_device = device
-            for name, param in transformer.named_parameters():
-                #print("Assigning Parameter name: ", name)
-                dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
-                set_module_tensor_to_device(transformer, name, device=transformer_load_device, dtype=dtype_to_use, value=sd[name])
+            #if lora is not None:
+            #    transformer_load_device = device
+            if not lora_low_mem_load:
+                log.info("Using accelerate to load and assign model weights to device...")
+                param_count = sum(1 for _ in transformer.named_parameters())
+                for name, param in tqdm(transformer.named_parameters(), 
+                       desc=f"Loading transformer parameters to {transformer_load_device}", 
+                       total=param_count,
+                       leave=True):
+                    dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
+                    set_module_tensor_to_device(transformer, name, device=transformer_load_device, dtype=dtype_to_use, value=sd[name])
 
             comfy_model.diffusion_model = transformer
             comfy_model.load_device = transformer_load_device
@@ -480,7 +490,7 @@ class WanVideoModelLoader:
                     
                     del lora_sd
                 
-                patcher = apply_lora(patcher, device)
+                patcher = apply_lora(patcher, device, transformer_load_device, params_to_keep=params_to_keep, dtype=dtype, base_dtype=base_dtype, state_dict=sd, low_mem_load=lora_low_mem_load)
                 #patcher.load(device, full_load=True)
                 patcher.is_patched = True
 
@@ -1263,7 +1273,7 @@ class WanVideoSampler:
                 
                 if not patcher.is_patched:
                     print("Patching model for control")
-                    patcher = apply_lora(patcher, device)
+                    patcher = apply_lora(patcher, device, device, params_to_keep=None, dtype=None, base_dtype=None, sd=None, low_mem_load=False)
                     patcher.is_patched = True
             
         latent_video_length = noise.shape[1]
