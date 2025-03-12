@@ -324,6 +324,7 @@ class WanVideoModelLoader:
     def loadmodel(self, model, base_precision, load_device,  quantization,
                   compile_args=None, attention_mode="sdpa", block_swap_args=None, lora=None, vram_management_args=None):
         assert not (vram_management_args is not None and block_swap_args is not None), "Can't use both block_swap_args and vram_management_args at the same time"
+        lora_low_mem_load = False
         if lora is not None:
             for l in lora:
                 lora_low_mem_load = l.get("low_mem_load") if lora is not None else False
