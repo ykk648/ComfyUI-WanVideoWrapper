@@ -1522,6 +1522,7 @@ class WanVideoSampler:
 
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, teacache_state=None):
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
+                nonlocal patcher
                 current_step_percentage = idx / len(timesteps)
                 control_enabled = False
                 if control_latents is not None:
@@ -1533,6 +1534,11 @@ class WanVideoSampler:
                             log.info("Unloading LoRA...")
                             patcher.unpatch_model(device)
                             patcher.model.is_patched = False
+                    else:
+                        if not patcher.model.is_patched:
+                            log.info("Loading LoRA...")
+                            patcher = apply_lora(patcher, device, device, low_mem_load=False)
+                            patcher.model.is_patched = True
     
                 base_params = {
                     'clip_fea': clip_fea,
