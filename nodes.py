@@ -1097,6 +1097,7 @@ class WanVideoContextOptions:
             "optional": {
                 "image_cond_start_step": ("INT", {"default": 6, "min": 0, "max": 10000, "step": 1, "tooltip": "!EXPERIMENTAL! Start step of using previous window results as input instead of the init image"}),
                 "image_cond_window_count": ("INT", {"default": 2, "min": 1, "max": 10000, "step": 1, "tooltip": "!EXPERIMENTAL! Number of image 'prompt windows'"}),
+                "vae": ("WANVAE",),
             }
         }
 
@@ -1106,7 +1107,7 @@ class WanVideoContextOptions:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "Context options for WanVideo, allows splitting the video into context windows and attemps blending them for longer generations than the model and memory otherwise would allow."
 
-    def process(self, context_schedule, context_frames, context_stride, context_overlap, freenoise, verbose, image_cond_start_step=6, image_cond_window_count=2):
+    def process(self, context_schedule, context_frames, context_stride, context_overlap, freenoise, verbose, image_cond_start_step=6, image_cond_window_count=2, vae=None):
         context_options = {
             "context_schedule":context_schedule,
             "context_frames":context_frames,
@@ -1115,7 +1116,8 @@ class WanVideoContextOptions:
             "freenoise":freenoise,
             "verbose":verbose,
             "image_cond_start_step": image_cond_start_step,
-            "image_cond_window_count": image_cond_window_count
+            "image_cond_window_count": image_cond_window_count,
+            "vae": vae,
         }
 
         return (context_options,)
@@ -1307,6 +1309,9 @@ class WanVideoSampler:
             context_frames =  (context_options["context_frames"] - 1) // 4 + 1
             context_stride = context_options["context_stride"] // 4
             context_overlap = context_options["context_overlap"] // 4
+            context_vae = context_options.get("vae", None)
+            if context_vae is not None:
+                context_vae.to(device)
 
             self.window_tracker = WindowTracker(verbose=context_options["verbose"])
 
@@ -1725,11 +1730,20 @@ class WanVideoSampler:
                             if idx >= context_options["image_cond_start_step"]:
                                 #strength = 0.5
                                 #partial_image_cond *= strength
+                                if context_vae is not None:
+                                    to_decode = self.previous_noise_pred_context[:,-1,:, :].unsqueeze(1).unsqueeze(0).to(context_vae.dtype)
+                                    #to_decode = to_decode.permute(0, 1, 3, 2)
+                                    print("to_decode.shape", to_decode.shape)
+                                    image = context_vae.decode(to_decode, device=device, tiled=False)[0]
+                                    print("decoded image.shape", image.shape) #torch.Size([3, 37, 832, 480])
+                                    image = context_vae.encode(image.unsqueeze(0).to(context_vae.dtype), device=device, tiled=False)
+                                    print("encoded image.shape", image.shape)
+                                    #partial_img_emb[:, 0, :, :] = image[0][:,0,:,:]
                                 print("partial_img_emb.shape", partial_img_emb.shape)
                                 mask = torch.ones(4, partial_img_emb.shape[2], partial_img_emb.shape[3], device=partial_img_emb.device, dtype=partial_img_emb.dtype) #torch.Size([20, 10, 104, 60])
                                 print("mask.shape", mask.shape)
                                 print("self.previous_noise_pred_context.shape", self.previous_noise_pred_context.shape) #torch.Size([16, 10, 104, 60])
-                                partial_img_emb[:, 0, :, :] =  torch.cat([self.previous_noise_pred_context[:, -1, :, :], mask], dim=0)
+                                partial_img_emb[:, 0, :, :] =  torch.cat([image[0][:,0,:,:], mask], dim=0)
                             else:
                                 partial_img_emb[:, 0, :, :] =  partial_image_cond
                       

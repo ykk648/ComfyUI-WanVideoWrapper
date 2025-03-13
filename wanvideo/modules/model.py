@@ -52,44 +52,46 @@ def rope_params(max_seq_len, dim, theta=10000, L_test=25, k=0):
 
 from comfy.model_management import get_torch_device, get_autocast_device
 @torch.autocast(device_type=get_autocast_device(get_torch_device()), enabled=False)
-@torch.compiler.disable()
 def rope_apply(x, grid_sizes, freqs):
-    batch_size, max_seq, n, c_total = x.shape
-    c = c_total // 2
+    n, c = x.size(2), x.size(3) // 2
     
-    # Static splits
-    c1 = c - 2 * (c // 3)
-    c2 = c // 3
-    c3 = c // 3
-    freqs_split = freqs.split([c1, c2, c3], dim=1)
-    
-    def process_chunk(x_chunk, f, h, w, freqs_split):
-        seq_len = f * h * w
-        x_complex = torch.view_as_complex(x_chunk.to(torch.float64).reshape(seq_len, n, c, 2))
-        
-        f1 = freqs_split[0][:f].view(f, 1, 1, -1)
-        f2 = freqs_split[1][:h].view(1, h, 1, -1)
-        f3 = freqs_split[2][:w].view(1, 1, w, -1)
-        
-        freq_cat = torch.cat([
-            f1.repeat(1, h, w, 1),
-            f2.repeat(f, 1, w, 1),
-            f3.repeat(f, h, 1, 1)
-        ], dim=-1).reshape(seq_len, 1, c)
-        
-        x_i = torch.view_as_real(x_complex * freq_cat)
-        return x_i.reshape(seq_len, n, c_total)
+    freqs = freqs.split([c - 2 * (c // 3), c // 3, c // 3], dim=1)
     
     output = []
     for i, (f, h, w) in enumerate(grid_sizes.tolist()):
         seq_len = f * h * w
-        x_i = process_chunk(x[i, :seq_len], f, h, w, freqs_split)
         
-        if seq_len < max_seq:
+        @torch.compiler.disable()
+        def view_as_complex_no_compile(x):
+            x_i = torch.view_as_complex(x[i, :seq_len].to(torch.float64).reshape(seq_len, n, -1, 2))
+            return x_i
+        
+        x_i = view_as_complex_no_compile(x)
+
+        f_size = (f, 1, 1, -1)
+        h_size = (1, h, 1, -1)
+        w_size = (1, 1, w, -1)
+        
+        freq_cat = torch.cat([
+            freqs[0][:f].view(*f_size).expand(f, h, w, -1),
+            freqs[1][:h].view(*h_size).expand(f, h, w, -1),
+            freqs[2][:w].view(*w_size).expand(f, h, w, -1)
+        ], dim=-1).reshape(seq_len, 1, -1)
+
+        @torch.compiler.disable()
+        def view_as_real_no_compile(x_i):
+            x_i.mul_(freq_cat)
+            x_i = torch.view_as_real(x_i).flatten(2)
+            return x_i
+       
+        x_i = view_as_real_no_compile(x_i)
+        del freq_cat
+        
+        if seq_len < x.size(1):
             x_i = torch.cat([x_i, x[i, seq_len:]], dim=0)
         output.append(x_i)
     
-    return torch.stack(output)
+    return torch.stack(output).to(torch.float32)
 
 def rope_apply_original(x, grid_sizes, freqs):
     n, c = x.size(2), x.size(3) // 2
