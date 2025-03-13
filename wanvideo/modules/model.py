@@ -671,11 +671,13 @@ class WanModel(ModelMixin, ConfigMixin):
 
         # embeddings
         if control_enabled:
+            self.expanded_patch_embedding.to(device)
             x = [
             self.expanded_patch_embedding(u.unsqueeze(0))
             for u in x
             ]
         else:
+            self.original_patch_embedding.to(self.main_device)
             x = [
             self.original_patch_embedding(u.unsqueeze(0))
             for u in x
