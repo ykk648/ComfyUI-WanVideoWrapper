@@ -1454,7 +1454,7 @@ class WanVideoSampler:
             transformer.enable_teacache = False
 
         if slg_args is not None:
-            assert batched_cfg is None, "Batched cfg is not supported with SLG"
+            assert batched_cfg is not None, "Batched cfg is not supported with SLG"
             transformer.slg_blocks = slg_args["blocks"]
             transformer.slg_start_percent = slg_args["start_percent"]
             transformer.slg_end_percent = slg_args["end_percent"]
