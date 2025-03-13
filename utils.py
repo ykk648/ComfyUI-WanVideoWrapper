@@ -4,7 +4,7 @@ import logging
 from tqdm import tqdm
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log = logging.getLogger(__name__)
-from operator import attrgetter
+
 from accelerate.utils import set_module_tensor_to_device
 def check_diffusers_version():
     try:

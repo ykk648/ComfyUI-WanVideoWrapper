@@ -549,13 +549,14 @@ class WanModel(ModelMixin, ConfigMixin):
         self.rel_l1_thresh = 0.15
         self.teacache_start_step= 0
         self.teacache_end_step = -1
-        self.teacache_cache_device = main_device
-        self.teacache_state = TeaCacheState()
+        self.teacache_cache_device = offload_device
+        self.teacache_state = TeaCacheState(cache_device=self.teacache_cache_device)
         self.teacache_coefficients = teacache_coefficients
         self.teacache_use_coefficients = False
-        # self.l1_history_x = []
-        # self.l1_history_temb = []
-        # self.l1_history_rescaled = []
+
+        self.slg_blocks = None
+        self.slg_start_percent = 0.0
+        self.slg_end_percent = 1.0
 
         # embeddings
         self.patch_embedding = nn.Conv3d(
@@ -630,6 +631,8 @@ class WanModel(ModelMixin, ConfigMixin):
         t,
         context,
         seq_len,
+        is_uncond=False,
+        current_step_percentage=0.0,
         clip_fea=None,
         y=None,
         device=torch.device('cuda'),
@@ -773,6 +776,11 @@ class WanModel(ModelMixin, ConfigMixin):
                 context_lens=context_lens)
 
             for b, block in enumerate(self.blocks):
+                if self.slg_blocks is not None:
+                    if b in self.slg_blocks and is_uncond:
+                        if self.slg_start_percent <= current_step_percentage <= self.slg_end_percent:
+                            log.info(f"SLG: Skipping block {b}")
+                            continue
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.main_device)
                 x = block(x, **kwargs)
@@ -823,6 +831,7 @@ class WanModel(ModelMixin, ConfigMixin):
 class TeaCacheState:
     def __init__(self, cache_device='cpu'):
         self.cache_device = cache_device
+        log.info(f"TeaCache: Using cache device: {self.cache_device}")
         self.states = {}
         self._next_pred_id = 0
     

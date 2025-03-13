@@ -496,12 +496,7 @@ class WanVideoModelLoader:
                 patcher.is_patched = True
 
             del sd
-            gc.collect()
-            mm.soft_empty_cache()
-
-            if load_device == "offload_device":
-                patcher.model.diffusion_model.to(offload_device)
-
+            
             if quantization == "fp8_e4m3fn_fast":
                 from .fp8_optimization import convert_fp8_linear
                 #params_to_keep.update({"ffn"})
@@ -556,6 +551,13 @@ class WanVideoModelLoader:
                         patcher.model.diffusion_model.blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
                 else:
                     patcher.model.diffusion_model = torch.compile(patcher.model.diffusion_model, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])        
+            
+            if load_device == "offload_device" and patcher.model.diffusion_model.device != offload_device:
+                log.info(f"Moving diffusion model from {patcher.model.diffusion_model.device} to {offload_device}")
+                patcher.model.diffusion_model.to(offload_device)
+                gc.collect()
+                mm.soft_empty_cache()
+
         elif "torchao" in quantization:
             try:
                 from torchao.quantization import (
@@ -1079,6 +1081,32 @@ class WanVideoControlEmbeds:
         }
     
         return (embeds,)
+    
+class WanVideoSLG:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "blocks": ("STRING", {"default": "10", "tooltip": "Blocks to skip uncond on, separated by comma."}),
+            "start_percent": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Start percent of the control signal"}),
+            "end_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "End percent of the control signal"}),
+            },
+        }
+
+    RETURN_TYPES = ("SLGARGS", )
+    RETURN_NAMES = ("slg_args",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Skips uncond on the selected blocks"
+
+    def process(self, blocks, start_percent, end_percent):
+        slg_block_list = [int(x.strip()) for x in blocks.split(",")]
+
+        slg_args = {
+            "blocks": slg_block_list,
+            "start_percent": start_percent,
+            "end_percent": end_percent,
+        }
+        return (slg_args,)
 
 
 #region Sampler
@@ -1176,6 +1204,7 @@ class WanVideoSampler:
                 "teacache_args": ("TEACACHEARGS", ),
                 "flowedit_args": ("FLOWEDITARGS", ),
                 "batched_cfg": ("BOOLEAN", {"default": False, "tooltip": "Batc cond and uncond for faster sampling, possibly faster on some hardware, uses more memory"}),
+                "slg_args": ("SLGARGS", ),
             }
         }
 
@@ -1186,7 +1215,7 @@ class WanVideoSampler:
 
     def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
         force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, 
-        teacache_args=None, flowedit_args=None, batched_cfg=False):
+        teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None):
         #assert not (context_options and teacache_args), "Context options cannot currently be used together with teacache."
         patcher = model
         model = model.model
@@ -1424,6 +1453,14 @@ class WanVideoSampler:
         else:
             transformer.enable_teacache = False
 
+        if slg_args is not None:
+            assert batched_cfg is None, "Batched cfg is not supported with SLG"
+            transformer.slg_blocks = slg_args["blocks"]
+            transformer.slg_start_percent = slg_args["start_percent"]
+            transformer.slg_end_percent = slg_args["end_percent"]
+        else:
+            transformer.slg_blocks = None
+
         mm.unload_all_models()
         mm.soft_empty_cache()
         gc.collect()
@@ -1485,11 +1522,10 @@ class WanVideoSampler:
 
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, teacache_state=None):
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
-                
+                current_step_percentage = idx / len(timesteps)
                 control_enabled = False
                 if control_latents is not None:
                     control_enabled = True
-                    current_step_percentage = idx / len(timesteps)
                     if not control_start_percent <= current_step_percentage <= control_end_percent:
                         image_cond = None
                         control_enabled = False
@@ -1511,16 +1547,16 @@ class WanVideoSampler:
                 if not batched_cfg:
                     #cond
                     noise_pred_cond, teacache_state_cond = transformer(
-                        [z], context=[positive_embeds],
+                        [z], context=[positive_embeds], is_uncond=False, current_step_percentage=current_step_percentage,
                         pred_id=teacache_state[0] if teacache_state else None,
                         **base_params
                     )
                     noise_pred_cond = noise_pred_cond[0].to(intermediate_device)
-                    if math.isclose(cfg_scale, 1.0): #skip uncond
+                    if math.isclose(cfg_scale, 1.0):
                         return noise_pred_cond, [teacache_state_cond]
                     #uncond
                     noise_pred_uncond, teacache_state_uncond = transformer(
-                        [z], context=negative_embeds,
+                        [z], context=negative_embeds, is_uncond=True, current_step_percentage=current_step_percentage,
                         pred_id=teacache_state[1] if teacache_state else None,
                         **base_params
                     )
@@ -1529,7 +1565,7 @@ class WanVideoSampler:
                 #batched
                 else:
                     [noise_pred_cond, noise_pred_uncond], teacache_state_cond = transformer(
-                        [z] + [z], context= [positive_embeds] + negative_embeds,
+                        [z] + [z], context= [positive_embeds] + negative_embeds, is_uncond=False, current_step_percentage=current_step_percentage,
                         pred_id=teacache_state[0] if teacache_state else None,
                         **base_params
                     )
@@ -2077,6 +2113,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoTextEmbedBridge": WanVideoTextEmbedBridge,
     "WanVideoFlowEdit": WanVideoFlowEdit,
     "WanVideoControlEmbeds": WanVideoControlEmbeds,
+    "WanVideoSLG": WanVideoSLG,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -2102,4 +2139,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoTextEmbedBridge": "WanVideo TextEmbed Bridge",
     "WanVideoFlowEdit": "WanVideo FlowEdit",
     "WanVideoControlEmbeds": "WanVideo Control Embeds",
+    "WanVideoSLG": "WanVideo SLG",
     }
