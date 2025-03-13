@@ -446,7 +446,7 @@ class WanVideoModelLoader:
             comfy_model.load_device = transformer_load_device
             
             patcher = comfy.model_patcher.ModelPatcher(comfy_model, device, offload_device)
-            patcher.is_patched = False
+            patcher.model.is_patched = False
             
             if lora is not None:
                 for l in lora:
@@ -493,7 +493,7 @@ class WanVideoModelLoader:
                 
                 patcher = apply_lora(patcher, device, transformer_load_device, params_to_keep=params_to_keep, dtype=dtype, base_dtype=base_dtype, state_dict=sd, low_mem_load=lora_low_mem_load)
                 #patcher.load(device, full_load=True)
-                patcher.is_patched = True
+                patcher.model.is_patched = True
 
             del sd
             
@@ -1309,10 +1309,10 @@ class WanVideoSampler:
                 control_start_percent = image_embeds.get("start_percent", 0.0)
                 control_end_percent = image_embeds.get("end_percent", 1.0)
                 
-                if not patcher.is_patched:
-                    print("Patching model for control")
+                if not patcher.model.is_patched:
+                    log.info("Re-loading control LoRA...")
                     patcher = apply_lora(patcher, device, device, low_mem_load=False)
-                    patcher.is_patched = True
+                    patcher.model.is_patched = True
             
         latent_video_length = noise.shape[1]
 
@@ -1529,9 +1529,10 @@ class WanVideoSampler:
                     if not control_start_percent <= current_step_percentage <= control_end_percent:
                         image_cond = None
                         control_enabled = False
-                        if patcher.is_patched:
+                        if patcher.model.is_patched:
+                            log.info("Unloading LoRA...")
                             patcher.unpatch_model(device)
-                            patcher.is_patched = False
+                            patcher.model.is_patched = False
     
                 base_params = {
                     'clip_fea': clip_fea,
