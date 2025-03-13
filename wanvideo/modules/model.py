@@ -779,7 +779,6 @@ class WanModel(ModelMixin, ConfigMixin):
                 if self.slg_blocks is not None:
                     if b in self.slg_blocks and is_uncond:
                         if self.slg_start_percent <= current_step_percentage <= self.slg_end_percent:
-                            log.info(f"SLG: Skipping block {b}")
                             continue
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.main_device)
