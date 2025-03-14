@@ -1440,7 +1440,7 @@ class WanVideoSampler:
            
         pbar = ProgressBar(steps)
 
-        from .latent_preview import prepare_callback
+        from latent_preview import prepare_callback
         callback = prepare_callback(patcher, steps)
 
         #blockswap init
