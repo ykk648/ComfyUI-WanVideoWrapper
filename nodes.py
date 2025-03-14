@@ -1773,20 +1773,20 @@ class WanVideoSampler:
                             if idx >= context_options["image_cond_start_step"]:
                                 #strength = 0.5
                                 #partial_image_cond *= strength
+                                mask = torch.ones(4, partial_img_emb.shape[2], partial_img_emb.shape[3], device=partial_img_emb.device, dtype=partial_img_emb.dtype) #torch.Size([20, 10, 104, 60])
                                 if context_vae is not None:
                                     to_decode = self.previous_noise_pred_context[:,-1,:, :].unsqueeze(1).unsqueeze(0).to(context_vae.dtype)
                                     #to_decode = to_decode.permute(0, 1, 3, 2)
-                                    print("to_decode.shape", to_decode.shape)
+                                    #print("to_decode.shape", to_decode.shape)
                                     image = context_vae.decode(to_decode, device=device, tiled=False)[0]
-                                    print("decoded image.shape", image.shape) #torch.Size([3, 37, 832, 480])
+                                    #print("decoded image.shape", image.shape) #torch.Size([3, 37, 832, 480])
                                     image = context_vae.encode(image.unsqueeze(0).to(context_vae.dtype), device=device, tiled=False)
-                                    print("encoded image.shape", image.shape)
-                                    #partial_img_emb[:, 0, :, :] = image[0][:,0,:,:]
-                                print("partial_img_emb.shape", partial_img_emb.shape)
-                                mask = torch.ones(4, partial_img_emb.shape[2], partial_img_emb.shape[3], device=partial_img_emb.device, dtype=partial_img_emb.dtype) #torch.Size([20, 10, 104, 60])
-                                print("mask.shape", mask.shape)
-                                print("self.previous_noise_pred_context.shape", self.previous_noise_pred_context.shape) #torch.Size([16, 10, 104, 60])
-                                partial_img_emb[:, 0, :, :] =  torch.cat([image[0][:,0,:,:], mask], dim=0)
+                                    #print("encoded image.shape", image.shape)
+                                    #partial_img_emb[:, 0, :, :] = image[0][:,0,:,:]                                        
+                                    #print("partial_img_emb.shape", partial_img_emb.shape)
+                                    #print("mask.shape", mask.shape)
+                                    #print("self.previous_noise_pred_context.shape", self.previous_noise_pred_context.shape) #torch.Size([16, 10, 104, 60])
+                                    partial_img_emb[:, 0, :, :] =  torch.cat([image[0][:,0,:,:], mask], dim=0)
                             else:
                                 partial_img_emb[:, 0, :, :] =  partial_image_cond
                       
@@ -1805,7 +1805,7 @@ class WanVideoSampler:
 
                     if teacache_args is not None:
                         self.window_tracker.teacache_states[window_id] = new_teacache
-                    if image_index > 0:
+                    if image_cond is not None and image_index > 0:
                         self.previous_noise_pred_context = noise_pred_context
 
                     window_mask = create_window_mask(noise_pred_context, c, latent_video_length, context_overlap, looped=is_looped)                    
