@@ -1918,7 +1918,7 @@ class WanVideoSampler:
             pass
 
         return ({
-            "samples": x0.unsqueeze(0).cpu()
+            "samples": x0.unsqueeze(0).cpu(), "looped": is_looped
             }, )
     
 class WindowTracker:
@@ -1951,7 +1951,7 @@ class WanVideoDecode:
         return {"required": {
                     "vae": ("WANVAE",),
                     "samples": ("LATENT",),
-                    "enable_vae_tiling": ("BOOLEAN", {"default": True, "tooltip": "Drastically reduces memory use but may introduce seams"}),
+                    "enable_vae_tiling": ("BOOLEAN", {"default": False, "tooltip": "Drastically reduces memory use but may introduce seams"}),
                     "tile_x": ("INT", {"default": 272, "min": 64, "max": 2048, "step": 1, "tooltip": "Tile size in pixels, smaller values use less VRAM, may introduce more seams"}),
                     "tile_y": ("INT", {"default": 272, "min": 64, "max": 2048, "step": 1, "tooltip": "Tile size in pixels, smaller values use less VRAM, may introduce more seams"}),
                     "tile_stride_x": ("INT", {"default": 144, "min": 32, "max": 2048, "step": 32, "tooltip": "Tile stride in pixels, smaller values use less VRAM, may introduce more seams"}),
@@ -1975,6 +1975,12 @@ class WanVideoDecode:
 
         mm.soft_empty_cache()
 
+        is_looped = samples.get("looped", False)
+        warmup_latent_count = 3
+
+        if is_looped:
+            latents = torch.cat([latents, latents[:, :, :warmup_latent_count]], dim=2)
+
         if isinstance(vae, TAEHV):            
             image = vae.decode_video(latents.permute(0, 2, 1, 3, 4))[0].permute(1, 0, 2, 3)
         else:
@@ -1982,6 +1988,9 @@ class WanVideoDecode:
             vae.model.clear_cache()
             image = (image - image.min()) / (image.max() - image.min())
         vae.to(offload_device)
+
+        if is_looped:
+            image = image[:, warmup_latent_count * 4:]
         
         mm.soft_empty_cache()
 
@@ -1998,7 +2007,7 @@ class WanVideoEncode:
         return {"required": {
                     "vae": ("WANVAE",),
                     "image": ("IMAGE",),
-                    "enable_vae_tiling": ("BOOLEAN", {"default": True, "tooltip": "Drastically reduces memory use but may introduce seams"}),
+                    "enable_vae_tiling": ("BOOLEAN", {"default": False, "tooltip": "Drastically reduces memory use but may introduce seams"}),
                     "tile_x": ("INT", {"default": 272, "min": 64, "max": 2048, "step": 1, "tooltip": "Tile size in pixels, smaller values use less VRAM, may introduce more seams"}),
                     "tile_y": ("INT", {"default": 272, "min": 64, "max": 2048, "step": 1, "tooltip": "Tile size in pixels, smaller values use less VRAM, may introduce more seams"}),
                     "tile_stride_x": ("INT", {"default": 144, "min": 32, "max": 2048, "step": 32, "tooltip": "Tile stride in pixels, smaller values use less VRAM, may introduce more seams"}),
