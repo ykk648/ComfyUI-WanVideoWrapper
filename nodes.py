@@ -15,6 +15,7 @@ from .wanvideo.utils.fm_solvers_unipc import FlowUniPCMultistepScheduler
 from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
 
 from .enhance_a_video.globals import enable_enhance, disable_enhance, set_enhance_weight, set_num_frames
+from .taehv import TAEHV
 
 from accelerate import init_empty_weights
 from accelerate.utils import set_module_tensor_to_device
@@ -675,6 +676,42 @@ class WanVideoVAELoader:
         vae.eval()
         vae.to(device = offload_device, dtype = dtype)
             
+
+        return (vae,)
+
+class WanVideoTinyVAELoader:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "model_name": (folder_paths.get_filename_list("vae_approx"), {"tooltip": "These models are loaded from 'ComfyUI/models/vae_approx'"}),
+            },
+            "optional": {
+                "precision": (["fp16", "fp32", "bf16"],
+                    {"default": "fp16"}
+                ),
+            }
+        }
+
+    RETURN_TYPES = ("WANVAE",)
+    RETURN_NAMES = ("vae", )
+    FUNCTION = "loadmodel"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Loads Hunyuan VAE model from 'ComfyUI/models/vae'"
+
+    def loadmodel(self, model_name, precision):
+        from .taehv import TAEHV
+
+        device = mm.get_torch_device()
+        offload_device = mm.unet_offload_device()
+
+        dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[precision]
+        model_path = folder_paths.get_full_path("vae_approx", model_name)
+        vae_sd = load_torch_file(model_path, safe_load=True)
+        
+        vae = TAEHV(vae_sd)
+       
+        vae.to(device = offload_device, dtype = dtype)
 
         return (vae,)
 
@@ -1403,7 +1440,7 @@ class WanVideoSampler:
            
         pbar = ProgressBar(steps)
 
-        from latent_preview import prepare_callback
+        from .latent_preview import prepare_callback
         callback = prepare_callback(patcher, steps)
 
         #blockswap init
@@ -1778,9 +1815,13 @@ class WanVideoSampler:
                                     to_decode = self.previous_noise_pred_context[:,-1,:, :].unsqueeze(1).unsqueeze(0).to(context_vae.dtype)
                                     #to_decode = to_decode.permute(0, 1, 3, 2)
                                     #print("to_decode.shape", to_decode.shape)
-                                    image = context_vae.decode(to_decode, device=device, tiled=False)[0]
+                                    if isinstance(context_vae, TAEHV):
+                                        image = context_vae.decode_video(to_decode.permute(0, 2, 1, 3, 4), parallel=False)[0].permute(1, 0, 2, 3)
+                                        image = context_vae.encode_video(image.permute(0, 2, 1, 3, 4), parallel=False).permute(0, 2, 1, 3, 4)
+                                    else:
+                                        image = context_vae.decode(to_decode, device=device, tiled=False)[0]
+                                        image = context_vae.encode(image.unsqueeze(0).to(context_vae.dtype), device=device, tiled=False)
                                     #print("decoded image.shape", image.shape) #torch.Size([3, 37, 832, 480])
-                                    image = context_vae.encode(image.unsqueeze(0).to(context_vae.dtype), device=device, tiled=False)
                                     #print("encoded image.shape", image.shape)
                                     #partial_img_emb[:, 0, :, :] = image[0][:,0,:,:]                                        
                                     #print("partial_img_emb.shape", partial_img_emb.shape)
@@ -1934,14 +1975,17 @@ class WanVideoDecode:
 
         mm.soft_empty_cache()
 
-        image = vae.decode(latents, device=device, tiled=enable_vae_tiling, tile_size=(tile_x, tile_y), tile_stride=(tile_stride_x, tile_stride_y))[0]
-        print(image.shape)
-        print(image.min(), image.max())
+        if isinstance(vae, TAEHV):            
+            image = vae.decode_video(latents.permute(0, 2, 1, 3, 4))[0].permute(1, 0, 2, 3)
+        else:
+            image = vae.decode(latents, device=device, tiled=enable_vae_tiling, tile_size=(tile_x, tile_y), tile_stride=(tile_stride_x, tile_stride_y))[0]
+            vae.model.clear_cache()
+            image = (image - image.min()) / (image.max() - image.min())
         vae.to(offload_device)
-        vae.model.clear_cache()
+        
         mm.soft_empty_cache()
 
-        image = (image - image.min()) / (image.max() - image.min())
+        
         image = torch.clamp(image, 0.0, 1.0)
         image = image.permute(1, 2, 3, 0).cpu().float()
 
@@ -1978,16 +2022,21 @@ class WanVideoEncode:
 
         vae.to(device)
 
-        image = (image.clone() * 2.0 - 1.0).to(vae.dtype).to(device).unsqueeze(0).permute(0, 4, 1, 2, 3) # B, C, T, H, W
+        image = (image.clone()).to(vae.dtype).to(device).unsqueeze(0).permute(0, 4, 1, 2, 3) # B, C, T, H, W
         if noise_aug_strength > 0.0:
             image = add_noise_to_reference_video(image, ratio=noise_aug_strength)
-        
-        latents = vae.encode(image, device=device, tiled=enable_vae_tiling, tile_size=(tile_x, tile_y), tile_stride=(tile_stride_x, tile_stride_y))
+
+        if isinstance(vae, TAEHV):
+            latents = vae.encode_video(image.permute(0, 2, 1, 3, 4), parallel=False)# B, T, C, H, W
+            latents = latents.permute(0, 2, 1, 3, 4)
+        else:
+            latents = vae.encode(image * 2.0 - 1.0, device=device, tiled=enable_vae_tiling, tile_size=(tile_x, tile_y), tile_stride=(tile_stride_x, tile_stride_y))
+            vae.model.clear_cache()
         if latent_strength != 1.0:
             latents *= latent_strength
 
         vae.to(offload_device)
-        vae.model.clear_cache()
+        
         mm.soft_empty_cache()
         print("encoded latents shape",latents.shape)
 
@@ -2121,6 +2170,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoFlowEdit": WanVideoFlowEdit,
     "WanVideoControlEmbeds": WanVideoControlEmbeds,
     "WanVideoSLG": WanVideoSLG,
+    "WanVideoTinyVAELoader": WanVideoTinyVAELoader,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -2147,4 +2197,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoFlowEdit": "WanVideo FlowEdit",
     "WanVideoControlEmbeds": "WanVideo Control Embeds",
     "WanVideoSLG": "WanVideo SLG",
+    "WanVideoTinyVAELoader": "WanVideo Tiny VAE Loader",
     }
