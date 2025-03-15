@@ -1353,6 +1353,7 @@ class WanVideoSampler:
             
         latent_video_length = noise.shape[1]
 
+        is_looped = False
         if context_options is not None:
             def create_window_mask(noise_pred_context, c, latent_video_length, context_overlap, looped=False):
                 window_mask = torch.ones_like(noise_pred_context)
