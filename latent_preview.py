@@ -90,6 +90,7 @@ def get_previewer(device, latent_format):
         if previewer is None:
             if latent_format.latent_rgb_factors is not None:
                 previewer = Latent2RGBPreviewer(latent_format.latent_rgb_factors, latent_format.latent_rgb_factors_bias)
+                previewer = WrappedPreviewer(previewer)
     return previewer
 
 def prepare_callback(model, steps, x0_output_dict=None):
@@ -182,8 +183,17 @@ class WrappedPreviewer(LatentPreviewer):
             #NOTE: send sync already uses call_soon_threadsafe
             serv.send_sync(server.BinaryEventTypes.PREVIEW_IMAGE,
                            message.getvalue(), serv.client_id)
-            ind = (ind + 1) % leng
+            ind = (ind + 1) % ((leng-1) * 4 - 1)
     def decode_latent_to_preview(self, x0):
-        x0 = x0.unsqueeze(0)
-        x_sample = self.taesd.decode_video(x0, parallel=False)[0].permute(0, 2, 3, 1)
-        return x_sample
+        if hasattr(self, 'taesd'):
+            x0 = x0.unsqueeze(0)
+            x_sample = self.taesd.decode_video(x0, parallel=False, show_progress_bar=False)[0].permute(0, 2, 3, 1)
+            return x_sample
+        else:
+            self.latent_rgb_factors = self.latent_rgb_factors.to(dtype=x0.dtype, device=x0.device)
+            if self.latent_rgb_factors_bias is not None:
+                self.latent_rgb_factors_bias = self.latent_rgb_factors_bias.to(dtype=x0.dtype, device=x0.device)
+            latent_image = F.linear(x0.movedim(1, -1), self.latent_rgb_factors,
+                                    bias=self.latent_rgb_factors_bias)
+            return latent_image
+        
