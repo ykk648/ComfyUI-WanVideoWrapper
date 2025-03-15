@@ -361,7 +361,7 @@
       },
       "widgets_values": [
         "WanVideo\\Wan2_1-T2V-1_3B_fp32.safetensors",
-        "fp16_fast",
+        "fp16",
         "disabled",
         "offload_device",
         "sageattn"
