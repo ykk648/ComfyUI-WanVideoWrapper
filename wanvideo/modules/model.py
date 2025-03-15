@@ -115,7 +115,7 @@ def rope_apply(x, grid_sizes, freqs):
             freqs[0][:f].view(*f_size).expand(f, h, w, -1),
             freqs[1][:h].view(*h_size).expand(f, h, w, -1),
             freqs[2][:w].view(*w_size).expand(f, h, w, -1)
-        ], dim=-1).reshape(seq_len, 1, -1)
+        ], dim=-1).reshape(seq_len, 1, -1).to(x.device)
 
         @torch.compiler.disable()
         def view_as_real_no_compile(x_i):
