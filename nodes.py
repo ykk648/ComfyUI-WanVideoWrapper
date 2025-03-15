@@ -1242,6 +1242,7 @@ class WanVideoSampler:
                 "flowedit_args": ("FLOWEDITARGS", ),
                 "batched_cfg": ("BOOLEAN", {"default": False, "tooltip": "Batc cond and uncond for faster sampling, possibly faster on some hardware, uses more memory"}),
                 "slg_args": ("SLGARGS", ),
+                "rope_function": (["default", "comfy"], {"default": "default", "tooltip": "!EXPERIMENTAL! Comfy's RoPE implementation doesn't use complex numbers and can thus be compiled, that should be a lot faster when using torch.compile"}),
             }
         }
 
@@ -1252,7 +1253,7 @@ class WanVideoSampler:
 
     def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
         force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, 
-        teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None):
+        teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default"):
         #assert not (context_options and teacache_args), "Context options cannot currently be used together with teacache."
         patcher = model
         model = model.model
@@ -1426,13 +1427,20 @@ class WanVideoSampler:
 
         latent = noise.to(device)
 
-        d = transformer.dim // transformer.num_heads
-        freqs = torch.cat([
-            rope_params(1024, d - 4 * (d // 6), L_test=latent_video_length, k=riflex_freq_index),
-            rope_params(1024, 2 * (d // 6)),
-            rope_params(1024, 2 * (d // 6))
-        ],
-        dim=1)
+        freqs = None
+        transformer.rope_embedder.k = None
+        transformer.rope_embedder.num_frames = None
+        if rope_function=="comfy":
+            transformer.rope_embedder.k = riflex_freq_index
+            transformer.rope_embedder.num_frames = latent_video_length
+        else:
+            d = transformer.dim // transformer.num_heads
+            freqs = torch.cat([
+                rope_params(1024, d - 4 * (d // 6), L_test=latent_video_length, k=riflex_freq_index),
+                rope_params(1024, 2 * (d // 6)),
+                rope_params(1024, 2 * (d // 6))
+            ],
+            dim=1)
 
         if not isinstance(cfg, list):
             cfg = [cfg] * (steps +1)
