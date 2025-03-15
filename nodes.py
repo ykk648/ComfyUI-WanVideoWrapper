@@ -1460,7 +1460,7 @@ class WanVideoSampler:
             transformer.use_non_blocking = model["block_swap_args"].get("use_non_blocking", True)
             for name, param in transformer.named_parameters():
                 if "block" not in name:
-                    param.data = param.data.to(device, non_blocking=transformer.use_non_blocking)
+                    param.data = param.data.to(device)
                 elif model["block_swap_args"]["offload_txt_emb"] and "txt_emb" in name:
                     param.data = param.data.to(offload_device, non_blocking=transformer.use_non_blocking)
                 elif model["block_swap_args"]["offload_img_emb"] and "img_emb" in name:
