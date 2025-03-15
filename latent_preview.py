@@ -73,7 +73,6 @@ def get_previewer(device, latent_format):
     method = args.preview_method
     if method != LatentPreviewMethod.NoPreviews:
         # TODO previewer methods
-        taesd_decoder_path = None
 
         if method == LatentPreviewMethod.Auto:
             method = LatentPreviewMethod.Latent2RGB

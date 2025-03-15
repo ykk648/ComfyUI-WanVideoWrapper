@@ -46,6 +46,9 @@ class WanVideoBlockSwap:
                 "offload_img_emb": ("BOOLEAN", {"default": False, "tooltip": "Offload img_emb to offload_device"}),
                 "offload_txt_emb": ("BOOLEAN", {"default": False, "tooltip": "Offload time_emb to offload_device"}),
             },
+            "optional": {
+                "use_non_blocking": ("BOOLEAN", {"default": True, "tooltip": "Use non-blocking memory transfer for offloading, reserves more RAM but is faster"}),
+            },
         }
     RETURN_TYPES = ("BLOCKSWAPARGS",)
     RETURN_NAMES = ("block_swap_args",)
@@ -1454,19 +1457,21 @@ class WanVideoSampler:
 
         #blockswap init
         if model["block_swap_args"] is not None:
+            transformer.use_non_blocking = model["block_swap_args"].get("use_non_blocking", True)
             for name, param in transformer.named_parameters():
                 if "block" not in name:
-                    param.data = param.data.to(device)
+                    param.data = param.data.to(device, non_blocking=transformer.use_non_blocking)
                 elif model["block_swap_args"]["offload_txt_emb"] and "txt_emb" in name:
-                    param.data = param.data.to(offload_device)
+                    param.data = param.data.to(offload_device, non_blocking=transformer.use_non_blocking)
                 elif model["block_swap_args"]["offload_img_emb"] and "img_emb" in name:
-                    param.data = param.data.to(offload_device)
+                    param.data = param.data.to(offload_device, non_blocking=transformer.use_non_blocking)
 
             transformer.block_swap(
                 model["block_swap_args"]["blocks_to_swap"] - 1 ,
                 model["block_swap_args"]["offload_txt_emb"],
                 model["block_swap_args"]["offload_img_emb"],
             )
+
         elif model["auto_cpu_offload"]:
             for module in transformer.modules():
                 if hasattr(module, "offload"):
