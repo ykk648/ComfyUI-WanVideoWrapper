@@ -1815,10 +1815,11 @@ class WanVideoSampler:
                                 if context_vae is not None:
                                     to_decode = self.previous_noise_pred_context[:,-1,:, :].unsqueeze(1).unsqueeze(0).to(context_vae.dtype)
                                     #to_decode = to_decode.permute(0, 1, 3, 2)
-                                    #print("to_decode.shape", to_decode.shape)
+                                    print("to_decode.shape", to_decode.shape)
                                     if isinstance(context_vae, TAEHV):
-                                        image = context_vae.decode_video(to_decode.permute(0, 2, 1, 3, 4), parallel=False)[0].permute(1, 0, 2, 3)
-                                        image = context_vae.encode_video(image.permute(0, 2, 1, 3, 4), parallel=False).permute(0, 2, 1, 3, 4)
+                                        image = context_vae.decode_video(to_decode.permute(0, 2, 1, 3, 4), parallel=False)
+                                        print("image.shape", image.shape)
+                                        image = context_vae.encode_video(image.repeat(1, 5, 1, 1, 1), parallel=False).permute(0, 2, 1, 3, 4)
                                     else:
                                         image = context_vae.decode(to_decode, device=device, tiled=False)[0]
                                         image = context_vae.encode(image.unsqueeze(0).to(context_vae.dtype), device=device, tiled=False)

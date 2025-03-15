@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tiny AutoEncoder for Hunyuan Video
+Tiny AutoEncoder for Hunyuan Video https://github.com/madebyollin/taehv
 (DNN for encoding / decoding videos to Hunyuan Video's latent space)
 """
 import torch
