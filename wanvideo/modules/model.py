@@ -717,8 +717,8 @@ class WanModel(ModelMixin, ConfigMixin):
             List[Tensor]:
                 List of denoised video tensors with original input shapes [C_out, F, H / 8, W / 8]
         """        
-        if self.model_type == 'i2v':
-            assert clip_fea is not None and y is not None
+        #if self.model_type == 'i2v':
+        #    assert clip_fea is not None and y is not None
         # params
         device = self.patch_embedding.weight.device
         if freqs is not None and freqs.device != device:

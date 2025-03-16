@@ -71,7 +71,7 @@ class AutoWrappedLinear(torch.nn.Linear):
         return torch.nn.functional.linear(x, weight, bias)
 
 
-def enable_vram_management_recursively(model: torch.nn.Module, module_map: dict, module_config: dict, max_num_param=None, overflow_module_config: dict = None, total_num_param=0):
+def enable_vram_management_recursively(model: torch.nn.Module, module_map: dict, module_config: dict, max_num_param=None, overflow_module_config: dict = None, total_num_param=0, compile_args=None):
     for name, module in model.named_children():
         for source_module, target_module in module_map.items():
             if isinstance(module, source_module):
@@ -83,7 +83,13 @@ def enable_vram_management_recursively(model: torch.nn.Module, module_map: dict,
                     module_config_ = overflow_module_config
                 else:
                     module_config_ = module_config
-                module_ = target_module(module, **module_config_)
+                if compile_args is not None:
+                    print("Compiling", name)
+                    torch._dynamo.config.cache_size_limit = compile_args["dynamo_cache_size_limit"]
+                    torch._dynamo.config.recompile_limit = compile_args["dynamo_cache_size_limit"]
+                    module_ = torch.compile(target_module(module, **module_config_), fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
+                else:
+                    module_ = target_module(module, **module_config_)
                 setattr(model, name, module_)
                 total_num_param += num_param
                 break
@@ -92,6 +98,6 @@ def enable_vram_management_recursively(model: torch.nn.Module, module_map: dict,
     return total_num_param
 
 
-def enable_vram_management(model: torch.nn.Module, module_map: dict, module_config: dict, max_num_param=None, overflow_module_config: dict = None):
-    enable_vram_management_recursively(model, module_map, module_config, max_num_param, overflow_module_config, total_num_param=0)
+def enable_vram_management(model: torch.nn.Module, module_map: dict, module_config: dict, max_num_param=None, overflow_module_config: dict = None, compile_args=None):
+    enable_vram_management_recursively(model, module_map, module_config, max_num_param, overflow_module_config, total_num_param=0, compile_args=compile_args)
     model.vram_management_enabled = True

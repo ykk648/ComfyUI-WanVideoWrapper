@@ -545,10 +545,11 @@ class WanVideoModelLoader:
                         computation_dtype=base_dtype,
                         computation_device=device,
                     ),
+                    compile_args = compile_args,
                 )
 
             #compile
-            if compile_args is not None:
+            if compile_args is not None and vram_management_args is None:
                 torch._dynamo.config.cache_size_limit = compile_args["dynamo_cache_size_limit"]
                 if compile_args["compile_transformer_blocks_only"]:
                     for i, block in enumerate(patcher.model.diffusion_model.blocks):
