@@ -657,7 +657,7 @@ class WanVideoVAELoader:
     RETURN_NAMES = ("vae", )
     FUNCTION = "loadmodel"
     CATEGORY = "WanVideoWrapper"
-    DESCRIPTION = "Loads Hunyuan VAE model from 'ComfyUI/models/vae'"
+    DESCRIPTION = "Loads Wan VAE model from 'ComfyUI/models/vae'"
 
     def loadmodel(self, model_name, precision):
         from .wanvideo.wan_video_vae import WanVideoVAE
@@ -701,7 +701,7 @@ class WanVideoTinyVAELoader:
     RETURN_NAMES = ("vae", )
     FUNCTION = "loadmodel"
     CATEGORY = "WanVideoWrapper"
-    DESCRIPTION = "Loads Hunyuan VAE model from 'ComfyUI/models/vae'"
+    DESCRIPTION = "Loads Wan VAE model from 'ComfyUI/models/vae'"
 
     def loadmodel(self, model_name, precision):
         from .taehv import TAEHV
@@ -776,7 +776,7 @@ class LoadWanVideoT5TextEncoder:
     RETURN_NAMES = ("wan_t5_model", )
     FUNCTION = "loadmodel"
     CATEGORY = "WanVideoWrapper"
-    DESCRIPTION = "Loads Hunyuan text_encoder model from 'ComfyUI/models/LLM'"
+    DESCRIPTION = "Loads Wan text_encoder model from 'ComfyUI/models/LLM'"
 
     def loadmodel(self, model_name, precision, load_device="offload_device", quantization="disabled"):
        
@@ -826,7 +826,7 @@ class LoadWanVideoClipTextEncoder:
     RETURN_NAMES = ("wan_clip_vision", )
     FUNCTION = "loadmodel"
     CATEGORY = "WanVideoWrapper"
-    DESCRIPTION = "Loads Hunyuan text_encoder model from 'ComfyUI/models/text_encoders'"
+    DESCRIPTION = "Loads Wan text_encoder model from 'ComfyUI/models/text_encoders'"
 
     def loadmodel(self, model_name, precision, load_device="offload_device"):
        
