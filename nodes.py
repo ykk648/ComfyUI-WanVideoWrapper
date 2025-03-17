@@ -1220,7 +1220,7 @@ class WanVideoLoopArgs:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-                "shift_skip": ("INT", {"default": 6, "min": 0}),
+                "shift_skip": ("INT", {"default": 6, "min": 0, "tooltip": "Skip step of latent shift"}),
             },
         }
 
