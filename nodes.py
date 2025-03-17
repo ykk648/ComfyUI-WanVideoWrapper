@@ -1669,6 +1669,7 @@ class WanVideoSampler:
             masks = mask.repeat(len(timesteps), 1, 1, 1, 1).to(device) 
             masks = masks > thresholds
 
+        latent_shift_loop = False
         if loop_args is not None:
             latent_shift_loop = True
             is_looped = True
