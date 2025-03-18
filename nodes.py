@@ -1694,6 +1694,7 @@ class WanVideoSampler:
                     )
                     mask = masks[idx]
                     mask = mask.to(latent)
+                    print(mask.shape, image_latent.shape, latent.shape)
                     latent = image_latent * mask + latent * (1-mask)
                     # end diff diff
 
@@ -2105,33 +2106,21 @@ class WanVideoEncode:
         vae.to(offload_device)
         
         mm.soft_empty_cache()
-        print("encoded latents shape",latents.shape)
+        log.info(f"encoded latents shape {latents.shape}")
 
         if mask is not None: #B, H, W
-            B, H, W = mask.shape
-            target_frames = latents.shape[2]
             target_h, target_w = latents.shape[3:]
-            
-            # Temporal: pad/truncate
-            if B > target_frames:
-                mask = mask[:target_frames]
-            elif B < target_frames:
-                padding = torch.zeros((target_frames - B, H, W), device=mask.device)
-                mask = torch.cat([mask, padding], dim=0)
-            
-            # Spatial: resize each frame
+
             mask = torch.nn.functional.interpolate(
-                mask.unsqueeze(1),  # Add channel dim for interpolate
-                size=(target_h, target_w),
-                mode='bilinear'
-            ).squeeze(1)  # Remove channel dim
+                mask.unsqueeze(0).unsqueeze(0),  # Add batch and channel dims [1,1,T,H,W]
+                size=(latents.shape[2], target_h, target_w),
+                mode='trilinear',
+                align_corners=False
+            ).squeeze(0)  # Remove batch dim, keep channel dim
             
             # Add batch & channel dims for final output
-            mask = mask.unsqueeze(0).unsqueeze(0)
-            mask = mask.repeat(1, latents.shape[1], 1, 1, 1)
-            print("mask shape",mask.shape)
-
-
+            mask = mask.unsqueeze(0).repeat(1, latents.shape[1], 1, 1, 1)
+ 
         return ({"samples": latents, "mask": mask},)
 
 class WanVideoLatentPreview:
