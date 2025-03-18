@@ -2102,12 +2102,14 @@ class WanVideoEncode:
         if latent_strength != 1.0:
             latents *= latent_strength
 
-        vae.to(offload_device)
-        
-        mm.soft_empty_cache()
         log.info(f"encoded latents shape {latents.shape}")
 
-        if mask is not None: #B, H, W
+        if mask is None:
+            vae.to(offload_device)
+        else:
+            #latent_mask = mask.clone().to(vae.dtype).to(device) * 2.0 - 1.0
+            #latent_mask = latent_mask.unsqueeze(0).unsqueeze(0).repeat(1, 3, 1, 1, 1)
+            #latent_mask = vae.encode(latent_mask, device=device, tiled=enable_vae_tiling, tile_size=(tile_x, tile_y), tile_stride=(tile_stride_x, tile_stride_y))
             target_h, target_w = latents.shape[3:]
 
             mask = torch.nn.functional.interpolate(
@@ -2118,9 +2120,12 @@ class WanVideoEncode:
             ).squeeze(0)  # Remove batch dim, keep channel dim
             
             # Add batch & channel dims for final output
-            mask = mask.unsqueeze(0).repeat(1, latents.shape[1], 1, 1, 1)
+            latent_mask = mask.unsqueeze(0).repeat(1, latents.shape[1], 1, 1, 1)
+            log.info(f"latent mask shape {latent_mask.shape}")
+            vae.to(offload_device)
+        mm.soft_empty_cache()
  
-        return ({"samples": latents, "mask": mask},)
+        return ({"samples": latents, "mask": latent_mask},)
 
 class WanVideoLatentPreview:
     @classmethod
