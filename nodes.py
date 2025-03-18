@@ -1694,7 +1694,6 @@ class WanVideoSampler:
                     )
                     mask = masks[idx]
                     mask = mask.to(latent)
-                    print(mask.shape, image_latent.shape, latent.shape)
                     latent = image_latent * mask + latent * (1-mask)
                     # end diff diff
 
