@@ -2103,7 +2103,7 @@ class WanVideoEncode:
             latents *= latent_strength
 
         log.info(f"encoded latents shape {latents.shape}")
-
+        latent_mask = None
         if mask is None:
             vae.to(offload_device)
         else:
