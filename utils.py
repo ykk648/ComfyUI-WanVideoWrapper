@@ -55,6 +55,7 @@ def apply_lora(model, device_to, transformer_load_device, params_to_keep=None, d
                 if m.comfy_patched_weights == True:
                     continue
             for param in params:
+                name = name.replace("._orig_mod.", ".") # torch compiled modules have this prefix
                 if low_mem_load:
                     dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
                     if name.startswith("diffusion_model."):
