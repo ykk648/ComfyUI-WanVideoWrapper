@@ -174,6 +174,8 @@ def filter_state_dict_by_blocks(state_dict, blocks_mapping):
 
             if block_key in blocks_mapping:
                 filtered_dict[key] = state_dict[key]
+        else:
+            filtered_dict[key] = state_dict[key]
 
     return filtered_dict
 
