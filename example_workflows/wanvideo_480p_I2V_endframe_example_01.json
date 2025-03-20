@@ -16,7 +16,7 @@
         46
       ],
       "flags": {},
-      "order": 28,
+      "order": 29,
       "mode": 2,
       "inputs": [
         {
@@ -54,7 +54,7 @@
         200
       ],
       "flags": {},
-      "order": 23,
+      "order": 24,
       "mode": 2,
       "inputs": [
         {
@@ -127,7 +127,7 @@
         200
       ],
       "flags": {},
-      "order": 22,
+      "order": 23,
       "mode": 2,
       "inputs": [
         {
@@ -437,9 +437,7 @@
           "name": "torch_compile_args",
           "type": "WANCOMPILEARGS",
           "slot_index": 0,
-          "links": [
-            67
-          ]
+          "links": []
         }
       ],
       "properties": {
@@ -457,70 +455,6 @@
       "bgcolor": "#335"
     },
     {
-      "id": 22,
-      "type": "WanVideoModelLoader",
-      "pos": [
-        150,
-        -780
-      ],
-      "size": [
-        477.4410095214844,
-        226.43276977539062
-      ],
-      "flags": {},
-      "order": 24,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "compile_args",
-          "shape": 7,
-          "type": "WANCOMPILEARGS",
-          "link": 67
-        },
-        {
-          "name": "block_swap_args",
-          "shape": 7,
-          "type": "BLOCKSWAPARGS",
-          "link": null
-        },
-        {
-          "name": "lora",
-          "shape": 7,
-          "type": "WANVIDLORA",
-          "link": null
-        },
-        {
-          "name": "vram_management_args",
-          "shape": 7,
-          "type": "VRAM_MANAGEMENTARGS",
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "model",
-          "type": "WANVIDEOMODEL",
-          "slot_index": 0,
-          "links": [
-            29,
-            103
-          ]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "WanVideoModelLoader"
-      },
-      "widgets_values": [
-        "WanVideo\\Wan2_1-I2V-14B-480P_fp8_e4m3fn.safetensors",
-        "fp16_fast",
-        "fp8_e4m3fn",
-        "offload_device",
-        "sageattn"
-      ],
-      "color": "#223",
-      "bgcolor": "#335"
-    },
-    {
       "id": 16,
       "type": "WanVideoTextEncode",
       "pos": [
@@ -532,7 +466,7 @@
         261.5306701660156
       ],
       "flags": {},
-      "order": 29,
+      "order": 28,
       "mode": 0,
       "inputs": [
         {
@@ -1780,6 +1714,70 @@
           }
         }
       }
+    },
+    {
+      "id": 22,
+      "type": "WanVideoModelLoader",
+      "pos": [
+        150,
+        -780
+      ],
+      "size": [
+        477.4410095214844,
+        226.43276977539062
+      ],
+      "flags": {},
+      "order": 22,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "compile_args",
+          "shape": 7,
+          "type": "WANCOMPILEARGS",
+          "link": null
+        },
+        {
+          "name": "block_swap_args",
+          "shape": 7,
+          "type": "BLOCKSWAPARGS",
+          "link": null
+        },
+        {
+          "name": "lora",
+          "shape": 7,
+          "type": "WANVIDLORA",
+          "link": null
+        },
+        {
+          "name": "vram_management_args",
+          "shape": 7,
+          "type": "VRAM_MANAGEMENTARGS",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "WANVIDEOMODEL",
+          "slot_index": 0,
+          "links": [
+            29,
+            103
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WanVideoModelLoader"
+      },
+      "widgets_values": [
+        "WanVideo\\Wan2_1-I2V-14B-480P_fp8_e4m3fn.safetensors",
+        "fp16",
+        "fp8_e4m3fn",
+        "offload_device",
+        "sdpa"
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
     }
   ],
   "links": [
@@ -1838,14 +1836,6 @@
       46,
       1,
       "CONDITIONING"
-    ],
-    [
-      67,
-      35,
-      0,
-      22,
-      0,
-      "WANCOMPILEARGS"
     ],
     [
       90,
@@ -2108,8 +2098,8 @@
     "ds": {
       "scale": 0.6727499949326058,
       "offset": [
-        1206.2021918732296,
-        900.4888503967259
+        1095.2150100984568,
+        1201.7399667672603
       ]
     },
     "node_versions": {
