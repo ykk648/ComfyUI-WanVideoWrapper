@@ -1124,7 +1124,8 @@ class WanVideoImageToVideoEncode:
             "num_frames": ("INT", {"default": 81, "min": 1, "max": 10000, "step": 4, "tooltip": "Number of frames to encode"}),
             "clip_embeds": ("WANVIDIMAGE_CLIPEMBEDS", {"tooltip": "Clip vision encoded image"}),
             "noise_aug_strength": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 10.0, "step": 0.001, "tooltip": "Strength of noise augmentation, helpful for I2V where some noise can add motion and give sharper results"}),
-            "latent_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.001, "tooltip": "Additional latent multiplier, helpful for I2V where lower values allow for more motion"}),
+            "start_latent_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.001, "tooltip": "Additional latent multiplier, helpful for I2V where lower values allow for more motion"}),
+            "end_latent_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.001, "tooltip": "Additional latent multiplier, helpful for I2V where lower values allow for more motion"}),
             "force_offload": ("BOOLEAN", {"default": True}),
             },
             "optional": {
@@ -1138,7 +1139,7 @@ class WanVideoImageToVideoEncode:
     CATEGORY = "WanVideoWrapper"
 
     def process(self, vae, start_image, width, height, num_frames, clip_embeds, force_offload, noise_aug_strength, 
-                latent_strength, end_image=None):
+                start_latent_strength, end_latent_strength, end_image=None):
 
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
@@ -1185,9 +1186,9 @@ class WanVideoImageToVideoEncode:
         vae.to(device)
 
         zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
-        concatenated = torch.cat([resized_image.to(device), zero_frames], dim=1) * latent_strength
+        concatenated = torch.cat([resized_image.to(device), zero_frames], dim=1) * start_latent_strength
         if end_image is not None:
-            concatenated = torch.cat([resized_image.to(device), zero_frames, resized_end_image.to(device)], dim=1) * latent_strength            
+            concatenated = torch.cat([resized_image.to(device), zero_frames, resized_end_image.to(device)], dim=1) * end_latent_strength            
 
         y = vae.encode([concatenated.to(device=device, dtype=vae.dtype)], device, end_=(end_image is not None))[0]
         y = torch.cat([mask, y])
@@ -1210,7 +1211,6 @@ class WanVideoImageToVideoEncode:
             "num_frames": num_frames,
             "lat_h": lat_h,
             "lat_w": lat_w,
-            "has_end_frame": end_image is not None,
             "end_image": resized_end_image if end_image is not None else None
         }
 
@@ -2207,30 +2207,30 @@ class WanVideoDecode:
             latents = torch.cat([latents, latents[:, :, :warmup_latent_count]], dim=2)
 
         if isinstance(vae, TAEHV):            
-            image = vae.decode_video(latents.permute(0, 2, 1, 3, 4))[0].permute(1, 0, 2, 3)
+            images = vae.decode_video(latents.permute(0, 2, 1, 3, 4))[0].permute(1, 0, 2, 3)
         else:
             if end_image is not None:
                 enable_vae_tiling = False
-            image = vae.decode(latents, device=device, end_=(end_image is not None), tiled=enable_vae_tiling, tile_size=(tile_x, tile_y), tile_stride=(tile_stride_x, tile_stride_y))[0]
+            images = vae.decode(latents, device=device, end_=(end_image is not None), tiled=enable_vae_tiling, tile_size=(tile_x, tile_y), tile_stride=(tile_stride_x, tile_stride_y))[0]
             
-        image = (image - image.min()) / (image.max() - image.min())
+        images = (images - images.min()) / (images.max() - images.min())
         vae.model.clear_cache()
         vae.to(offload_device)
 
         if is_looped:
-            image = image[:, warmup_latent_count * 4:]
+            images = images[:, warmup_latent_count * 4:]
 
         if end_image is not None: 
             #end_image = (end_image - end_image.min()) / (end_image.max() - end_image.min())
             #image[:, -1] = end_image[:, 0].to(image) #not sure about this
-            image = image[:, 0:-1]
+            images = images[:, 0:-1]
         
         mm.soft_empty_cache()
 
-        image = torch.clamp(image, 0.0, 1.0)
-        image = image.permute(1, 2, 3, 0).cpu().float()
+        images = torch.clamp(images, 0.0, 1.0)
+        images = images.permute(1, 2, 3, 0).cpu().float()
 
-        return (image,)
+        return (images,)
 
 #region VideoEncode
 class WanVideoEncode:
