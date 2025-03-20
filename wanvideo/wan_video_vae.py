@@ -522,6 +522,43 @@ class VideoVAE_(nn.Module):
         x_recon = self.decode(z)
         return x_recon, mu, log_var
 
+
+    #modification originally by @raindrop313 https://github.com/raindrop313/ComfyUI-WanVideoStartEndFrames
+    def encode_2(self, x, scale):
+        self.clear_cache()
+        ## cache
+        t = x.shape[2]
+        iter_ = 2 + (t - 2) // 4
+
+        for i in range(iter_):
+            self._enc_conv_idx = [0]
+            if i == 0:
+                out = self.encoder(x[:, :, :1, :, :],
+                                   feat_cache=self._enc_feat_map,
+                                   feat_idx=self._enc_conv_idx)
+            elif i== iter_-1:
+                out_ = self.encoder(x[:, :, -1:, :, :],
+                                   feat_cache=[None] * self._enc_conv_num,
+                                   feat_idx=self._enc_conv_idx)
+                out = torch.cat([out, out_], 2)
+            else:
+                out_ = self.encoder(x[:, :, 1 + 4 * (i - 1):1 + 4 * i, :, :],
+                                    feat_cache=self._enc_feat_map,
+                                    feat_idx=self._enc_conv_idx)
+                out = torch.cat([out, out_], 2)
+        out_head = out[:, :, :iter_ - 1, :, :]
+        out_tail = out[:, :, -1, :, :].unsqueeze(2)
+        mu, log_var = torch.cat([self.conv1(out_head), self.conv1(out_tail)], dim=2).chunk(2, dim=1)
+        if isinstance(scale[0], torch.Tensor):
+            scale = [s.to(dtype=mu.dtype, device=mu.device) for s in scale]
+            mu = (mu - scale[0].view(1, self.z_dim, 1, 1, 1)) * scale[1].view(
+                1, self.z_dim, 1, 1, 1)
+        else:
+            scale = scale.to(dtype=mu.dtype, device=mu.device)
+            mu = (mu - scale[0]) * scale[1]
+        return mu
+
+
     def encode(self, x, scale):
         self.clear_cache()
         ## cache
@@ -548,6 +585,42 @@ class VideoVAE_(nn.Module):
             scale = scale.to(dtype=mu.dtype, device=mu.device)
             mu = (mu - scale[0]) * scale[1]
         return mu
+
+
+    #modification originally by @raindrop313 https://github.com/raindrop313/ComfyUI-WanVideoStartEndFrames
+    def decode_2(self, z, scale):
+        self.clear_cache()
+        # z: [b,c,t,h,w]
+        if isinstance(scale[0], torch.Tensor):
+            scale = [s.to(dtype=z.dtype, device=z.device) for s in scale]
+            z = z / scale[1].view(1, self.z_dim, 1, 1, 1) + scale[0].view(
+                1, self.z_dim, 1, 1, 1)
+        else:
+            scale = scale.to(dtype=z.dtype, device=z.device)
+            z = z / scale[1] + scale[0]
+        iter_ = z.shape[2]
+        z_head=z[:,:,:-1,:,:]
+        z_tail=z[:,:,-1,:,:].unsqueeze(2)
+        x = torch.cat([self.conv2(z_head), self.conv2(z_tail)], dim=2)
+        for i in range(iter_):
+            self._conv_idx = [0]
+            if i == 0:
+                out = self.decoder(x[:, :, i:i + 1, :, :],
+                                   feat_cache=self._feat_map,
+                                   feat_idx=self._conv_idx)
+            elif i==iter_-1:
+                out_ = self.decoder(x[:, :, -1, :, :].unsqueeze(2),
+                                    feat_cache=None,
+                                    feat_idx=self._conv_idx)
+                out = torch.cat([out, out_], 2) # may add tensor offload
+            else:
+                out_ = self.decoder(x[:, :, i:i + 1, :, :],
+                                    feat_cache=self._feat_map,
+                                    feat_idx=self._conv_idx)
+                out = torch.cat([out, out_], 2) # may add tensor offload
+        return out
+
+
 
     def decode(self, z, scale):
         self.clear_cache()
@@ -757,8 +830,19 @@ class WanVideoVAE(nn.Module):
         video = self.model.decode(hidden_state, self.scale)
         return video.float().clamp_(-1, 1)
 
+    def double_encode(self, video, device):
+        print('double_encode')
+        video = video.to(device)
+        x = self.model.encode_2(video, self.scale)
+        return x.float()
 
-    def encode(self, videos, device, tiled=False, tile_size=(34, 34), tile_stride=(18, 16)):
+    def double_decode(self, hidden_state, device):
+        print('double_decode')
+        hidden_state = hidden_state.to(device)
+        video = self.model.decode_2(hidden_state, self.scale)
+        return video.float().clamp_(-1, 1)
+
+    def encode(self, videos, device, tiled=False,end_=False, tile_size=(34, 34), tile_stride=(18, 16)):
 
         videos = [video.to("cpu") for video in videos]
         hidden_states = []
@@ -769,14 +853,17 @@ class WanVideoVAE(nn.Module):
                 tile_stride = (tile_stride[0], tile_stride[1])
                 hidden_state = self.tiled_encode(video, device, tile_size, tile_stride)
             else:
-                hidden_state = self.single_encode(video, device)
+                if end_:
+                    hidden_state = self.double_encode(video, device)
+                else:
+                    hidden_state = self.single_encode(video, device)
             hidden_state = hidden_state.squeeze(0)
             hidden_states.append(hidden_state)
         hidden_states = torch.stack(hidden_states)
         return hidden_states
 
 
-    def decode(self, hidden_states, device, tiled=False, tile_size=(34, 34), tile_stride=(18, 16)):
+    def decode(self, hidden_states, device, tiled=False, end_=False, tile_size=(34, 34), tile_stride=(18, 16)):
         hidden_states = [hidden_state.to("cpu") for hidden_state in hidden_states]
         videos = []
         for hidden_state in hidden_states:
@@ -784,7 +871,10 @@ class WanVideoVAE(nn.Module):
             if tiled:
                 video = self.tiled_decode(hidden_state, device, tile_size, tile_stride)
             else:
-                video = self.single_decode(hidden_state, device)
+                if end_:
+                    video = self.double_decode(hidden_state, device)
+                else:
+                    video = self.single_decode(hidden_state, device)
             video = video.squeeze(0)
             videos.append(video)
         return videos
