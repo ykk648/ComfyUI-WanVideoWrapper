@@ -75,4 +75,89 @@ def apply_lora(model, device_to, transformer_load_device, params_to_keep=None, d
                     #print("param.device", param.device)
                     set_module_tensor_to_device(model.model.diffusion_model, name, device=transformer_load_device, dtype=dtype_to_use, value=state_dict[name])
         return model
+
+
+# from https://github.com/cubiq/ComfyUI_IPAdapter_plus/blob/9d076a3df0d2763cef5510ec5ab807f6632c39f5/utils.py#L181
+def split_tiles(embeds, num_split):
+    _, H, W, _ = embeds.shape
+    out = []
+    for x in embeds:
+        x = x.unsqueeze(0)
+        h, w = H // num_split, W // num_split
+        x_split = torch.cat([x[:, i*h:(i+1)*h, j*w:(j+1)*w, :] for i in range(num_split) for j in range(num_split)], dim=0)    
+        out.append(x_split)
+    
+    x_split = torch.stack(out, dim=0)
+    
+    return x_split
+
+def merge_hiddenstates(x, tiles):
+    chunk_size = tiles*tiles
+    x = x.split(chunk_size)
+
+    out = []
+    for embeds in x:
+        num_tiles = embeds.shape[0]
+        tile_size = int((embeds.shape[1]-1) ** 0.5)
+        grid_size = int(num_tiles ** 0.5)
+
+        # Extract class tokens
+        class_tokens = embeds[:, 0, :]  # Save class tokens: [num_tiles, embeds[-1]]
+        avg_class_token = class_tokens.mean(dim=0, keepdim=True).unsqueeze(0)  # Average token, shape: [1, 1, embeds[-1]]
+
+        patch_embeds = embeds[:, 1:, :]  # Shape: [num_tiles, tile_size^2, embeds[-1]]
+        reshaped = patch_embeds.reshape(grid_size, grid_size, tile_size, tile_size, embeds.shape[-1])
+
+        merged = torch.cat([torch.cat([reshaped[i, j] for j in range(grid_size)], dim=1) 
+                            for i in range(grid_size)], dim=0)
         
+        merged = merged.unsqueeze(0)  # Shape: [1, grid_size*tile_size, grid_size*tile_size, embeds[-1]]
+        
+        # Pool to original size
+        pooled = torch.nn.functional.adaptive_avg_pool2d(merged.permute(0, 3, 1, 2), (tile_size, tile_size)).permute(0, 2, 3, 1)
+        flattened = pooled.reshape(1, tile_size*tile_size, embeds.shape[-1])
+        
+        # Add back the class token
+        with_class = torch.cat([avg_class_token, flattened], dim=1)  # Shape: original shape
+        out.append(with_class)
+    
+    out = torch.cat(out, dim=0)
+
+    return out
+
+from comfy.clip_vision import clip_preprocess, ClipVisionModel
+
+def clip_encode_image_tiled(clip_vision, image, tiles=1, ratio=1.0):
+    embeds = encode_image_(clip_vision, image)
+    tiles = min(tiles, 16)
+
+    if tiles > 1:
+        # split in tiles
+        image_split = split_tiles(image, tiles)
+
+        # get the embeds for each tile
+        embeds_split = {}
+        for i in image_split:
+            encoded = encode_image_(clip_vision, i)
+            if not hasattr(embeds_split, "last_hidden_state"):
+                embeds_split["last_hidden_state"] = encoded
+            else:
+                embeds_split["last_hidden_state"] = torch.cat(embeds_split["last_hidden_state"], encoded, dim=0)
+
+        embeds_split['last_hidden_state'] = merge_hiddenstates(embeds_split['last_hidden_state'], tiles)
+
+        if embeds.shape[0] > 1: # if we have more than one image we need to average the embeddings for consistency
+            embeds = embeds * ratio + embeds_split['last_hidden_state']*(1-ratio)
+        else: # otherwise we can concatenate them, they can be averaged later
+            embeds = torch.cat([embeds * ratio, embeds_split['last_hidden_state']])
+
+    return embeds
+
+def encode_image_(clip_vision, image):
+    if isinstance(clip_vision, ClipVisionModel):
+        out = clip_vision.encode_image(image).last_hidden_state
+    else:
+        pixel_values = clip_preprocess(image, size=224, crop=True).float()
+        out = clip_vision.visual(pixel_values)
+
+    return out

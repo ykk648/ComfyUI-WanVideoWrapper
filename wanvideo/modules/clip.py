@@ -198,11 +198,12 @@ class VisionTransformer(nn.Module):
             kernel_size=patch_size,
             stride=patch_size,
             bias=not pre_norm)
+        
         if pool_type in ('token', 'token_fc'):
             self.cls_embedding = nn.Parameter(gain * torch.randn(1, 1, dim))
         self.pos_embedding = nn.Parameter(gain * torch.randn(
             1, self.num_patches +
-            (1 if pool_type in ('token', 'token_fc') else 0), dim))
+            (1 if pool_type in ('token', 'token_fc') else 0), dim)) #torch.Size([1, 257, 1280])
         self.dropout = nn.Dropout(embedding_dropout)
 
         # transformer
@@ -222,13 +223,41 @@ class VisionTransformer(nn.Module):
 
     def forward(self, x, interpolation=False, use_31_block=False):
         b = x.size(0)
-
+        height, width = x.size(2), x.size(3)
+        
         # embeddings
-        x = self.patch_embedding(x).flatten(2).permute(0, 2, 1)
+        x_patch = self.patch_embedding(x)
+        B, C, H, W = x_patch.shape
+        x = x_patch.flatten(2).permute(0, 2, 1)
         if self.pool_type in ('token', 'token_fc'):
             x = torch.cat([self.cls_embedding.expand(b, -1, -1), x], dim=1)
+
         if interpolation:
-            e = pos_interpolate(self.pos_embedding, x.size(1))
+            embeddings = x
+            num_patches = embeddings.shape[1] - 1
+            position_embedding = self.pos_embedding
+            num_positions = position_embedding.shape[1] - 1
+
+            class_pos_embed = position_embedding[:, :1]
+            patch_pos_embed = position_embedding[:, 1:]
+
+            dim = embeddings.shape[-1]
+
+            new_height = height // self.patch_size
+            new_width = width // self.patch_size
+
+            sqrt_num_positions = int(num_positions**0.5)
+            patch_pos_embed = patch_pos_embed.reshape(1, sqrt_num_positions, sqrt_num_positions, dim)
+            patch_pos_embed = patch_pos_embed.permute(0, 3, 1, 2)
+
+            patch_pos_embed = nn.functional.interpolate(
+                patch_pos_embed,
+                size=(new_height, new_width),
+                mode="bicubic",
+                align_corners=False,
+            )
+            patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
+            e = torch.cat((class_pos_embed, patch_pos_embed), dim=1)
         else:
             e = self.pos_embedding
         x = self.dropout(x + e)
@@ -426,8 +455,8 @@ class CLIPModel:
         for name, param in self.model.named_parameters():
             set_module_tensor_to_device(self.model, name, device=device, dtype=dtype, value=state_dict[name])
 
-    def visual(self, image):
+    def visual(self, image, interpolation=False):
         # forward
         with torch.autocast(device_type=mm.get_autocast_device(self.device), dtype=self.dtype):
-            out = self.model.visual(image, use_31_block=True)
+            out = self.model.visual(image, interpolation=interpolation, use_31_block=True)
             return out

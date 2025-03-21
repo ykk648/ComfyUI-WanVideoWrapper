@@ -1,7 +1,7 @@
 import os
 import torch
 import gc
-from .utils import log, print_memory, apply_lora
+from .utils import log, print_memory, apply_lora, clip_encode_image_tiled
 import numpy as np
 import math
 from tqdm import tqdm
@@ -1056,6 +1056,7 @@ class WanVideoImageClipEncode:
 
         return (image_embeds,)
     
+#region clip vision
 class WanVideoClipVisionEncode:
     @classmethod
     def INPUT_TYPES(s):
@@ -1070,6 +1071,8 @@ class WanVideoClipVisionEncode:
             },
             "optional": {
                 "image_2": ("IMAGE", ),
+                "tiles": ("INT", {"default": 0, "min": 0, "max": 16, "step": 2, "tooltip": "Use matteo's tiled image encoding for improved accuracy"}),
+                "ratio": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Ratio of the tile average"}),
             }
         }
 
@@ -1078,26 +1081,32 @@ class WanVideoClipVisionEncode:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, clip_vision, image_1, strength_1, strength_2, force_offload, crop, combine_embeds, image_2=None):
+    def process(self, clip_vision, image_1, strength_1, strength_2, force_offload, crop, combine_embeds, image_2=None, tiles=0, ratio=1.0):
 
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
 
-        self.image_mean = [0.48145466, 0.4578275, 0.40821073]
-        self.image_std = [0.26862954, 0.26130258, 0.27577711]
-        
-        clip_vision.model.to(device)
+        image_mean = [0.48145466, 0.4578275, 0.40821073]
+        image_std = [0.26862954, 0.26130258, 0.27577711]
 
         if image_2 is not None:
             image = torch.cat([image_1, image_2], dim=0)
         else:
             image = image_1
 
-        if isinstance(clip_vision, ClipVisionModel):
-            clip_embeds = clip_vision.encode_image(image).last_hidden_state.to(device)
+        clip_vision.model.to(device)
+        image = image.to(device)
+
+        if tiles > 0:
+            log.info("Using tiled image encoding")
+            clip_embeds = clip_encode_image_tiled(clip_vision, image, tiles=tiles, ratio=ratio)
         else:
-            pixel_values = clip_preprocess(image.to(device), size=224, mean=self.image_mean, std=self.image_std, crop=(not crop == "disabled")).float()
-            clip_embeds = clip_vision.visual(pixel_values)
+            if isinstance(clip_vision, ClipVisionModel):
+                clip_embeds = clip_vision.encode_image(image).last_hidden_state.to(device)
+            else:
+                pixel_values = clip_preprocess(image.to(device), size=224, mean=image_mean, std=image_std, crop=(not crop == "disabled")).float()
+                clip_embeds = clip_vision.visual(pixel_values)
+        log.info(f"Clip embeds shape: {clip_embeds.shape}")
         
         if clip_embeds.shape[0] > 1:
             embed_1 = clip_embeds[0:1] * strength_1
