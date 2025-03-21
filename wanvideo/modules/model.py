@@ -789,6 +789,7 @@ class WanModel(ModelMixin, ConfigMixin):
         if self.offload_txt_emb:
             self.text_embedding.to(self.offload_device, non_blocking=self.use_non_blocking)
 
+        clip_fea_tokens = 257
         if clip_fea is not None:
             clip_fea_tokens = clip_fea.shape[1]
             clip_fea = clip_fea.to(self.main_device)
