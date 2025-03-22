@@ -2264,8 +2264,8 @@ class WanVideoDecode:
         is_looped = samples.get("looped", False)
         warmup_latent_count = 3
 
-        if is_looped:
-            latents = torch.cat([latents[:, :, :warmup_latent_count],latents], dim=2)
+        #if is_looped:
+        #   latents = torch.cat([latents[:, :, :warmup_latent_count],latents], dim=2)
 
         if isinstance(vae, TAEHV):            
             images = vae.decode_video(latents.permute(0, 2, 1, 3, 4))[0].permute(1, 0, 2, 3)
@@ -2273,19 +2273,26 @@ class WanVideoDecode:
             if end_image is not None:
                 enable_vae_tiling = False
             images = vae.decode(latents, device=device, end_=(end_image is not None), tiled=enable_vae_tiling, tile_size=(tile_x, tile_y), tile_stride=(tile_stride_x, tile_stride_y))[0]
-            
-        images = (images - images.min()) / (images.max() - images.min())
         vae.model.clear_cache()
-        vae.to(offload_device)
+
+        images = (images - images.min()) / (images.max() - images.min())      
 
         if is_looped:
-            images = images[:, warmup_latent_count * 4:]
+            #images = images[:, warmup_latent_count * 4:]
+            temp_latents = torch.cat([latents[:, :, -3:]] + [latents[:, :, :2]], dim=2)
+            temp_images = vae.decode(temp_latents, device=device, end_=(end_image is not None), tiled=enable_vae_tiling, tile_size=(tile_x, tile_y), tile_stride=(tile_stride_x, tile_stride_y))[0]
+            temp_images = (temp_images - temp_images.min()) / (temp_images.max() - temp_images.min())
+            out = temp_images[:, 9:]
+            out = torch.cat([out, images[:, 5:]], dim=1)
+            images = out
 
         if end_image is not None: 
             #end_image = (end_image - end_image.min()) / (end_image.max() - end_image.min())
             #image[:, -1] = end_image[:, 0].to(image) #not sure about this
             images = images[:, 0:-1]
-        
+
+        vae.model.clear_cache()
+        vae.to(offload_device)
         mm.soft_empty_cache()
 
         images = torch.clamp(images, 0.0, 1.0)

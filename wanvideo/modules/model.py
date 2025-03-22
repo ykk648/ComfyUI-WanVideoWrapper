@@ -20,7 +20,7 @@ from ...utils import log, get_module_memory_mb
 
 from comfy.ldm.flux.math import apply_rope as apply_rope_comfy
 
-def rope_riflex(pos, dim, theta, L_test, k):
+def rope_riflex(pos, dim, theta, L_test, k, temporal):
     from einops import rearrange
     assert dim % 2 == 0
     if mm.is_device_mps(pos.device) or mm.is_intel_xpu() or mm.is_directml_enabled():
@@ -32,7 +32,7 @@ def rope_riflex(pos, dim, theta, L_test, k):
     omega = 1.0 / (theta**scale)
 
     # RIFLEX modification - adjust last frequency component if L_test and k are provided
-    if k and L_test:
+    if temporal and k and L_test:
         omega[k-1] = 0.9 * 2 * torch.pi / L_test
 
     out = torch.einsum("...n,d->...nd", pos.to(dtype=torch.float32, device=device), omega)
@@ -52,7 +52,7 @@ class EmbedND_RifleX(nn.Module):
     def forward(self, ids):
         n_axes = ids.shape[-1]
         emb = torch.cat(
-            [rope_riflex(ids[..., i], self.axes_dim[i], self.theta, self.num_frames, self.k if i == 0 else 0) for i in range(n_axes)],
+            [rope_riflex(ids[..., i], self.axes_dim[i], self.theta, self.num_frames, self.k, temporal=True if i == 0 else False) for i in range(n_axes)],
             dim=-3,
         )
         return emb.unsqueeze(1)
