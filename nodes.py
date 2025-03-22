@@ -2265,7 +2265,7 @@ class WanVideoDecode:
         warmup_latent_count = 3
 
         if is_looped:
-            latents = torch.cat([latents, latents[:, :, :warmup_latent_count]], dim=2)
+            latents = torch.cat([latents[:, :, :warmup_latent_count],latents], dim=2)
 
         if isinstance(vae, TAEHV):            
             images = vae.decode_video(latents.permute(0, 2, 1, 3, 4))[0].permute(1, 0, 2, 3)
