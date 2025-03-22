@@ -1064,7 +1064,7 @@ class WanVideoImageResizeToClosest:
             "image": ("IMAGE", {"tooltip": "Image to resize"}),
             "generation_width": ("INT", {"default": 832, "min": 64, "max": 2048, "step": 8, "tooltip": "Width of the image to encode"}),
             "generation_height": ("INT", {"default": 480, "min": 64, "max": 29048, "step": 8, "tooltip": "Height of the image to encode"}),
-            "aspect_ratio_preservation": (["disabled", "stretch", "crop"],),
+            "aspect_ratio_preservation": (["keep_input", "stretch_to_new", "crop_to_new"],),
             },
         }
 
@@ -1084,11 +1084,11 @@ class WanVideoImageResizeToClosest:
 
         crop = "disabled"
 
-        if aspect_ratio_preservation == "disabled":
+        if aspect_ratio_preservation == "keep_input":
             aspect_ratio = H / W
-        elif aspect_ratio_preservation == "stretch" or aspect_ratio_preservation == "crop":
+        elif aspect_ratio_preservation == "stretch_to_new" or aspect_ratio_preservation == "crop_to_new":
             aspect_ratio = generation_height / generation_width
-            if aspect_ratio_preservation == "crop":
+            if aspect_ratio_preservation == "crop_to_new":
                 crop = "center"
                 
         lat_h = round(
