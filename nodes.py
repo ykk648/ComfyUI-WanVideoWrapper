@@ -1165,6 +1165,8 @@ class WanVideoClipVisionEncode:
                 clip_embeds = torch.sum(torch.stack([embed_1, embed_2]), dim=0)
             elif combine_embeds == "concat":
                 clip_embeds = torch.cat([embed_1, embed_2], dim=1)
+
+            log.info(f"Combined clip embeds shape: {clip_embeds.shape}")
         
         if force_offload:
             clip_vision.model.to(offload_device)
