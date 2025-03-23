@@ -32,7 +32,7 @@ def rope_riflex(pos, dim, theta, L_test, k, temporal):
     omega = 1.0 / (theta**scale)
 
     # RIFLEX modification - adjust last frequency component if L_test and k are provided
-    if temporal and k and L_test:
+    if temporal and k > 0 and L_test:
         omega[k-1] = 0.9 * 2 * torch.pi / L_test
 
     out = torch.einsum("...n,d->...nd", pos.to(dtype=torch.float32, device=device), omega)
