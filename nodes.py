@@ -909,14 +909,28 @@ class WanVideoTextEncode:
         encoder = t5["model"]
         dtype = t5["dtype"]
 
-        # Split positive prompts and process each
-        positive_prompts = [p.strip() for p in positive_prompt.split('|')]
-
+        # Split positive prompts and process each with weights
+        positive_prompts_raw = [p.strip() for p in positive_prompt.split('|')]
+        positive_prompts = []
+        all_weights = []
+        
+        for p in positive_prompts_raw:
+            cleaned_prompt, weights = self.parse_prompt_weights(p)
+            positive_prompts.append(cleaned_prompt)
+            all_weights.append(weights)
+        
         encoder.model.to(device)
        
         with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=True):
             context = encoder(positive_prompts, device)
             context_null = encoder([negative_prompt], device)
+
+            # Apply weights to embeddings if any were extracted
+            for i, weights in enumerate(all_weights):
+                for text, weight in weights.items():
+                    log.info(f"Applying weight {weight} to prompt: {text}")
+                    if len(weights) > 0:
+                        context[i] = context[i] * weight
 
         if force_offload:
             encoder.model.to(offload_device)
@@ -928,6 +942,26 @@ class WanVideoTextEncode:
                 "negative_prompt_embeds": context_null,
             }
         return (prompt_embeds_dict,)
+    
+    def parse_prompt_weights(self, prompt):
+        """Extract text and weights from prompts with (text:weight) format"""
+        import re
+        
+        # Parse all instances of (text:weight) in the prompt
+        pattern = r'\((.*?):([\d\.]+)\)'
+        matches = re.findall(pattern, prompt)
+        
+        # Replace each match with just the text part
+        cleaned_prompt = prompt
+        weights = {}
+        
+        for match in matches:
+            text, weight = match
+            orig_text = f"({text}:{weight})"
+            cleaned_prompt = cleaned_prompt.replace(orig_text, text)
+            weights[text] = float(weight)
+            
+        return cleaned_prompt, weights
     
 class WanVideoTextEmbedBridge:
     @classmethod
