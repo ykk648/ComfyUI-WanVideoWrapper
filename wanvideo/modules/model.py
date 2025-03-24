@@ -289,7 +289,7 @@ class WanSelfAttention(nn.Module):
 
 class WanT2VCrossAttention(WanSelfAttention):
 
-    def forward(self, x, context, context_lens, clip_fea_tokens=None):
+    def forward(self, x, context, context_lens, clip_embed=None):
         r"""
         Args:
             x(Tensor): Shape [B, L1, C]
@@ -329,23 +329,23 @@ class WanI2VCrossAttention(WanSelfAttention):
         self.norm_k_img = WanRMSNorm(dim, eps=eps) if qk_norm else nn.Identity()
         self.attention_mode = attention_mode
 
-    def forward(self, x, context, context_lens, clip_fea_tokens=257):
+    def forward(self, x, context, context_lens, clip_embed):
         r"""
         Args:
             x(Tensor): Shape [B, L1, C]
             context(Tensor): Shape [B, L2, C]
             context_lens(Tensor): Shape [B]
         """
-        context_img = context[:, :clip_fea_tokens]
-        context = context[:, clip_fea_tokens:]
+        #context_img = context[:, :clip_embed.shape[1]]
+        #context = context[:, clip_embed.shape[1]:]
         b, n, d = x.size(0), self.num_heads, self.head_dim
 
         # compute query, key, value
         q = self.norm_q(self.q(x)).view(b, -1, n, d)
         k = self.norm_k(self.k(context)).view(b, -1, n, d)
         v = self.v(context).view(b, -1, n, d)
-        k_img = self.norm_k_img(self.k_img(context_img)).view(b, -1, n, d)
-        v_img = self.v_img(context_img).view(b, -1, n, d)
+        k_img = self.norm_k_img(self.k_img(clip_embed)).view(b, -1, n, d)
+        v_img = self.v_img(clip_embed).view(b, -1, n, d)
         img_x = attention(q, k_img, v_img, k_lens=None, attention_mode=self.attention_mode)
         # compute attention
         x = attention(q, k, v, k_lens=context_lens, attention_mode=self.attention_mode)
@@ -417,7 +417,7 @@ class WanAttentionBlock(nn.Module):
         context,
         context_lens,
         rope_func = "default",
-        clip_fea_tokens=257,
+        clip_embed=None,
     ):
         r"""
         Args:
@@ -438,13 +438,63 @@ class WanAttentionBlock(nn.Module):
         x = x.to(torch.float32) + (y.to(torch.float32) * e[2].to(torch.float32))
 
         # cross-attention & ffn function
-        def cross_attn_ffn(x, context, context_lens, e, clip_fea_tokens=clip_fea_tokens):
-            x = x + self.cross_attn(self.norm3(x), context, context_lens, clip_fea_tokens=clip_fea_tokens)
-            y = self.ffn(self.norm2(x).float() * (1 + e[4]) + e[3])
-            x = x.to(torch.float32) + (y.to(torch.float32) * e[5].to(torch.float32))
-            return x
+        def cross_attn_ffn(x, context, context_lens, e, clip_embed=None):
+            if context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1):
+                # Get number of prompts
+                num_prompts = context.shape[0]
+                num_clip_embeds = 0 if clip_embed is None else clip_embed.shape[0]
+                num_segments = max(num_prompts, num_clip_embeds)
+                
+                # split the sequence dimension
+                seq_len = x.shape[1]
+                segment_length = seq_len // num_prompts
+                
+                # Process each prompt segment
+                x_combined = torch.zeros_like(x)
+                
+                for i in range(num_segments):
+                    # Calculate indices for this segment
+                    start_idx = i * segment_length
+                    end_idx = (i+1) * segment_length if i < num_segments-1 else seq_len
+                    segment_indices = torch.arange(start_idx, end_idx, device=x.device, dtype=torch.long)
+                    
+                    # Get prompt segment (cycle through available prompts if needed)
+                    prompt_idx = i % num_prompts
+                    segment_context = context[prompt_idx:prompt_idx+1]
+                    segment_context_lens = None
+                    if context_lens is not None:
+                        segment_context_lens = context_lens[prompt_idx:prompt_idx+1]
+                    
+                    # Handle clip_embed for this segment (cycle through available embeddings)
+                    segment_clip_embed = None
+                    if clip_embed is not None:
+                        clip_idx = i % num_clip_embeds
+                        segment_clip_embed = clip_embed[clip_idx:clip_idx+1]
+                    
+                    # Get tensor segment
+                    x_segment = x[:, segment_indices, :]
+                    
+                    # Process segment with its prompt and clip embedding
+                    processed_segment = self.cross_attn(self.norm3(x_segment), segment_context, segment_context_lens, clip_embed=segment_clip_embed)
+                    processed_segment = processed_segment.to(x.dtype)
+                    
+                    # Add to combined result
+                    x_combined[:, segment_indices, :] = processed_segment
+                
+                # Continue with FFN
+                x = x + x_combined
+                y = self.ffn(self.norm2(x).float() * (1 + e[4]) + e[3])
+                x = x.to(torch.float32) + (y.to(torch.float32) * e[5].to(torch.float32))
+                return x
+                
+            else:
+                cross_attn_result = self.cross_attn(self.norm3(x), context, context_lens, clip_embed=clip_embed)
+                x = x + cross_attn_result
+                y = self.ffn(self.norm2(x).float() * (1 + e[4]) + e[3])
+                x = x.to(torch.float32) + (y.to(torch.float32) * e[5].to(torch.float32))
+                return x
 
-        x = cross_attn_ffn(x, context, context_lens, e, clip_fea_tokens=clip_fea_tokens)
+        x = cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed)
         return x
 
 
@@ -789,14 +839,13 @@ class WanModel(ModelMixin, ConfigMixin):
         if self.offload_txt_emb:
             self.text_embedding.to(self.offload_device, non_blocking=self.use_non_blocking)
 
-        clip_fea_tokens = 257
+        clip_embed = None
         if clip_fea is not None:
-            clip_fea_tokens = clip_fea.shape[1]
             clip_fea = clip_fea.to(self.main_device)
             if self.offload_img_emb:
                 self.img_emb.to(self.main_device)
-            context_clip = self.img_emb(clip_fea)  # bs x 257 x dim
-            context = torch.concat([context_clip, context], dim=1)
+            clip_embed = self.img_emb(clip_fea)  # bs x 257 x dim
+            #context = torch.concat([context_clip, context], dim=1)
             if self.offload_img_emb:
                 self.img_emb.to(self.offload_device, non_blocking=self.use_non_blocking)
 
@@ -850,7 +899,7 @@ class WanModel(ModelMixin, ConfigMixin):
                 freqs=freqs,
                 context=context,
                 context_lens=context_lens,
-                clip_fea_tokens=clip_fea_tokens,
+                clip_embed=clip_embed,
                 rope_func=rope_func
                 )
 
