@@ -631,12 +631,39 @@ class WanVideoModelLoader:
         patcher.model["model_name"] = model
         patcher.model["manual_offloading"] = manual_offloading
         patcher.model["quantization"] = "disabled"
-        patcher.model["block_swap_args"] = block_swap_args
         patcher.model["auto_cpu_offload"] = True if vram_management_args is not None else False
+
+        if 'transformer_options' not in patcher.model_options:
+            patcher.model_options['transformer_options'] = {}
+        patcher.model_options["transformer_options"]["block_swap_args"] = block_swap_args   
 
         for model in mm.current_loaded_models:
             if model._model() == patcher:
                 mm.current_loaded_models.remove(model)            
+
+        return (patcher,)
+
+class WanVideoSetBlockSwap:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "model": ("WANVIDEOMODEL", ),
+                "block_swap_args": ("BLOCKSWAPARGS", ),
+               }
+        }
+
+    RETURN_TYPES = ("WANVIDEOMODEL",)
+    RETURN_NAMES = ("model", )
+    FUNCTION = "loadmodel"
+    CATEGORY = "WanVideoWrapper"
+
+    def loadmodel(self, model, block_swap_args):
+
+        patcher = model.clone()
+        if 'transformer_options' not in patcher.model_options:
+            patcher.model_options['transformer_options'] = {}
+        patcher.model_options["transformer_options"]["block_swap_args"] = block_swap_args     
 
         return (patcher,)
 
@@ -1702,21 +1729,25 @@ class WanVideoSampler:
         from .latent_preview import prepare_callback
         callback = prepare_callback(patcher, steps)
 
-        #blockswap init
-        if model["block_swap_args"] is not None:
-            transformer.use_non_blocking = model["block_swap_args"].get("use_non_blocking", True)
+        #blockswap init        
+        transformer_options = patcher.model_options.get("transformer_options", None)
+        if transformer_options is not None:
+            block_swap_args = transformer_options.get("block_swap_args", None)
+
+        if block_swap_args is not None:
+            transformer.use_non_blocking = block_swap_args.get("use_non_blocking", True)
             for name, param in transformer.named_parameters():
                 if "block" not in name:
                     param.data = param.data.to(device)
-                elif model["block_swap_args"]["offload_txt_emb"] and "txt_emb" in name:
+                elif block_swap_args["offload_txt_emb"] and "txt_emb" in name:
                     param.data = param.data.to(offload_device, non_blocking=transformer.use_non_blocking)
-                elif model["block_swap_args"]["offload_img_emb"] and "img_emb" in name:
+                elif block_swap_args["offload_img_emb"] and "img_emb" in name:
                     param.data = param.data.to(offload_device, non_blocking=transformer.use_non_blocking)
 
             transformer.block_swap(
-                model["block_swap_args"]["blocks_to_swap"] - 1 ,
-                model["block_swap_args"]["offload_txt_emb"],
-                model["block_swap_args"]["offload_img_emb"],
+                block_swap_args["blocks_to_swap"] - 1 ,
+                block_swap_args["offload_txt_emb"],
+                block_swap_args["offload_img_emb"],
             )
 
         elif model["auto_cpu_offload"]:
@@ -2477,6 +2508,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoTinyVAELoader": WanVideoTinyVAELoader,
     "WanVideoLoopArgs": WanVideoLoopArgs,
     "WanVideoImageResizeToClosest": WanVideoImageResizeToClosest,
+    "WanVideoSetBlockSwap": WanVideoSetBlockSwap,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -2508,4 +2540,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoTinyVAELoader": "WanVideo Tiny VAE Loader",
     "WanVideoLoopArgs": "WanVideo Loop Args",
     "WanVideoImageResizeToClosest": "WanVideo Image Resize To Closest",
+    "WanVideoSetBlockSwap": "WanVideo Set BlockSwap",
     }
