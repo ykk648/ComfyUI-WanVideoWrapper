@@ -1592,6 +1592,24 @@ class WanVideoLoopArgs:
 
     def process(self, **kwargs):
         return (kwargs,)
+
+class WanVideoExperimentalArgs:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+                "video_attention_split_steps": ("STRING", {"default": "2, 3", "tooltip": "Steps to split self attention when using multiple prompts"}),
+            },
+        }
+
+    RETURN_TYPES = ("EXPERIMENTALARGS", )
+    RETURN_NAMES = ("exp_args",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Experimental stuff"
+    EXPERIMENTAL = True
+
+    def process(self, **kwargs):
+        return (kwargs,)
     
 class WanVideoSampler:
     @classmethod
@@ -1625,6 +1643,7 @@ class WanVideoSampler:
                 "slg_args": ("SLGARGS", ),
                 "rope_function": (["default", "comfy"], {"default": "default", "tooltip": "!EXPERIMENTAL! Comfy's RoPE implementation doesn't use complex numbers and can thus be compiled, that should be a lot faster when using torch.compile"}),
                 "loop_args": ("LOOPARGS", ),
+                "experimental_args": ("EXPERIMENTALARGS", ),
             }
         }
 
@@ -1635,7 +1654,7 @@ class WanVideoSampler:
 
     def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
         force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, 
-        teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None):
+        teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None, experimental_args=None):
         #assert not (context_options and teacache_args), "Context options cannot currently be used together with teacache."
         patcher = model
         model = model.model
@@ -1955,6 +1974,11 @@ class WanVideoSampler:
             if drift_steps > 0:
                 drift_timesteps = torch.cat([drift_timesteps, torch.tensor([0]).to(drift_timesteps.device)]).to(drift_timesteps.device)
                 timesteps[-drift_steps:] = drift_timesteps[-drift_steps:]
+
+        if experimental_args is not None:
+            video_attention_split_steps = experimental_args.get("video_attention_split_steps", [])
+            if video_attention_split_steps:
+                 transformer.video_attention_split_steps = [int(x.strip()) for x in video_attention_split_steps.split(",")]
 
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, teacache_state=None):
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
@@ -2628,6 +2652,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoLoopArgs": WanVideoLoopArgs,
     "WanVideoImageResizeToClosest": WanVideoImageResizeToClosest,
     "WanVideoSetBlockSwap": WanVideoSetBlockSwap,
+    "WanVideoExperimentalArgs": WanVideoExperimentalArgs,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -2660,4 +2685,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoLoopArgs": "WanVideo Loop Args",
     "WanVideoImageResizeToClosest": "WanVideo Image Resize To Closest",
     "WanVideoSetBlockSwap": "WanVideo Set BlockSwap",
+    "WanVideoExperimentalArgs": "WanVideo Experimental Args",
     }
