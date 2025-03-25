@@ -2055,13 +2055,14 @@ class WanVideoSampler:
                     noise_pred_uncond=noise_pred_uncond[0].to(intermediate_device)
 
                     noise_pred_text = noise_pred_cond
+                    
+                    #https://github.com/WeichenFan/CFG-Zero-star/
                     if use_cfg_zero_star:
                         positive_flat = noise_pred_text.view(batch_size, -1)  
                         negative_flat = noise_pred_uncond.view(batch_size, -1)  
 
                         alpha = optimized_scale(positive_flat,negative_flat)
                         alpha = alpha.view(batch_size, 1, 1, 1)
-
 
                         if (idx <= zero_star_steps) and use_zero_init:
                             noise_pred = noise_pred_text*0.
