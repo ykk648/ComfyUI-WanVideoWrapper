@@ -38,6 +38,19 @@ def add_noise_to_reference_video(image, ratio=None):
     image = image + image_noise
     return image
 
+def optimized_scale(positive_flat, negative_flat):
+
+    # Calculate dot production
+    dot_product = torch.sum(positive_flat * negative_flat, dim=1, keepdim=True)
+
+    # Squared norm of uncondition
+    squared_norm = torch.sum(negative_flat ** 2, dim=1, keepdim=True) + 1e-8
+
+    # st_star = v_cond^T * v_uncond / ||v_uncond||^2
+    st_star = dot_product / squared_norm
+    
+    return st_star
+
 class WanVideoBlockSwap:
     @classmethod
     def INPUT_TYPES(s):
@@ -1597,7 +1610,10 @@ class WanVideoExperimentalArgs:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-                "video_attention_split_steps": ("STRING", {"default": "2, 3", "tooltip": "Steps to split self attention when using multiple prompts"}),
+                "video_attention_split_steps": ("STRING", {"default": "", "tooltip": "Steps to split self attention when using multiple prompts"}),
+                "cfg_zero_star": ("BOOLEAN", {"default": False, "tooltip": "https://github.com/WeichenFan/CFG-Zero-star"}),
+                "use_zero_init": ("BOOLEAN", {"default": True}),
+                "zero_star_steps": ("INT", {"default": 0, "min": 0, "tooltip": "Steps to split self attention when using multiple prompts"}),
             },
         }
 
@@ -1975,10 +1991,14 @@ class WanVideoSampler:
                 drift_timesteps = torch.cat([drift_timesteps, torch.tensor([0]).to(drift_timesteps.device)]).to(drift_timesteps.device)
                 timesteps[-drift_steps:] = drift_timesteps[-drift_steps:]
 
+        use_cfg_zero_star = False
         if experimental_args is not None:
             video_attention_split_steps = experimental_args.get("video_attention_split_steps", [])
             if video_attention_split_steps:
                  transformer.video_attention_split_steps = [int(x.strip()) for x in video_attention_split_steps.split(",")]
+            use_zero_init = experimental_args.get("use_zero_init", True)
+            use_cfg_zero_star = experimental_args.get("cfg_zero_star", False)
+            zero_star_steps = experimental_args.get("zero_star_steps", 0)
 
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, teacache_state=None):
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
@@ -2009,6 +2029,8 @@ class WanVideoSampler:
                     'y': [image_cond] if image_cond is not None else None,
                     'control_enabled': control_enabled,
                 }
+
+                batch_size = 1
                 
                 if not math.isclose(cfg_scale, 1.0) and len(positive_embeds) > 1:
                     negative_embeds = negative_embeds * len(positive_embeds)
@@ -2031,7 +2053,23 @@ class WanVideoSampler:
                         **base_params
                     )
                     noise_pred_uncond=noise_pred_uncond[0].to(intermediate_device)
-                    return noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond), [teacache_state_cond, teacache_state_uncond]
+
+                    noise_pred_text = noise_pred_cond
+                    if use_cfg_zero_star:
+                        positive_flat = noise_pred_text.view(batch_size, -1)  
+                        negative_flat = noise_pred_uncond.view(batch_size, -1)  
+
+                        alpha = optimized_scale(positive_flat,negative_flat)
+                        alpha = alpha.view(batch_size, 1, 1, 1)
+
+
+                        if (idx <= zero_star_steps) and use_zero_init:
+                            noise_pred = noise_pred_text*0.
+                        else:
+                            noise_pred = noise_pred_uncond * alpha + cfg_scale * (noise_pred_text - noise_pred_uncond * alpha)
+                    else:
+                        noise_pred = noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond)
+                    return noise_pred, [teacache_state_cond, teacache_state_uncond]
                 #batched
                 else:
                     [noise_pred_cond, noise_pred_uncond], teacache_state_cond = transformer(
