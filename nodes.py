@@ -822,8 +822,61 @@ class LoadWanVideoT5TextEncoder:
         model_path = folder_paths.get_full_path("text_encoders", model_name)
         sd = load_torch_file(model_path, safe_load=True)
         
-        if "token_embedding.weight" not in sd:
-            raise ValueError("Invalid T5 text encoder model, this node expects the 'umt5-xxl-enc' model")
+        if "token_embedding.weight" not in sd and "shared.weight" not in sd:
+            raise ValueError("Invalid T5 text encoder model, this node expects the 'umt5-xxl' model")
+
+        # Convert state dict keys from T5 format to the expected format
+        if "shared.weight" in sd:
+            log.info("Converting T5 text encoder model to the expected format...")
+            converted_sd = {}
+            
+            for key, value in sd.items():
+                # Handle encoder block patterns
+                if key.startswith('encoder.block.'):
+                    parts = key.split('.')
+                    block_num = parts[2]
+                    
+                    # Self-attention components
+                    if 'layer.0.SelfAttention' in key:
+                        if key.endswith('.k.weight'):
+                            new_key = f"blocks.{block_num}.attn.k.weight"
+                        elif key.endswith('.o.weight'):
+                            new_key = f"blocks.{block_num}.attn.o.weight"
+                        elif key.endswith('.q.weight'):
+                            new_key = f"blocks.{block_num}.attn.q.weight"
+                        elif key.endswith('.v.weight'):
+                            new_key = f"blocks.{block_num}.attn.v.weight"
+                        elif 'relative_attention_bias' in key:
+                            new_key = f"blocks.{block_num}.pos_embedding.embedding.weight"
+                        else:
+                            new_key = key
+                    
+                    # Layer norms
+                    elif 'layer.0.layer_norm' in key:
+                        new_key = f"blocks.{block_num}.norm1.weight"
+                    elif 'layer.1.layer_norm' in key:
+                        new_key = f"blocks.{block_num}.norm2.weight"
+                    
+                    # Feed-forward components
+                    elif 'layer.1.DenseReluDense' in key:
+                        if 'wi_0' in key:
+                            new_key = f"blocks.{block_num}.ffn.gate.0.weight"
+                        elif 'wi_1' in key:
+                            new_key = f"blocks.{block_num}.ffn.fc1.weight"
+                        elif 'wo' in key:
+                            new_key = f"blocks.{block_num}.ffn.fc2.weight"
+                        else:
+                            new_key = key
+                    else:
+                        new_key = key
+                elif key == "shared.weight":
+                    new_key = "token_embedding.weight"
+                elif key == "encoder.final_layer_norm.weight":
+                    new_key = "norm.weight"
+                else:
+                    new_key = key
+                converted_sd[new_key] = value
+            sd = converted_sd
 
         T5_text_encoder = T5EncoderModel(
             text_len=512,
@@ -1933,6 +1986,9 @@ class WanVideoSampler:
                     'control_enabled': control_enabled,
                 }
                 
+                if not math.isclose(cfg_scale, 1.0) and len(positive_embeds) > 1:
+                    negative_embeds = negative_embeds * len(positive_embeds)
+
                 if not batched_cfg:
                     #cond
                     noise_pred_cond, teacache_state_cond = transformer(
