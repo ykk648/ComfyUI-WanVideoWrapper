@@ -821,6 +821,9 @@ class LoadWanVideoT5TextEncoder:
 
         model_path = folder_paths.get_full_path("text_encoders", model_name)
         sd = load_torch_file(model_path, safe_load=True)
+        
+        if "token_embedding.weight" not in sd:
+            raise ValueError("Invalid T5 text encoder model, this node expects the 'umt5-xxl-enc' model")
 
         T5_text_encoder = T5EncoderModel(
             text_len=512,
@@ -869,6 +872,9 @@ class LoadWanVideoClipTextEncoder:
 
         model_path = folder_paths.get_full_path("text_encoders", model_name)
         sd = load_torch_file(model_path, safe_load=True)
+        if "log_scale" not in sd:
+            raise ValueError("Invalid CLIP model, this node expectes the 'open-clip-xlm-roberta-large-vit-huge-14' model")
+
         clip_model = CLIPModel(dtype=dtype, device=device, state_dict=sd)
         clip_model.model.to(text_encoder_load_device)
         del sd
