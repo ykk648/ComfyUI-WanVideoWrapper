@@ -1812,7 +1812,7 @@ class WanVideoSampler:
         elif model["manual_offloading"]:
             transformer.to(device)
         #feta
-        if feta_args is not None:
+        if feta_args is not None and latent_video_length > 1:
             set_enhance_weight(feta_args["weight"])
             feta_start_percent = feta_args["start_percent"]
             feta_end_percent = feta_args["end_percent"]
@@ -1822,6 +1822,7 @@ class WanVideoSampler:
                 set_num_frames(latent_video_length)
             enable_enhance()
         else:
+            feta_args = None
             disable_enhance()
 
         # Initialize TeaCache if enabled
