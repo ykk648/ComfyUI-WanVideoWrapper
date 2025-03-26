@@ -812,7 +812,7 @@ class WanModel(ModelMixin, ConfigMixin):
         freqs=None,
         current_step=0,
         pred_id=None,
-        control_enabled=False,
+        control_lora_enabled=False,
     ):
         r"""
         Forward pass through the diffusion model
@@ -848,7 +848,7 @@ class WanModel(ModelMixin, ConfigMixin):
             x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
 
         # embeddings
-        if control_enabled:
+        if control_lora_enabled:
             self.expanded_patch_embedding.to(device)
             x = [
             self.expanded_patch_embedding(u.unsqueeze(0))
