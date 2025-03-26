@@ -412,7 +412,7 @@ class WanVideoModelLoader:
             "i2v_720": [-114.36346466, 65.26524496, -18.82220707, 4.91518089, -0.23412683],
         }
         if model_type == "i2v":
-            if "480" in model or "Fun" in model.lower(): #just a guess for the Fun model for now...
+            if "480" in model or "fun" in model.lower(): #just a guess for the Fun model for now...
                 model_variant = "i2v_480"
             elif "720" in model:
                 model_variant = "i2v_720"
