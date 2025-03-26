@@ -555,8 +555,7 @@ class WanAttentionBlock(nn.Module):
                 return x
                 
             else:
-                cross_attn_result = self.cross_attn(self.norm3(x), context, context_lens, clip_embed=clip_embed)
-                x = x + cross_attn_result
+                x = x + self.cross_attn(self.norm3(x), context, context_lens, clip_embed=clip_embed)
                 y = self.ffn(self.norm2(x).float() * (1 + e[4]) + e[3])
                 x = x.to(torch.float32) + (y.to(torch.float32) * e[5].to(torch.float32))
                 return x
