@@ -1350,6 +1350,7 @@ class WanVideoImageToVideoEncode:
             "optional": {
                 "end_image": ("IMAGE", {"tooltip": "end frame"}),
                 "control_embeds": ("WANVIDIMAGE_EMBEDS", {"tooltip": "Control signal for the Fun -model"}),
+                "fun_model": ("BOOLEAN", {"default": False, "tooltip": "Enable when using Fun model"}),
             }
         }
 
@@ -1359,7 +1360,7 @@ class WanVideoImageToVideoEncode:
     CATEGORY = "WanVideoWrapper"
 
     def process(self, vae, start_image, width, height, num_frames, clip_embeds, force_offload, noise_aug_strength, 
-                start_latent_strength, end_latent_strength, end_image=None, control_embeds=None):
+                start_latent_strength, end_latent_strength, end_image=None, control_embeds=None, fun_model=False):
 
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
@@ -1372,15 +1373,16 @@ class WanVideoImageToVideoEncode:
         lat_h = H // 8
         lat_w = W // 8
         
-        base_frames = num_frames + (1 if end_image is not None else 0)
+        base_frames = num_frames + (1 if end_image is not None and not fun_model else 0)
         mask = torch.zeros(1, base_frames, lat_h, lat_w, device=device)
         mask[:, 0] = 1  # First frame
-        if end_image is not None:
+
+        if end_image is not None and not fun_model:
             mask[:, -1] = 1  # End frame if exists
 
         # Repeat first frame and optionally end frame
         start_mask_repeated = torch.repeat_interleave(mask[:, 0:1], repeats=4, dim=1) # T, C, H, W
-        if end_image is not None:
+        if end_image is not None and not fun_model:
             end_mask_repeated = torch.repeat_interleave(mask[:, -1:], repeats=4, dim=1) # T, C, H, W
             mask = torch.cat([start_mask_repeated, mask[:, 1:-1], end_mask_repeated], dim=1)
         else:
@@ -1405,12 +1407,18 @@ class WanVideoImageToVideoEncode:
         # Concatenate image with zero frames and encode
         vae.to(device)
 
-        zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
-        concatenated = torch.cat([resized_image.to(device), zero_frames], dim=1) * start_latent_strength
-        if end_image is not None:
-            concatenated = torch.cat([resized_image.to(device), zero_frames, resized_end_image.to(device)], dim=1) * end_latent_strength            
+        if end_image is None:
+            zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
+            concatenated = torch.cat([resized_image.to(device), zero_frames], dim=1)
+        else:
+            if fun_model:
+                zero_frames = torch.zeros(3, num_frames-2, H, W, device=device)
+            else:
+                zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
+            concatenated = torch.cat([resized_image.to(device) * start_latent_strength, zero_frames, resized_end_image.to(device) * end_latent_strength ], dim=1)
 
-        y = vae.encode([concatenated.to(device=device, dtype=vae.dtype)], device, end_=(end_image is not None))[0]
+        
+        y = vae.encode([concatenated.to(device=device, dtype=vae.dtype)], device, end_=(end_image is not None and not fun_model))[0]
         if control_embeds is None:
             y = torch.cat([mask, y])
         else:
@@ -1418,7 +1426,7 @@ class WanVideoImageToVideoEncode:
 
         # Calculate maximum sequence length
         patches_per_frame = lat_h * lat_w // (patch_size[1] * patch_size[2])
-        frames_per_stride = (num_frames - 1) // 4 + (2 if end_image is not None else 1)
+        frames_per_stride = (num_frames - 1) // 4 + (2 if end_image is not None and not fun_model else 1)
         max_seq_len = frames_per_stride * patches_per_frame
 
         vae.model.clear_cache()
@@ -1436,7 +1444,8 @@ class WanVideoImageToVideoEncode:
             "lat_h": lat_h,
             "lat_w": lat_w,
             "control_embeds": control_embeds,
-            "end_image": resized_end_image if end_image is not None else None
+            "end_image": resized_end_image if end_image is not None else None,
+            "fun_model": fun_model
         }
 
         return (image_embeds,)
@@ -1449,6 +1458,9 @@ class WanVideoEmptyEmbeds:
             "height": ("INT", {"default": 480, "min": 64, "max": 29048, "step": 8, "tooltip": "Height of the image to encode"}),
             "num_frames": ("INT", {"default": 81, "min": 1, "max": 10000, "step": 4, "tooltip": "Number of frames to encode"}),
             },
+            "optional": {
+                "control_embeds": ("WANVIDIMAGE_EMBEDS", {"tooltip": "control signal for the Fun -model"}),
+            }
         }
 
     RETURN_TYPES = ("WANVIDIMAGE_EMBEDS", )
@@ -1456,7 +1468,7 @@ class WanVideoEmptyEmbeds:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, num_frames, width, height):
+    def process(self, num_frames, width, height, control_embeds=None):
 
         patch_size = (1, 2, 2)
         vae_stride = (4, 8, 8)
@@ -1472,7 +1484,8 @@ class WanVideoEmptyEmbeds:
         embeds = {
             "max_seq_len": seq_len,
             "target_shape": target_shape,
-            "num_frames": num_frames
+            "num_frames": num_frames,
+            "control_embeds": control_embeds,
         }
     
         return (embeds,)
@@ -1751,9 +1764,10 @@ class WanVideoSampler:
             lat_w = image_embeds.get("lat_w", None)
             if lat_h is None or lat_w is None:
                 raise ValueError("Clip encoded image embeds must be provided for I2V (Image to Video) model")
+            fun_model = image_embeds.get("fun_model", False)
             noise = torch.randn(
                 16,
-                (image_embeds["num_frames"] - 1) // 4 + (2 if end_image is not None else 1),
+                (image_embeds["num_frames"] - 1) // 4 + (2 if end_image is not None and not fun_model else 1),
                 lat_h,
                 lat_w,
                 dtype=torch.float32,
@@ -2452,7 +2466,7 @@ class WanVideoSampler:
             pass
 
         return ({
-            "samples": x0.unsqueeze(0).cpu(), "looped": is_looped, "end_image": end_image
+            "samples": x0.unsqueeze(0).cpu(), "looped": is_looped, "end_image": end_image if not fun_model else None
             }, )
     
 class WindowTracker:
