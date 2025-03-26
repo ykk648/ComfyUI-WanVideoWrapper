@@ -1812,7 +1812,7 @@ class WanVideoSampler:
                         patcher = apply_lora(patcher, device, device, low_mem_load=False)
                         patcher.model.is_patched = True
                 else:
-                    image_cond = torch.zeros_like(control_latents).to(device)
+                    image_cond = torch.zeros_like(control_latents).to(device) #fun control
                     clip_fea = None
                 
                 control_start_percent = control_embeds.get("start_percent", 0.0)
@@ -1822,14 +1822,8 @@ class WanVideoSampler:
                     mask_latents = torch.tile(
                         torch.zeros_like(noise[:1]), [4, 1, 1, 1]
                     )
-                    print(mask_latents.shape)
                     masked_video_latents_input = torch.zeros_like(noise)
-                    print(masked_video_latents_input.shape)
                     image_cond = torch.cat([mask_latents, masked_video_latents_input], dim=0).to(device)
-                    print(image_cond.shape)
-
-                
-                
             
         latent_video_length = noise.shape[1]
 
