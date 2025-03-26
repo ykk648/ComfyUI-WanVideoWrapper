@@ -412,15 +412,14 @@ class WanVideoModelLoader:
             "i2v_720": [-114.36346466, 65.26524496, -18.82220707, 4.91518089, -0.23412683],
         }
         if model_type == "i2v":
-            if "480" in model:
+            if "480" in model or "Fun" in model.lower(): #just a guess for the Fun model for now...
                 model_variant = "i2v_480"
             elif "720" in model:
                 model_variant = "i2v_720"
-            else:
-                model_variant = "1_3B"
-
         elif model_type == "t2v":
-            model_variant = "14B" if dim == 5120 else "1_3B"
+            model_variant = "14B"
+        if dim == 5120:
+            model_variant = "1_3B"
         log.info(f"Model variant detected: {model_variant}")
         
         TRANSFORMER_CONFIG= {
@@ -1768,7 +1767,7 @@ class WanVideoSampler:
 
             control_embeds = image_embeds.get("control_embeds", None)
             if control_embeds is not None:
-                control_latents = control_embeds.get("control_images", None)
+                control_latents = control_embeds["control_images"].to(device)
                 control_start_percent = control_embeds.get("start_percent", 0.0)
                 control_end_percent = control_embeds.get("end_percent", 1.0)
 
