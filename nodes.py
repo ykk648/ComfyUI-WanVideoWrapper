@@ -1807,17 +1807,29 @@ class WanVideoSampler:
                 control_latents = control_embeds["control_images"].to(device)
                 if control_lora:
                     image_cond = control_latents.to(device)
+                    if not patcher.model.is_patched:
+                        log.info("Re-loading control LoRA...")
+                        patcher = apply_lora(patcher, device, device, low_mem_load=False)
+                        patcher.model.is_patched = True
                 else:
                     image_cond = torch.zeros_like(control_latents).to(device)
                     clip_fea = None
                 
                 control_start_percent = control_embeds.get("start_percent", 0.0)
                 control_end_percent = control_embeds.get("end_percent", 1.0)
+            else:
+                if transformer.in_dim == 36: #fun inp
+                    mask_latents = torch.tile(
+                        torch.zeros_like(noise[:1]), [4, 1, 1, 1]
+                    )
+                    print(mask_latents.shape)
+                    masked_video_latents_input = torch.zeros_like(noise)
+                    print(masked_video_latents_input.shape)
+                    image_cond = torch.cat([mask_latents, masked_video_latents_input], dim=0).to(device)
+                    print(image_cond.shape)
+
                 
-                if not patcher.model.is_patched:
-                    log.info("Re-loading control LoRA...")
-                    patcher = apply_lora(patcher, device, device, low_mem_load=False)
-                    patcher.model.is_patched = True
+                
             
         latent_video_length = noise.shape[1]
 
