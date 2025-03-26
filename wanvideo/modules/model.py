@@ -393,16 +393,18 @@ class WanI2VCrossAttention(WanSelfAttention):
         q = self.norm_q(self.q(x)).view(b, -1, n, d)
         k = self.norm_k(self.k(context)).view(b, -1, n, d)
         v = self.v(context).view(b, -1, n, d)
-        k_img = self.norm_k_img(self.k_img(clip_embed)).view(b, -1, n, d)
-        v_img = self.v_img(clip_embed).view(b, -1, n, d)
-        img_x = attention(q, k_img, v_img, k_lens=None, attention_mode=self.attention_mode)
+        if clip_embed is not None:
+            k_img = self.norm_k_img(self.k_img(clip_embed)).view(b, -1, n, d)
+            v_img = self.v_img(clip_embed).view(b, -1, n, d)
+            img_x = attention(q, k_img, v_img, k_lens=None, attention_mode=self.attention_mode)
         # compute attention
         x = attention(q, k, v, k_lens=context_lens, attention_mode=self.attention_mode)
 
         # output
         x = x.flatten(2)
-        img_x = img_x.flatten(2)
-        x = x + img_x
+        if clip_embed is not None:
+            img_x = img_x.flatten(2)
+            x = x + img_x
         x = self.o(x)
         return x
 

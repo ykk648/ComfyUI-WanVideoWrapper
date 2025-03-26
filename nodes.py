@@ -1443,7 +1443,7 @@ class WanVideoImageToVideoEncode:
             "num_frames": num_frames,
             "lat_h": lat_h,
             "lat_w": lat_w,
-            "control_embeds": control_embeds,
+            "control_embeds": control_embeds["control_embeds"] if control_embeds is not None else None,
             "end_image": resized_end_image if end_image is not None else None,
             "fun_model": fun_model
         }
@@ -1485,7 +1485,7 @@ class WanVideoEmptyEmbeds:
             "max_seq_len": seq_len,
             "target_shape": target_shape,
             "num_frames": num_frames,
-            "control_embeds": control_embeds,
+            "control_embeds": control_embeds["control_embeds"] if control_embeds is not None else None,
         }
     
         return (embeds,)
@@ -1522,7 +1522,7 @@ class WanVideoControlEmbeds:
             "end_percent": end_percent,
         }
     
-        return (embeds,)
+        return ({"control_embeds": embeds},)
     
 class WanVideoSLG:
     @classmethod
@@ -1756,9 +1756,12 @@ class WanVideoSampler:
         seed_g = torch.Generator(device=torch.device("cpu"))
         seed_g.manual_seed(seed)
        
-        image_cond, control_latents, clip_fea, clip_fea_neg, end_image = None, None, None, None, None
+        control_latents, clip_fea, clip_fea_neg, end_image = None, None, None, None
+        fun_model = False
+
+        image_cond = image_embeds.get("image_embeds", None)
        
-        if transformer.model_type == "i2v":
+        if image_cond is not None:
             end_image = image_embeds.get("end_image", None)
             lat_h = image_embeds.get("lat_h", None)
             lat_w = image_embeds.get("lat_w", None)
@@ -1784,7 +1787,6 @@ class WanVideoSampler:
                 control_latents = control_embeds["control_images"].to(device)
                 control_start_percent = control_embeds.get("start_percent", 0.0)
                 control_end_percent = control_embeds.get("end_percent", 1.0)
-
         else: #t2v
             target_shape = image_embeds.get("target_shape", None)
             if target_shape is None:
@@ -1799,11 +1801,18 @@ class WanVideoSampler:
                     device=torch.device("cpu"),
                     generator=seed_g)
             
-            control_latents = image_embeds.get("control_images", None)
-            if control_latents is not None:
-                image_cond = control_latents.to(device)
-                control_start_percent = image_embeds.get("start_percent", 0.0)
-                control_end_percent = image_embeds.get("end_percent", 1.0)
+            control_embeds = image_embeds.get("control_embeds", None)
+            if control_embeds is not None:
+                transformer.model_type = "t2v"
+                control_latents = control_embeds["control_images"].to(device)
+                if control_lora:
+                    image_cond = control_latents.to(device)
+                else:
+                    image_cond = torch.zeros_like(control_latents).to(device)
+                    clip_fea = None
+                
+                control_start_percent = control_embeds.get("start_percent", 0.0)
+                control_end_percent = control_embeds.get("end_percent", 1.0)
                 
                 if not patcher.model.is_patched:
                     log.info("Re-loading control LoRA...")
