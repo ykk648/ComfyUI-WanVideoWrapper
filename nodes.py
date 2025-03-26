@@ -2003,6 +2003,10 @@ class WanVideoSampler:
 
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, teacache_state=None):
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
+
+                if use_cfg_zero_star and (idx <= zero_star_steps) and use_zero_init:
+                    return latent_model_input*0, None
+
                 nonlocal patcher
                 current_step_percentage = idx / len(timesteps)
                 control_enabled = False
@@ -2032,7 +2036,7 @@ class WanVideoSampler:
                 }
 
                 batch_size = 1
-                
+
                 if not math.isclose(cfg_scale, 1.0) and len(positive_embeds) > 1:
                     negative_embeds = negative_embeds * len(positive_embeds)
 
@@ -2065,10 +2069,7 @@ class WanVideoSampler:
                         alpha = optimized_scale(positive_flat,negative_flat)
                         alpha = alpha.view(batch_size, 1, 1, 1)
 
-                        if (idx <= zero_star_steps) and use_zero_init:
-                            noise_pred = noise_pred_text*0.
-                        else:
-                            noise_pred = noise_pred_uncond * alpha + cfg_scale * (noise_pred_text - noise_pred_uncond * alpha)
+                        noise_pred = noise_pred_uncond * alpha + cfg_scale * (noise_pred_text - noise_pred_uncond * alpha)
                     else:
                         noise_pred = noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond)
                     return noise_pred, [teacache_state_cond, teacache_state_uncond]
@@ -2081,7 +2082,6 @@ class WanVideoSampler:
                     )
                     noise_pred_uncond=noise_pred_uncond.to(intermediate_device)
 
-                
                 return noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond), [teacache_state_cond]
         
         try:
