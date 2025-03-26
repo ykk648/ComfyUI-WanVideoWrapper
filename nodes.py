@@ -2042,7 +2042,7 @@ class WanVideoSampler:
             use_cfg_zero_star = experimental_args.get("cfg_zero_star", False)
             zero_star_steps = experimental_args.get("zero_star_steps", 0)
 
-        def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, teacache_state=None):
+        def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, control_latents=None, teacache_state=None):
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
 
                 if use_cfg_zero_star and (idx <= zero_star_steps) and use_zero_init:
@@ -2237,7 +2237,7 @@ class WanVideoSampler:
                             vt_src_context, new_teacache = predict_with_cfg(
                                 partial_zt_src, cfg[idx], 
                                 positive, source_embeds["negative_prompt_embeds"],
-                                timestep, idx, partial_img_emb, 
+                                timestep, idx, partial_img_emb, control_latents,
                                 source_clip_fea, current_teacache)
                             
                             if teacache_args is not None:
@@ -2253,7 +2253,7 @@ class WanVideoSampler:
                             source_embeds["prompt_embeds"], 
                             source_embeds["negative_prompt_embeds"],
                             timestep, idx, source_image_cond, 
-                            source_clip_fea,
+                            source_clip_fea, control_latents,
                             teacache_state=self.teacache_state_source)
                 else:
                     if idx == len(timesteps) - drift_steps:
@@ -2344,6 +2344,10 @@ class WanVideoSampler:
                         section_size = latent_video_length / num_windows
                         image_index = min(int(max(c) / section_size), num_windows - 1)
                         partial_img_emb = image_cond[:, c, :, :]
+                        if control_latents is not None:
+                            partial_control_latents = control_latents[:, c, :, :]
+                        else:
+                            partial_control_latents = None
                         partial_image_cond = image_cond[:, 0, :, :].to(intermediate_device)
                         log.info(f"image_index: {image_index}")
                         if hasattr(self, "previous_noise_pred_context") and image_index > 0: #wip
@@ -2354,10 +2358,9 @@ class WanVideoSampler:
                                 if context_vae is not None:
                                     to_decode = self.previous_noise_pred_context[:,-1,:, :].unsqueeze(1).unsqueeze(0).to(context_vae.dtype)
                                     #to_decode = to_decode.permute(0, 1, 3, 2)
-                                    print("to_decode.shape", to_decode.shape)
+                                    #print("to_decode.shape", to_decode.shape)
                                     if isinstance(context_vae, TAEHV):
                                         image = context_vae.decode_video(to_decode.permute(0, 2, 1, 3, 4), parallel=False)
-                                        print("image.shape", image.shape)
                                         image = context_vae.encode_video(image.repeat(1, 5, 1, 1, 1), parallel=False).permute(0, 2, 1, 3, 4)
                                     else:
                                         image = context_vae.decode(to_decode, device=device, tiled=False)[0]
@@ -2378,7 +2381,7 @@ class WanVideoSampler:
                         partial_latent_model_input, 
                         cfg[idx], positive, 
                         text_embeds["negative_prompt_embeds"], 
-                        timestep, idx, partial_img_emb, clip_fea,
+                        timestep, idx, partial_img_emb, clip_fea, partial_control_latents,
                         current_teacache)
 
                     # if callback is not None:
@@ -2401,7 +2404,7 @@ class WanVideoSampler:
                     cfg[idx], 
                     text_embeds["prompt_embeds"], 
                     text_embeds["negative_prompt_embeds"], 
-                    timestep, idx, image_cond, clip_fea,
+                    timestep, idx, image_cond, clip_fea, control_latents,
                     teacache_state=self.teacache_state)
 
             if latent_shift_loop:
