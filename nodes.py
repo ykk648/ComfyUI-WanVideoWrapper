@@ -418,7 +418,7 @@ class WanVideoModelLoader:
                 model_variant = "i2v_720"
         elif model_type == "t2v":
             model_variant = "14B"
-        if dim == 5120:
+        if dim == 1536:
             model_variant = "1_3B"
         log.info(f"Model variant detected: {model_variant}")
         
