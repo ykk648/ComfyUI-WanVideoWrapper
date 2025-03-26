@@ -1726,11 +1726,9 @@ class WanVideoSampler:
                 num_train_timesteps=1000,
                 shift=shift,
                 use_dynamic_shifting=False)
-            sampling_sigmas = get_sampling_sigmas(steps, shift)
-            timesteps, _ = retrieve_timesteps(
-                sample_scheduler,
-                device=device,
-                sigmas=sampling_sigmas)
+            sample_scheduler.set_timesteps(steps, device=device, mu=1)
+            timesteps = sample_scheduler.timesteps
+            
         elif 'dpm++' in scheduler:
             if scheduler == 'dpm++_sde':
                 algorithm_type = "sde-dpmsolver++"
@@ -1741,11 +1739,8 @@ class WanVideoSampler:
                 shift=shift,
                 use_dynamic_shifting=False,
                 algorithm_type= algorithm_type)
-            sampling_sigmas = get_sampling_sigmas(steps, shift)
-            timesteps, _ = retrieve_timesteps(
-                sample_scheduler,
-                device=device,
-                sigmas=sampling_sigmas)
+            sample_scheduler.set_timesteps(steps, device=device, mu=1)
+            timesteps = sample_scheduler.timesteps
         else:
             raise NotImplementedError("Unsupported solver.")
         
