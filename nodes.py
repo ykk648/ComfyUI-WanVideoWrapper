@@ -2283,9 +2283,12 @@ class WanVideoSampler:
                             positive = text_embeds["prompt_embeds"]
                         
                         partial_img_emb = None
+                        partial_control_latents = None
                         if image_cond is not None:
                             partial_img_emb = image_cond[:, c, :, :]
                             partial_img_emb[:, 0, :, :] = image_cond[:, 0, :, :].to(intermediate_device)
+                        if control_latents is not None:
+                            partial_control_latents = control_latents[:, c, :, :]
 
                         partial_zt_tgt = zt_tgt[:, c, :, :]
                         vt_tgt_context, new_teacache = predict_with_cfg(
@@ -2306,7 +2309,7 @@ class WanVideoSampler:
                         zt_tgt, cfg[idx], 
                         text_embeds["prompt_embeds"], 
                         text_embeds["negative_prompt_embeds"], 
-                        timestep, idx, image_cond, clip_fea,
+                        timestep, idx, image_cond, clip_fea, partial_control_latents,
                         teacache_state=self.teacache_state)
                 v_delta = vt_tgt - vt_src
                 x_tgt = x_tgt.to(torch.float32)
@@ -2338,6 +2341,7 @@ class WanVideoSampler:
                         positive = text_embeds["prompt_embeds"]
 
                     partial_img_emb = None
+                    partial_control_latents = None
                     if image_cond is not None:
                         log.info(f"Image cond shape: {image_cond.shape}")
                         num_windows= context_options["image_cond_window_count"]
@@ -2346,8 +2350,6 @@ class WanVideoSampler:
                         partial_img_emb = image_cond[:, c, :, :]
                         if control_latents is not None:
                             partial_control_latents = control_latents[:, c, :, :]
-                        else:
-                            partial_control_latents = None
                         partial_image_cond = image_cond[:, 0, :, :].to(intermediate_device)
                         log.info(f"image_index: {image_index}")
                         if hasattr(self, "previous_noise_pred_context") and image_index > 0: #wip
