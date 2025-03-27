@@ -2051,18 +2051,20 @@ class WanVideoSampler:
                 nonlocal patcher
                 current_step_percentage = idx / len(timesteps)
                 control_lora_enabled = False
+                image_cond_input = None
                 if control_latents is not None:
                     if control_lora:
                         control_lora_enabled = True
                     else:
-                        if control_start_percent <= current_step_percentage <= control_end_percent:
-                            image_cond = torch.cat([control_latents, image_cond])
+                        if (control_start_percent <= current_step_percentage <= control_end_percent) or \
+                            (control_end_percent > 0 and idx == 0):
+                            image_cond_input = torch.cat([control_latents, image_cond])
                         else:
-                            image_cond = torch.cat([torch.zeros_like(image_cond), image_cond])
+                            image_cond_input = torch.cat([torch.zeros_like(image_cond), image_cond])
 
                     if not control_start_percent <= current_step_percentage <= control_end_percent:
                         if control_lora:
-                            image_cond = None
+                            image_cond_input = None
                             control_lora_enabled = False
                             if patcher.model.is_patched:
                                 log.info("Unloading LoRA...")
@@ -2081,7 +2083,7 @@ class WanVideoSampler:
                     'freqs': freqs,
                     't': timestep,
                     'current_step': idx,
-                    'y': [image_cond] if image_cond is not None else None,
+                    'y': [image_cond_input] if image_cond is not None else None,
                     'control_lora_enabled': control_lora_enabled,
                 }
 
