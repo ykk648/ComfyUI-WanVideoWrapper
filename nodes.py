@@ -1769,6 +1769,8 @@ class WanVideoSampler:
 
             control_embeds = image_embeds.get("control_embeds", None)
             if control_embeds is not None:
+                if transformer.in_dim != 48:
+                    raise ValueError("Control signal only works with Fun-Control model")
                 control_latents = control_embeds["control_images"].to(device)
                 control_start_percent = control_embeds.get("start_percent", 0.0)
                 control_end_percent = control_embeds.get("end_percent", 1.0)
@@ -1788,7 +1790,6 @@ class WanVideoSampler:
             
             control_embeds = image_embeds.get("control_embeds", None)
             if control_embeds is not None:
-                transformer.model_type = "t2v"
                 control_latents = control_embeds["control_images"].to(device)
                 if control_lora:
                     image_cond = control_latents.to(device)
@@ -1797,6 +1798,8 @@ class WanVideoSampler:
                         patcher = apply_lora(patcher, device, device, low_mem_load=False)
                         patcher.model.is_patched = True
                 else:
+                    if transformer.in_dim != 48:
+                        raise ValueError("Control signal only works with Fun-Control model")
                     image_cond = torch.zeros_like(control_latents).to(device) #fun control
                     clip_fea = None
                 

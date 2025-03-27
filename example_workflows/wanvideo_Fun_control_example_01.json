@@ -427,7 +427,7 @@
       "title": "Model download links",
       "properties": {},
       "widgets_values": [
-        "1.3B:\n\n[https://huggingface.co/alibaba-pai/Wan2.1-Fun-1.3B-InP/blob/main/diffusion_pytorch_model.safetensors](https://huggingface.co/alibaba-pai/Wan2.1-Fun-1.3B-InP/blob/main/diffusion_pytorch_model.safetensors)\n\n14B:\n\n[https://huggingface.co/alibaba-pai/Wan2.1-Fun-14B-InP/blob/main/diffusion_pytorch_model.safetensors](https://huggingface.co/alibaba-pai/Wan2.1-Fun-14B-InP/blob/main/diffusion_pytorch_model.safetensors)"
+        "1.3B:\n\n[https://huggingface.co/alibaba-pai/Wan2.1-Fun-1.3B-Control/blob/main/diffusion_pytorch_model.safetensors](https://huggingface.co/alibaba-pai/Wan2.1-Fun-1.3B-Control/blob/main/diffusion_pytorch_model.safetensors)\n\n14B:\n\n[https://huggingface.co/alibaba-pai/Wan2.1-Fun-14B-Control/blob/main/diffusion_pytorch_model.safetensors](https://huggingface.co/alibaba-pai/Wan2.1-Fun-14B-Control/blob/main/diffusion_pytorch_model.safetensors)"
       ],
       "color": "#432",
       "bgcolor": "#653"
