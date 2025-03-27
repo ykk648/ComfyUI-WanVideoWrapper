@@ -2062,20 +2062,21 @@ class WanVideoSampler:
                         else:
                             image_cond_input = torch.cat([torch.zeros_like(image_cond), image_cond])
 
-                    if not control_start_percent <= current_step_percentage <= control_end_percent:
-                        if control_lora:
-                            image_cond_input = None
+                    if control_lora:
+                        image_cond_input = None
+                        if not control_start_percent <= current_step_percentage <= control_end_percent:
                             control_lora_enabled = False
                             if patcher.model.is_patched:
                                 log.info("Unloading LoRA...")
                                 patcher.unpatch_model(device)
                                 patcher.model.is_patched = False
-                    else:
-                        if control_lora:
+                        else:
                             if not patcher.model.is_patched:
                                 log.info("Loading LoRA...")
                                 patcher = apply_lora(patcher, device, device, low_mem_load=False)
                                 patcher.model.is_patched = True
+                else:
+                    image_cond_input = image_cond
     
                 base_params = {
                     'seq_len': seq_len,
