@@ -1708,7 +1708,7 @@ class WanVideoSampler:
                 "flowedit_args": ("FLOWEDITARGS", ),
                 "batched_cfg": ("BOOLEAN", {"default": False, "tooltip": "Batc cond and uncond for faster sampling, possibly faster on some hardware, uses more memory"}),
                 "slg_args": ("SLGARGS", ),
-                "rope_function": (["default", "comfy"], {"default": "default", "tooltip": "!EXPERIMENTAL! Comfy's RoPE implementation doesn't use complex numbers and can thus be compiled, that should be a lot faster when using torch.compile"}),
+                "rope_function": (["default", "comfy"], {"default": "comfy", "tooltip": "Comfy's RoPE implementation doesn't use complex numbers and can thus be compiled, that should be a lot faster when using torch.compile"}),
                 "loop_args": ("LOOPARGS", ),
                 "experimental_args": ("EXPERIMENTALARGS", ),
             }
@@ -2006,22 +2006,22 @@ class WanVideoSampler:
         self.teacache_states_context = []
 
 
-        if "sparge" in transformer.attention_mode:
-            from spas_sage_attn.autotune import (
-                SparseAttentionMeansim,
-                extract_sparse_attention_state_dict,
-                load_sparse_attention_state_dict,
-            )
+        # if "sparge" in transformer.attention_mode:
+        #     from spas_sage_attn.autotune import (
+        #         SparseAttentionMeansim,
+        #         extract_sparse_attention_state_dict,
+        #         load_sparse_attention_state_dict,
+        #     )
                 
-            for idx, block in enumerate(transformer.blocks):
-                block.self_attn.verbose = True
-                block.self_attn.inner_attention = SparseAttentionMeansim(l1=0.06, pv_l1=0.065)
-            if transformer.attention_mode == "spargeattn":
-                try:
-                    saved_state_dict = torch.load("sparge_wan.pt")
-                except:
-                    raise ValueError("No saved parameters found for sparse attention, tuning is required first")
-                load_sparse_attention_state_dict(transformer, saved_state_dict, verbose = True)
+        #     for idx, block in enumerate(transformer.blocks):
+        #         block.self_attn.verbose = True
+        #         block.self_attn.inner_attention = SparseAttentionMeansim(l1=0.06, pv_l1=0.065)
+        #     if transformer.attention_mode == "spargeattn":
+        #         try:
+        #             saved_state_dict = torch.load("sparge_wan.pt")
+        #         except:
+        #             raise ValueError("No saved parameters found for sparse attention, tuning is required first")
+        #         load_sparse_attention_state_dict(transformer, saved_state_dict, verbose = True)
 
         if flowedit_args is not None:
             source_embeds = flowedit_args["source_embeds"]
@@ -2137,17 +2137,13 @@ class WanVideoSampler:
                     )
                     noise_pred_uncond=noise_pred_uncond[0].to(intermediate_device)
 
-                    noise_pred_text = noise_pred_cond
-
                     #https://github.com/WeichenFan/CFG-Zero-star/
                     if use_cfg_zero_star:
-                        positive_flat = noise_pred_text.view(batch_size, -1)  
-                        negative_flat = noise_pred_uncond.view(batch_size, -1)  
-
-                        alpha = optimized_scale(positive_flat,negative_flat)
-                        alpha = alpha.view(batch_size, 1, 1, 1)
-
-                        noise_pred = noise_pred_uncond * alpha + cfg_scale * (noise_pred_text - noise_pred_uncond * alpha)
+                        alpha = optimized_scale(
+                            noise_pred_cond.view(batch_size, -1),
+                            noise_pred_uncond.view(batch_size, -1)
+                        ).view(batch_size, 1, 1, 1)
+                        noise_pred = noise_pred_uncond * alpha + cfg_scale * (noise_pred_cond - noise_pred_uncond * alpha)
                     else:
                         noise_pred = noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond)
                     return noise_pred, [teacache_state_cond, teacache_state_uncond]
@@ -2481,10 +2477,10 @@ class WanVideoSampler:
                     log.info(f"TeaCache skipped: {len(state['skipped_steps'])} {name} steps: {state['skipped_steps']}")
             transformer.teacache_state.clear_all()
 
-        if transformer.attention_mode == "spargeattn_tune":
-            saved_state_dict = extract_sparse_attention_state_dict(transformer)
-            torch.save(saved_state_dict, "sparge_wan.pt")
-            save_torch_file(saved_state_dict, "sparge_wan.safetensors")
+        # if transformer.attention_mode == "spargeattn_tune":
+        #     saved_state_dict = extract_sparse_attention_state_dict(transformer)
+        #     torch.save(saved_state_dict, "sparge_wan.pt")
+        #     save_torch_file(saved_state_dict, "sparge_wan.safetensors")
 
         if force_offload:
             if model["manual_offloading"]:
