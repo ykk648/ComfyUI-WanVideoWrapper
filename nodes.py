@@ -102,6 +102,9 @@ class WanVideoTeaCache:
                 "cache_device": (["main_device", "offload_device"], {"default": "offload_device", "tooltip": "Device to cache to"}),
                 "use_coefficients": ("BOOLEAN", {"default": True, "tooltip": "Use calculated coefficients for more accuracy. When enabled therel_l1_thresh should be about 10 times higher than without"}),
             },
+            "optional": {
+                "mode": (["e", "e0"], {"default": "e", "tooltip": "Choice between using e (time embeds, default) or e0 (modulated time embeds)"}),
+            },
         }
     RETURN_TYPES = ("TEACACHEARGS",)
     RETURN_NAMES = ("teacache_args",)
@@ -131,7 +134,7 @@ Official recommended values https://github.com/ali-vilab/TeaCache/tree/main/TeaC
 """
     EXPERIMENTAL = True
 
-    def process(self, rel_l1_thresh, start_step, end_step, cache_device, use_coefficients):
+    def process(self, rel_l1_thresh, start_step, end_step, cache_device, use_coefficients, mode="e"):
         if cache_device == "main_device":
             teacache_device = mm.get_torch_device()
         else:
@@ -142,6 +145,7 @@ Official recommended values https://github.com/ali-vilab/TeaCache/tree/main/TeaC
             "end_step": end_step,
             "cache_device": teacache_device,
             "use_coefficients": use_coefficients,
+            "mode": mode,
         }
         return (teacache_args,)
 
@@ -406,10 +410,22 @@ class WanVideoModelLoader:
         log.info(f"Model type: {model_type}, num_heads: {num_heads}, num_layers: {num_layers}")
 
         teacache_coefficients_map = {
-            "1_3B": [2.39676752e+03, -1.31110545e+03, 2.01331979e+02, -8.29855975e+00, 1.37887774e-01],
-            "14B": [-5784.54975374, 5449.50911966, -1811.16591783, 256.27178429, -13.02252404],
-            "i2v_480": [-3.02331670e+02, 2.23948934e+02, -5.25463970e+01, 5.87348440e+00, -2.01973289e-01],
-            "i2v_720": [-114.36346466, 65.26524496, -18.82220707, 4.91518089, -0.23412683],
+            "1_3B": {
+                "e": [2.39676752e+03, -1.31110545e+03, 2.01331979e+02, -8.29855975e+00, 1.37887774e-01],
+                "e0": [-5.21862437e+04, 9.23041404e+03, -5.28275948e+02, 1.36987616e+01, -4.99875664e-02],
+            },
+            "14B": {
+                "e": [-5784.54975374, 5449.50911966, -1811.16591783, 256.27178429, -13.02252404],
+                "e0": [-3.03318725e+05, 4.90537029e+04, -2.65530556e+03, 5.87365115e+01, -3.15583525e-01],
+            },
+            "i2v_480": {
+                "e": [-3.02331670e+02, 2.23948934e+02, -5.25463970e+01, 5.87348440e+00, -2.01973289e-01],
+                "e0": [2.57151496e+05, -3.54229917e+04, 1.40286849e+03, -1.35890334e+01, 1.32517977e-01],
+            },
+            "i2v_720":{
+                "e": [-114.36346466, 65.26524496, -18.82220707, 4.91518089, -0.23412683],
+                "e0": [8.10705460e+03, 2.13393892e+03, -3.72934672e+02, 1.66203073e+01, -4.17769401e-02],
+            },
         }
         if model_type == "i2v":
             if "480" in model or "fun" in model.lower(): #just a guess for the Fun model for now...
@@ -1373,6 +1389,8 @@ class WanVideoImageToVideoEncode:
         lat_h = H // 8
         lat_w = W // 8
         
+        num_frames = ((num_frames - 1) // 4) * 4 + 1
+
         base_frames = num_frames + (1 if end_image is not None and not fun_model else 0)
         mask = torch.zeros(1, base_frames, lat_h, lat_w, device=device)
         mask[:, 0] = 1  # First frame
@@ -1422,7 +1440,10 @@ class WanVideoImageToVideoEncode:
         if control_embeds is None:
             y = torch.cat([mask, y])
         else:
-            y[:, 1:] = 0
+            if end_image is None:
+                y[:, 1:] = 0
+            else:
+                y[:, 1:-1] = 0 # doesn't seem to work anyway though...
 
         # Calculate maximum sequence length
         patches_per_frame = lat_h * lat_w // (patch_size[1] * patch_size[2])
@@ -1964,6 +1985,7 @@ class WanVideoSampler:
             transformer.teacache_cache_device = teacache_args["cache_device"]
             transformer.teacache_end_step = len(timesteps)-1 if teacache_args["end_step"] == -1 else teacache_args["end_step"]
             transformer.teacache_use_coefficients = teacache_args["use_coefficients"]
+            transformer.teacache_mode = teacache_args["mode"]
         else:
             transformer.enable_teacache = False
 
@@ -2456,7 +2478,7 @@ class WanVideoSampler:
             for pred_id, state in states.items():
                 name = state_names.get(pred_id, f"prediction_{pred_id}")
                 if 'skipped_steps' in state:
-                    log.info(f"TeaCache skipped: {state['skipped_steps']} {name} steps")
+                    log.info(f"TeaCache skipped: {len(state['skipped_steps'])} {name} steps: {state['skipped_steps']}")
             transformer.teacache_state.clear_all()
 
         if transformer.attention_mode == "spargeattn_tune":

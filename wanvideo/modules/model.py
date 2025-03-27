@@ -713,6 +713,7 @@ class WanModel(ModelMixin, ConfigMixin):
         self.teacache_state = TeaCacheState(cache_device=self.teacache_cache_device)
         self.teacache_coefficients = teacache_coefficients
         self.teacache_use_coefficients = False
+        self.teacache_mode = 'e'
 
         self.slg_blocks = None
         self.slg_start_percent = 0.0
@@ -932,8 +933,9 @@ class WanModel(ModelMixin, ConfigMixin):
                 accumulated_rel_l1_distance = self.teacache_state.get(pred_id)['accumulated_rel_l1_distance']
 
                 if self.teacache_use_coefficients:
-                    rescale_func = np.poly1d(self.teacache_coefficients)
-                    accumulated_rel_l1_distance += rescale_func(((e-previous_modulated_input).abs().mean() / previous_modulated_input.abs().mean()).cpu().item())
+                    rescale_func = np.poly1d(self.teacache_coefficients[self.teacache_mode])
+                    temb = e if self.teacache_mode == 'e' else e0
+                    accumulated_rel_l1_distance += rescale_func(((temb-previous_modulated_input).abs().mean() / previous_modulated_input.abs().mean()).cpu().item())
                 else:
                     temb_relative_l1 = relative_l1_distance(previous_modulated_input, e0)
                     accumulated_rel_l1_distance = accumulated_rel_l1_distance.to(e0.device) + temb_relative_l1
@@ -946,15 +948,15 @@ class WanModel(ModelMixin, ConfigMixin):
                     should_calc = True
                     accumulated_rel_l1_distance = torch.tensor(0.0, dtype=torch.float32, device=device)
 
-            previous_modulated_input = e.clone() if self.teacache_use_coefficients else e0.clone()
+            previous_modulated_input = e.clone() if (self.teacache_use_coefficients and self.teacache_mode == 'e') else e0.clone()
             if not should_calc:
                 x += previous_residual.to(x.device)
                 #log.info(f"TeaCache: Skipping uncond step {current_step+1}")
                 self.teacache_state.update(
                     pred_id,
                     accumulated_rel_l1_distance=accumulated_rel_l1_distance,
-                    skipped_steps=self.teacache_state.get(pred_id)['skipped_steps'] + 1,
                 )
+                self.teacache_state.get(pred_id)['skipped_steps'].append(current_step)
 
         if not self.enable_teacache or (self.enable_teacache and should_calc):
             if self.enable_teacache:
@@ -1040,7 +1042,7 @@ class TeaCacheState:
             'previous_residual': None,
             'accumulated_rel_l1_distance': 0,
             'previous_modulated_input': None,
-            'skipped_steps': 0
+            'skipped_steps': [],
         }
         return pred_id
     
