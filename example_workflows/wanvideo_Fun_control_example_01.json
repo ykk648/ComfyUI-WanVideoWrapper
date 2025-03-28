@@ -2,7 +2,7 @@
   "id": "206247b6-9fec-4ed2-8927-e4f388c674d4",
   "revision": 0,
   "last_node_id": 95,
-  "last_link_id": 121,
+  "last_link_id": 124,
   "nodes": [
     {
       "id": 46,
@@ -444,70 +444,6 @@
       "bgcolor": "#355"
     },
     {
-      "id": 65,
-      "type": "WanVideoClipVisionEncode",
-      "pos": [
-        -1200.4986572265625,
-        -431.59814453125
-      ],
-      "size": [
-        327.5999755859375,
-        262
-      ],
-      "flags": {},
-      "order": 39,
-      "mode": 2,
-      "inputs": [
-        {
-          "name": "clip_vision",
-          "type": "CLIP_VISION",
-          "link": 70
-        },
-        {
-          "name": "image_1",
-          "type": "IMAGE",
-          "link": 73
-        },
-        {
-          "name": "image_2",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": null
-        },
-        {
-          "name": "negative_image",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "image_embeds",
-          "type": "WANVIDIMAGE_CLIPEMBEDS",
-          "links": [
-            69
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "ComfyUI-WanVideoWrapper",
-        "ver": "d20baf00247fd06553fdc9253e18732244e54172",
-        "Node name for S&R": "WanVideoClipVisionEncode"
-      },
-      "widgets_values": [
-        1,
-        1,
-        "center",
-        "average",
-        true,
-        0,
-        0.20000000000000004
-      ],
-      "color": "#233",
-      "bgcolor": "#355"
-    },
-    {
       "id": 73,
       "type": "DownloadAndLoadDepthAnythingV2Model",
       "pos": [
@@ -538,107 +474,6 @@
       },
       "widgets_values": [
         "depth_anything_v2_vitl_fp16.safetensors"
-      ]
-    },
-    {
-      "id": 66,
-      "type": "ImageResizeKJ",
-      "pos": [
-        -1190.589111328125,
-        -70.7883529663086
-      ],
-      "size": [
-        315,
-        266
-      ],
-      "flags": {},
-      "order": 36,
-      "mode": 2,
-      "inputs": [
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 72
-        },
-        {
-          "name": "get_image_size",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": null
-        },
-        {
-          "name": "width_input",
-          "shape": 7,
-          "type": "INT",
-          "widget": {
-            "name": "width_input"
-          },
-          "link": null
-        },
-        {
-          "name": "height_input",
-          "shape": 7,
-          "type": "INT",
-          "widget": {
-            "name": "height_input"
-          },
-          "link": null
-        },
-        {
-          "name": "width",
-          "type": "INT",
-          "widget": {
-            "name": "width"
-          },
-          "link": 97
-        },
-        {
-          "name": "height",
-          "type": "INT",
-          "widget": {
-            "name": "height"
-          },
-          "link": 98
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            73,
-            74
-          ]
-        },
-        {
-          "name": "width",
-          "type": "INT",
-          "links": [
-            75
-          ]
-        },
-        {
-          "name": "height",
-          "type": "INT",
-          "links": [
-            76
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfyui-kjnodes",
-        "ver": "52c2e31a903fec2dd654fb614ea82ba2757d5028",
-        "Node name for S&R": "ImageResizeKJ"
-      },
-      "widgets_values": [
-        624,
-        624,
-        "lanczos",
-        false,
-        16,
-        0,
-        0,
-        "center"
       ]
     },
     {
@@ -708,29 +543,6 @@
       ]
     },
     {
-      "id": 81,
-      "type": "Note",
-      "pos": [
-        387.06109619140625,
-        44.78668975830078
-      ],
-      "size": [
-        255.5326690673828,
-        88
-      ],
-      "flags": {},
-      "order": 12,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [],
-      "properties": {},
-      "widgets_values": [
-        "Use empty embeds when doing just text to video with control, otherwise connect the image embeds from the image encoder"
-      ],
-      "color": "#432",
-      "bgcolor": "#653"
-    },
-    {
       "id": 71,
       "type": "VHS_LoadVideo",
       "pos": [
@@ -742,7 +554,7 @@
         650.5508422851562
       ],
       "flags": {},
-      "order": 13,
+      "order": 12,
       "mode": 0,
       "inputs": [
         {
@@ -826,7 +638,7 @@
         149.21942138671875
       ],
       "flags": {},
-      "order": 14,
+      "order": 13,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -909,7 +721,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 15,
+      "order": 14,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -943,7 +755,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 16,
+      "order": 15,
       "mode": 2,
       "inputs": [],
       "outputs": [
@@ -951,7 +763,7 @@
           "name": "WANVAE",
           "type": "WANVAE",
           "links": [
-            105
+            123
           ]
         }
       ],
@@ -972,10 +784,10 @@
       ],
       "size": [
         315,
-        154
+        178
       ],
       "flags": {},
-      "order": 17,
+      "order": 16,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -997,7 +809,8 @@
         1,
         -1,
         "offload_device",
-        "true"
+        "true",
+        "e"
       ]
     },
     {
@@ -1012,7 +825,7 @@
         226.43276977539062
       ],
       "flags": {},
-      "order": 18,
+      "order": 17,
       "mode": 0,
       "inputs": [
         {
@@ -1078,7 +891,7 @@
         130
       ],
       "flags": {},
-      "order": 19,
+      "order": 18,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1117,7 +930,7 @@
         82
       ],
       "flags": {},
-      "order": 20,
+      "order": 19,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1356,7 +1169,7 @@
       ],
       "size": [
         309.3501892089844,
-        540.900146484375
+        637.3502197265625
       ],
       "flags": {},
       "order": 37,
@@ -1413,13 +1226,13 @@
           "hidden": false,
           "paused": false,
           "params": {
-            "filename": "control_00002.mp4",
+            "filename": "control_00001.mp4",
             "subfolder": "",
             "type": "temp",
             "format": "video/h264-mp4",
             "frame_rate": 16,
-            "workflow": "control_00002.png",
-            "fullpath": "N:\\AI\\ComfyUI\\temp\\control_00002.mp4"
+            "workflow": "control_00001.png",
+            "fullpath": "N:\\AI\\ComfyUI\\temp\\control_00001.mp4"
           }
         }
       }
@@ -1438,7 +1251,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 21,
+      "order": 20,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1569,7 +1382,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 22,
+      "order": 21,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1678,7 +1491,7 @@
         130
       ],
       "flags": {},
-      "order": 23,
+      "order": 22,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1714,7 +1527,7 @@
         498.3180847167969
       ],
       "flags": {},
-      "order": 24,
+      "order": 23,
       "mode": 2,
       "inputs": [],
       "outputs": [
@@ -1738,134 +1551,8 @@
       },
       "widgets_values": [
         "pasted/image (758).png",
-        "image"
-      ],
-      "color": "#2a363b",
-      "bgcolor": "#3f5159"
-    },
-    {
-      "id": 80,
-      "type": "Reroute",
-      "pos": [
-        540.1338500976562,
-        -31.767959594726562
-      ],
-      "size": [
-        75,
-        26
-      ],
-      "flags": {},
-      "order": 43,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "",
-          "type": "*",
-          "link": 100
-        }
-      ],
-      "outputs": [
-        {
-          "name": "",
-          "type": "WANVIDIMAGE_EMBEDS",
-          "links": []
-        }
-      ],
-      "properties": {
-        "showOutputText": false,
-        "horizontal": false
-      }
-    },
-    {
-      "id": 63,
-      "type": "WanVideoImageToVideoEncode",
-      "pos": [
-        -800.4992065429688,
-        -261.5985107421875
-      ],
-      "size": [
-        352.79998779296875,
-        338
-      ],
-      "flags": {},
-      "order": 41,
-      "mode": 2,
-      "inputs": [
-        {
-          "name": "start_image",
-          "type": "IMAGE",
-          "link": 74
-        },
-        {
-          "name": "vae",
-          "type": "WANVAE",
-          "link": 105
-        },
-        {
-          "name": "clip_embeds",
-          "type": "WANVIDIMAGE_CLIPEMBEDS",
-          "link": 69
-        },
-        {
-          "name": "end_image",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": null
-        },
-        {
-          "name": "width",
-          "type": "INT",
-          "widget": {
-            "name": "width"
-          },
-          "link": 75
-        },
-        {
-          "name": "height",
-          "type": "INT",
-          "widget": {
-            "name": "height"
-          },
-          "link": 76
-        },
-        {
-          "name": "control_embeds",
-          "shape": 7,
-          "type": "WANVIDIMAGE_EMBEDS",
-          "link": 93
-        },
-        {
-          "name": "num_frames",
-          "type": "INT",
-          "widget": {
-            "name": "num_frames"
-          },
-          "link": 120
-        }
-      ],
-      "outputs": [
-        {
-          "name": "image_embeds",
-          "type": "WANVIDIMAGE_EMBEDS",
-          "links": [
-            100
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "ComfyUI-WanVideoWrapper",
-        "ver": "d20baf00247fd06553fdc9253e18732244e54172",
-        "Node name for S&R": "WanVideoImageToVideoEncode"
-      },
-      "widgets_values": [
-        832,
-        480,
-        81,
-        0.030000000000000006,
-        1,
-        1,
-        true,
-        true
+        "image",
+        ""
       ],
       "color": "#2a363b",
       "bgcolor": "#3f5159"
@@ -1933,41 +1620,6 @@
         "Node name for S&R": "GetImageSizeAndCount"
       },
       "widgets_values": []
-    },
-    {
-      "id": 79,
-      "type": "Reroute",
-      "pos": [
-        902.3881225585938,
-        175.5585174560547
-      ],
-      "size": [
-        75,
-        26
-      ],
-      "flags": {},
-      "order": 42,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "",
-          "type": "*",
-          "link": 99
-        }
-      ],
-      "outputs": [
-        {
-          "name": "",
-          "type": "WANVIDIMAGE_EMBEDS",
-          "links": [
-            121
-          ]
-        }
-      ],
-      "properties": {
-        "showOutputText": false,
-        "horizontal": false
-      }
     },
     {
       "id": 78,
@@ -2115,7 +1767,8 @@
         0,
         1,
         "",
-        "comfy"
+        "comfy",
+        ""
       ]
     },
     {
@@ -2180,7 +1833,7 @@
         186.99449157714844
       ],
       "flags": {},
-      "order": 25,
+      "order": 24,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -2191,6 +1844,357 @@
       ],
       "color": "#432",
       "bgcolor": "#653"
+    },
+    {
+      "id": 65,
+      "type": "WanVideoClipVisionEncode",
+      "pos": [
+        -1200.4986572265625,
+        -431.59814453125
+      ],
+      "size": [
+        327.5999755859375,
+        262
+      ],
+      "flags": {},
+      "order": 39,
+      "mode": 2,
+      "inputs": [
+        {
+          "name": "clip_vision",
+          "type": "CLIP_VISION",
+          "link": 70
+        },
+        {
+          "name": "image_1",
+          "type": "IMAGE",
+          "link": 73
+        },
+        {
+          "name": "image_2",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "negative_image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image_embeds",
+          "type": "WANVIDIMAGE_CLIPEMBEDS",
+          "links": [
+            122
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-WanVideoWrapper",
+        "ver": "d20baf00247fd06553fdc9253e18732244e54172",
+        "Node name for S&R": "WanVideoClipVisionEncode"
+      },
+      "widgets_values": [
+        1,
+        1,
+        "center",
+        "average",
+        true,
+        0,
+        0.20000000000000004
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 63,
+      "type": "WanVideoImageToVideoEncode",
+      "pos": [
+        -800.4992065429688,
+        -261.5985107421875
+      ],
+      "size": [
+        352.79998779296875,
+        338
+      ],
+      "flags": {},
+      "order": 41,
+      "mode": 2,
+      "inputs": [
+        {
+          "name": "vae",
+          "type": "WANVAE",
+          "link": 123
+        },
+        {
+          "name": "clip_embeds",
+          "type": "WANVIDIMAGE_CLIPEMBEDS",
+          "link": 122
+        },
+        {
+          "name": "start_image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 124
+        },
+        {
+          "name": "end_image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": 75
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": 76
+        },
+        {
+          "name": "control_embeds",
+          "shape": 7,
+          "type": "WANVIDIMAGE_EMBEDS",
+          "link": 93
+        },
+        {
+          "name": "num_frames",
+          "type": "INT",
+          "widget": {
+            "name": "num_frames"
+          },
+          "link": 120
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image_embeds",
+          "type": "WANVIDIMAGE_EMBEDS",
+          "links": [
+            100
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-WanVideoWrapper",
+        "ver": "d20baf00247fd06553fdc9253e18732244e54172",
+        "Node name for S&R": "WanVideoImageToVideoEncode"
+      },
+      "widgets_values": [
+        832,
+        480,
+        81,
+        0.030000000000000006,
+        1,
+        1,
+        true,
+        true
+      ],
+      "color": "#2a363b",
+      "bgcolor": "#3f5159"
+    },
+    {
+      "id": 66,
+      "type": "ImageResizeKJ",
+      "pos": [
+        -1190.589111328125,
+        -70.7883529663086
+      ],
+      "size": [
+        315,
+        266
+      ],
+      "flags": {},
+      "order": 36,
+      "mode": 2,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 72
+        },
+        {
+          "name": "get_image_size",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "width_input",
+          "shape": 7,
+          "type": "INT",
+          "widget": {
+            "name": "width_input"
+          },
+          "link": null
+        },
+        {
+          "name": "height_input",
+          "shape": 7,
+          "type": "INT",
+          "widget": {
+            "name": "height_input"
+          },
+          "link": null
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": 97
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": 98
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            73,
+            124
+          ]
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": [
+            75
+          ]
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": [
+            76
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-kjnodes",
+        "ver": "52c2e31a903fec2dd654fb614ea82ba2757d5028",
+        "Node name for S&R": "ImageResizeKJ"
+      },
+      "widgets_values": [
+        624,
+        624,
+        "lanczos",
+        false,
+        16,
+        0,
+        0,
+        "center"
+      ]
+    },
+    {
+      "id": 79,
+      "type": "Reroute",
+      "pos": [
+        916.9335327148438,
+        39.80095291137695
+      ],
+      "size": [
+        75,
+        26
+      ],
+      "flags": {},
+      "order": 42,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "",
+          "type": "*",
+          "link": 99
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "WANVIDIMAGE_EMBEDS",
+          "links": [
+            121
+          ]
+        }
+      ],
+      "properties": {
+        "showOutputText": false,
+        "horizontal": false
+      }
+    },
+    {
+      "id": 81,
+      "type": "Note",
+      "pos": [
+        562.2122802734375,
+        14.483749389648438
+      ],
+      "size": [
+        255.5326690673828,
+        88
+      ],
+      "flags": {},
+      "order": 25,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "Use empty embeds when doing just text to video with control, otherwise connect the image embeds from the image encoder to the sampler"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 80,
+      "type": "Reroute",
+      "pos": [
+        834.6790161132812,
+        -45.101322174072266
+      ],
+      "size": [
+        75,
+        26
+      ],
+      "flags": {},
+      "order": 43,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "",
+          "type": "*",
+          "link": 100
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "WANVIDIMAGE_EMBEDS",
+          "links": []
+        }
+      ],
+      "properties": {
+        "showOutputText": false,
+        "horizontal": false
+      }
     }
   ],
   "links": [
@@ -2267,14 +2271,6 @@
       "TEACACHEARGS"
     ],
     [
-      69,
-      65,
-      0,
-      63,
-      2,
-      "WANVIDIMAGE_CLIPEMBEDS"
-    ],
-    [
       70,
       59,
       0,
@@ -2296,14 +2292,6 @@
       0,
       65,
       1,
-      "IMAGE"
-    ],
-    [
-      74,
-      66,
-      0,
-      63,
-      0,
       "IMAGE"
     ],
     [
@@ -2467,14 +2455,6 @@
       "WANVAE"
     ],
     [
-      105,
-      85,
-      0,
-      63,
-      1,
-      "WANVAE"
-    ],
-    [
       106,
       86,
       0,
@@ -2545,6 +2525,30 @@
       27,
       2,
       "WANVIDIMAGE_EMBEDS"
+    ],
+    [
+      122,
+      65,
+      0,
+      63,
+      1,
+      "WANVIDIMAGE_CLIPEMBEDS"
+    ],
+    [
+      123,
+      85,
+      0,
+      63,
+      0,
+      "WANVAE"
+    ],
+    [
+      124,
+      66,
+      0,
+      63,
+      2,
+      "IMAGE"
     ]
   ],
   "groups": [
@@ -2591,10 +2595,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.8264462809917354,
+      "scale": 1.1,
       "offset": [
-        324.06772332943353,
-        996.9959463677691
+        177.23656305995507,
+        361.5261810657517
       ]
     },
     "node_versions": {

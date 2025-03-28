@@ -1352,7 +1352,6 @@ class WanVideoImageToVideoEncode:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-            "start_image": ("IMAGE", {"tooltip": "Image to encode"}),
             "vae": ("WANVAE",),
             "width": ("INT", {"default": 832, "min": 64, "max": 2048, "step": 8, "tooltip": "Width of the image to encode"}),
             "height": ("INT", {"default": 480, "min": 64, "max": 29048, "step": 8, "tooltip": "Height of the image to encode"}),
@@ -1364,6 +1363,7 @@ class WanVideoImageToVideoEncode:
             "force_offload": ("BOOLEAN", {"default": True}),
             },
             "optional": {
+                "start_image": ("IMAGE", {"tooltip": "Image to encode"}),
                 "end_image": ("IMAGE", {"tooltip": "end frame"}),
                 "control_embeds": ("WANVIDIMAGE_EMBEDS", {"tooltip": "Control signal for the Fun -model"}),
                 "fun_model": ("BOOLEAN", {"default": False, "tooltip": "Enable when using Fun model"}),
@@ -1375,8 +1375,8 @@ class WanVideoImageToVideoEncode:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, vae, start_image, width, height, num_frames, clip_embeds, force_offload, noise_aug_strength, 
-                start_latent_strength, end_latent_strength, end_image=None, control_embeds=None, fun_model=False):
+    def process(self, vae, width, height, num_frames, clip_embeds, force_offload, noise_aug_strength, 
+                start_latent_strength, end_latent_strength, start_image=None, end_image=None, control_embeds=None, fun_model=False):
 
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
@@ -1390,11 +1390,13 @@ class WanVideoImageToVideoEncode:
         lat_w = W // 8
         
         num_frames = ((num_frames - 1) // 4) * 4 + 1
+        two_ref_images = start_image is not None and end_image is not None
 
-        base_frames = num_frames + (1 if end_image is not None and not fun_model else 0)
+        base_frames = num_frames + (1 if two_ref_images and not fun_model else 0)
         mask = torch.zeros(1, base_frames, lat_h, lat_w, device=device)
-        mask[:, 0] = 1  # First frame
-
+        
+        if start_image is not None:
+            mask[:, 0] = 1  # First frame
         if end_image is not None and not fun_model:
             mask[:, -1] = 1  # End frame if exists
 
@@ -1411,10 +1413,11 @@ class WanVideoImageToVideoEncode:
         mask = mask.movedim(1, 2)[0]# C, T, H, W
 
         # Resize and rearrange the input image dimensions
-        resized_image = common_upscale(start_image.movedim(-1, 1), W, H, "lanczos", "disabled").movedim(0, 1)
-        resized_image = resized_image * 2 - 1
-        if noise_aug_strength > 0.0:
-            resized_image = add_noise_to_reference_video(resized_image, ratio=noise_aug_strength)
+        if start_image is not None:
+            resized_start_image = common_upscale(start_image.movedim(-1, 1), W, H, "lanczos", "disabled").movedim(0, 1)
+            resized_start_image = resized_start_image * 2 - 1
+            if noise_aug_strength > 0.0:
+                resized_start_image = add_noise_to_reference_video(resized_start_image, ratio=noise_aug_strength)
         
         if end_image is not None:
             resized_end_image = common_upscale(end_image.movedim(-1, 1), W, H, "lanczos", "disabled").movedim(0, 1)
@@ -1425,23 +1428,31 @@ class WanVideoImageToVideoEncode:
         # Concatenate image with zero frames and encode
         vae.to(device)
 
-        if end_image is None:
+        if start_image is not None and end_image is None:
             zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
-            concatenated = torch.cat([resized_image.to(device), zero_frames], dim=1)
+            concatenated = torch.cat([resized_start_image.to(device), zero_frames], dim=1)
+        elif start_image is None and end_image is not None:
+            zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
+            concatenated = torch.cat([zero_frames, resized_end_image.to(device)], dim=1)
+        elif start_image is None and end_image is None:
+            concatenated = torch.zeros(3, num_frames, H, W, device=device)
         else:
             if fun_model:
                 zero_frames = torch.zeros(3, num_frames-2, H, W, device=device)
             else:
                 zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
-            concatenated = torch.cat([resized_image.to(device) * start_latent_strength, zero_frames, resized_end_image.to(device) * end_latent_strength ], dim=1)
+            concatenated = torch.cat([resized_start_image.to(device), zero_frames, resized_end_image.to(device)], dim=1)
 
-        
         y = vae.encode([concatenated.to(device=device, dtype=vae.dtype)], device, end_=(end_image is not None and not fun_model))[0]
+        y[:, :1] *= start_latent_strength
+        y[:, -1:] *= end_latent_strength
         if control_embeds is None:
             y = torch.cat([mask, y])
         else:
             if end_image is None:
                 y[:, 1:] = 0
+            elif start_image is None:
+                y[:, -1:] = 0
             else:
                 y[:, 1:-1] = 0 # doesn't seem to work anyway though...
 
@@ -1538,12 +1549,14 @@ class WanVideoControlEmbeds:
             "max_seq_len": seq_len,
             "target_shape": samples.shape,
             "num_frames": num_frames,
-            "control_images": samples,
-            "start_percent": start_percent,
-            "end_percent": end_percent,
+            "control_embeds": {
+                "control_images": samples,
+                "start_percent": start_percent,
+                "end_percent": end_percent
+            }
         }
     
-        return ({"control_embeds": embeds},)
+        return (embeds,)
     
 class WanVideoSLG:
     @classmethod
@@ -2088,7 +2101,6 @@ class WanVideoSampler:
                             image_cond_input = torch.cat([torch.zeros_like(image_cond), image_cond])
 
                     if control_lora:
-                        image_cond_input = None
                         if not control_start_percent <= current_step_percentage <= control_end_percent:
                             control_lora_enabled = False
                             if patcher.model.is_patched:
@@ -2096,6 +2108,7 @@ class WanVideoSampler:
                                 patcher.unpatch_model(device)
                                 patcher.model.is_patched = False
                         else:
+                            image_cond_input = control_latents.to(device)
                             if not patcher.model.is_patched:
                                 log.info("Loading LoRA...")
                                 patcher = apply_lora(patcher, device, device, low_mem_load=False)
@@ -2109,7 +2122,7 @@ class WanVideoSampler:
                     'freqs': freqs,
                     't': timestep,
                     'current_step': idx,
-                    'y': [image_cond_input] if image_cond is not None else None,
+                    'y': [image_cond_input] if image_cond_input is not None else None,
                     'control_lora_enabled': control_lora_enabled,
                 }
 
