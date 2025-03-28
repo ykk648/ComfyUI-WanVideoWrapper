@@ -2082,7 +2082,7 @@ class WanVideoSampler:
                         control_lora_enabled = True
                     else:
                         if (control_start_percent <= current_step_percentage <= control_end_percent) or \
-                            (control_end_percent > 0 and idx == 0):
+                            (control_end_percent > 0 and idx == 0 and current_step_percentage >= control_start_percent):
                             image_cond_input = torch.cat([control_latents, image_cond])
                         else:
                             image_cond_input = torch.cat([torch.zeros_like(image_cond), image_cond])
