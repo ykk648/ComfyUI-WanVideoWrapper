@@ -2331,7 +2331,7 @@ class WanVideoSampler:
                         vt_tgt_context, new_teacache = predict_with_cfg(
                             partial_zt_tgt, cfg[idx], 
                             positive, text_embeds["negative_prompt_embeds"],
-                            timestep, idx, partial_img_emb, 
+                            timestep, idx, partial_img_emb, partial_control_latents,
                             clip_fea, current_teacache)
                         
                         if teacache_args is not None:
@@ -2346,7 +2346,7 @@ class WanVideoSampler:
                         zt_tgt, cfg[idx], 
                         text_embeds["prompt_embeds"], 
                         text_embeds["negative_prompt_embeds"], 
-                        timestep, idx, image_cond, clip_fea, partial_control_latents,
+                        timestep, idx, image_cond, clip_fea, control_latents,
                         teacache_state=self.teacache_state)
                 v_delta = vt_tgt - vt_src
                 x_tgt = x_tgt.to(torch.float32)
