@@ -2578,7 +2578,7 @@ class WanVideoDecode:
         else:
             if end_image is not None:
                 enable_vae_tiling = False
-            images = vae.decode(latents, device=device, end_=(end_image is not None), tiled=enable_vae_tiling, tile_size=(tile_x, tile_y), tile_stride=(tile_stride_x, tile_stride_y))[0]
+            images = vae.decode(latents, device=device, end_=(end_image is not None), tiled=enable_vae_tiling, tile_size=(tile_x//8, tile_y//8), tile_stride=(tile_stride_x//8, tile_stride_y//8))[0]
         vae.model.clear_cache()
 
         images = (images - images.min()) / (images.max() - images.min())      
@@ -2586,7 +2586,7 @@ class WanVideoDecode:
         if is_looped:
             #images = images[:, warmup_latent_count * 4:]
             temp_latents = torch.cat([latents[:, :, -3:]] + [latents[:, :, :2]], dim=2)
-            temp_images = vae.decode(temp_latents, device=device, end_=(end_image is not None), tiled=enable_vae_tiling, tile_size=(tile_x, tile_y), tile_stride=(tile_stride_x, tile_stride_y))[0]
+            temp_images = vae.decode(temp_latents, device=device, end_=(end_image is not None), tiled=enable_vae_tiling, tile_size=(tile_x//8, tile_y//8), tile_stride=(tile_stride_x//8, tile_stride_y//8))[0]
             temp_images = (temp_images - temp_images.min()) / (temp_images.max() - temp_images.min())
             out = temp_images[:, 9:]
             out = torch.cat([out, images[:, 5:]], dim=1)
@@ -2645,7 +2645,7 @@ class WanVideoEncode:
             latents = vae.encode_video(image.permute(0, 2, 1, 3, 4), parallel=False)# B, T, C, H, W
             latents = latents.permute(0, 2, 1, 3, 4)
         else:
-            latents = vae.encode(image * 2.0 - 1.0, device=device, tiled=enable_vae_tiling, tile_size=(tile_x, tile_y), tile_stride=(tile_stride_x, tile_stride_y))
+            latents = vae.encode(image * 2.0 - 1.0, device=device, tiled=enable_vae_tiling, tile_size=(tile_x//8, tile_y//8), tile_stride=(tile_stride_x//8, tile_stride_y//8))
             vae.model.clear_cache()
         if latent_strength != 1.0:
             latents *= latent_strength
