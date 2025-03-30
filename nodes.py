@@ -1368,6 +1368,7 @@ class WanVideoImageToVideoEncode:
                 "end_image": ("IMAGE", {"tooltip": "end frame"}),
                 "control_embeds": ("WANVIDIMAGE_EMBEDS", {"tooltip": "Control signal for the Fun -model"}),
                 "fun_model": ("BOOLEAN", {"default": False, "tooltip": "Enable when using Fun model"}),
+                "temporal_mask": ("MASK", {"tooltip": "mask"}),
             }
         }
 
@@ -1377,7 +1378,7 @@ class WanVideoImageToVideoEncode:
     CATEGORY = "WanVideoWrapper"
 
     def process(self, vae, width, height, num_frames, clip_embeds, force_offload, noise_aug_strength, 
-                start_latent_strength, end_latent_strength, start_image=None, end_image=None, control_embeds=None, fun_model=False):
+                start_latent_strength, end_latent_strength, start_image=None, end_image=None, control_embeds=None, fun_model=False, temporal_mask=None):
 
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
@@ -1394,12 +1395,15 @@ class WanVideoImageToVideoEncode:
         two_ref_images = start_image is not None and end_image is not None
 
         base_frames = num_frames + (1 if two_ref_images and not fun_model else 0)
-        mask = torch.zeros(1, base_frames, lat_h, lat_w, device=device)
-        
-        if start_image is not None:
-            mask[:, 0:start_image.shape[0]] = 1  # First frame
-        if end_image is not None:
-            mask[:, -end_image.shape[0]:] = 1  # End frame if exists
+        if temporal_mask is None:
+            mask = torch.zeros(1, base_frames, lat_h, lat_w, device=device)
+            if start_image is not None:
+                mask[:, 0:start_image.shape[0]] = 1  # First frame
+            if end_image is not None:
+                mask[:, -end_image.shape[0]:] = 1  # End frame if exists
+        else:
+            mask = temporal_mask[:base_frames, :lat_h, :lat_w]
+            mask = mask.unsqueeze(0).to(device)
 
         # Repeat first frame and optionally end frame
         start_mask_repeated = torch.repeat_interleave(mask[:, 0:1], repeats=4, dim=1) # T, C, H, W
@@ -1429,20 +1433,23 @@ class WanVideoImageToVideoEncode:
         # Concatenate image with zero frames and encode
         vae.to(device)
 
-        if start_image is not None and end_image is None:
-            zero_frames = torch.zeros(3, num_frames-start_image.shape[0], H, W, device=device)
-            concatenated = torch.cat([resized_start_image.to(device), zero_frames], dim=1)
-        elif start_image is None and end_image is not None:
-            zero_frames = torch.zeros(3, num_frames-end_image.shape[0], H, W, device=device)
-            concatenated = torch.cat([zero_frames, resized_end_image.to(device)], dim=1)
-        elif start_image is None and end_image is None:
-            concatenated = torch.zeros(3, num_frames, H, W, device=device)
-        else:
-            if fun_model:
-                zero_frames = torch.zeros(3, num_frames-(start_image.shape[0]+end_image.shape[0]), H, W, device=device)
+        if temporal_mask is None:
+            if start_image is not None and end_image is None:
+                zero_frames = torch.zeros(3, num_frames-start_image.shape[0], H, W, device=device)
+                concatenated = torch.cat([resized_start_image.to(device), zero_frames], dim=1)
+            elif start_image is None and end_image is not None:
+                zero_frames = torch.zeros(3, num_frames-end_image.shape[0], H, W, device=device)
+                concatenated = torch.cat([zero_frames, resized_end_image.to(device)], dim=1)
+            elif start_image is None and end_image is None:
+                concatenated = torch.zeros(3, num_frames, H, W, device=device)
             else:
-                zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
-            concatenated = torch.cat([resized_start_image.to(device), zero_frames, resized_end_image.to(device)], dim=1)
+                if fun_model:
+                    zero_frames = torch.zeros(3, num_frames-(start_image.shape[0]+end_image.shape[0]), H, W, device=device)
+                else:
+                    zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
+                concatenated = torch.cat([resized_start_image.to(device), zero_frames, resized_end_image.to(device)], dim=1)
+        else:
+            concatenated = resized_start_image * temporal_mask
 
         y = vae.encode([concatenated.to(device=device, dtype=vae.dtype)], device, end_=(end_image is not None and not fun_model))[0]
         y[:, :1] *= start_latent_strength
