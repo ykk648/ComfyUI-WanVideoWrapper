@@ -940,7 +940,7 @@ class LoadWanVideoClipTextEncoder:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model_name": (folder_paths.get_filename_list("text_encoders"), {"tooltip": "These models are loaded from 'ComfyUI/models/text_encoders'"}),
+                "model_name": (folder_paths.get_filename_list("clip_vision"), {"tooltip": "These models are loaded from 'ComfyUI/models/clip_vision'"}),
                  "precision": (["fp16", "fp32", "bf16"],
                     {"default": "fp16"}
                 ),
@@ -950,11 +950,23 @@ class LoadWanVideoClipTextEncoder:
             }
         }
 
+    @classmethod
+    def VALIDATE_INPUTS(s, model_name):
+        # By default we expect the model file to be in the clip_vision folder
+        clip_vision_list = folder_paths.get_filename_list("clip_vision")
+        if model_name not in clip_vision_list:
+            # However, we also support legacy setups where the model is in the text_encoders folder
+            text_encoders_list = folder_paths.get_filename_list("text_encoders")
+            if model_name not in text_encoders_list:
+                # If we still can't find the model, then only mention the clip_vision contents in the error.
+                return f"'{model_name}' not in {clip_vision_list}"
+        return True
+
     RETURN_TYPES = ("CLIP_VISION",) 
     RETURN_NAMES = ("wan_clip_vision", )
     FUNCTION = "loadmodel"
     CATEGORY = "WanVideoWrapper"
-    DESCRIPTION = "Loads Wan text_encoder model from 'ComfyUI/models/text_encoders'"
+    DESCRIPTION = "Loads Wan clip_vision model from 'ComfyUI/models/clip_vision'"
 
     def loadmodel(self, model_name, precision, load_device="offload_device"):
        
@@ -965,7 +977,10 @@ class LoadWanVideoClipTextEncoder:
 
         dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[precision]
 
-        model_path = folder_paths.get_full_path("text_encoders", model_name)
+        model_path = folder_paths.get_full_path("clip_vision", model_name)
+        # We also support legacy setups where the model is in the text_encoders folder
+        if model_path is None:
+            model_path = folder_paths.get_full_path("text_encoders", model_name)
         sd = load_torch_file(model_path, safe_load=True)
         if "log_scale" not in sd:
             raise ValueError("Invalid CLIP model, this node expectes the 'open-clip-xlm-roberta-large-vit-huge-14' model")
