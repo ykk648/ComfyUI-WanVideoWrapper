@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
+from comfy.utils import ProgressBar
 
 CACHE_T = 2
 
@@ -736,6 +737,7 @@ class WanVideoVAE(nn.Module):
         weight = torch.zeros((1, 1, out_T, H * self.upsampling_factor, W * self.upsampling_factor), dtype=hidden_states.dtype, device=data_device)
         values = torch.zeros((1, 3, out_T, H * self.upsampling_factor, W * self.upsampling_factor), dtype=hidden_states.dtype, device=data_device)
 
+        pbar = ProgressBar(len(tasks))
         for h, h_, w, w_ in tqdm(tasks, desc="VAE decoding"):
             hidden_states_batch = hidden_states[:, :, :, h:h_, w:w_].to(computation_device)
             hidden_states_batch = self.model.decode(hidden_states_batch, self.scale).to(data_device)
@@ -762,6 +764,7 @@ class WanVideoVAE(nn.Module):
                 target_h: target_h + hidden_states_batch.shape[3],
                 target_w: target_w + hidden_states_batch.shape[4],
             ] += mask
+            pbar.update(1)
         values = values / weight
         values = values.float().clamp_(-1, 1)
         return values
