@@ -1397,8 +1397,8 @@ class WanVideoImageToVideoEncode:
         
         if start_image is not None:
             mask[:, 0:start_image.shape[0]] = 1  # First frame
-        if end_image is not None and not fun_model:
-            mask[:, -1] = 1  # End frame if exists
+        if end_image is not None:
+            mask[:, -end_image.shape[0]:] = 1  # End frame if exists
 
         # Repeat first frame and optionally end frame
         start_mask_repeated = torch.repeat_interleave(mask[:, 0:1], repeats=4, dim=1) # T, C, H, W
@@ -1432,13 +1432,13 @@ class WanVideoImageToVideoEncode:
             zero_frames = torch.zeros(3, num_frames-start_image.shape[0], H, W, device=device)
             concatenated = torch.cat([resized_start_image.to(device), zero_frames], dim=1)
         elif start_image is None and end_image is not None:
-            zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
+            zero_frames = torch.zeros(3, num_frames-end_image.shape[0], H, W, device=device)
             concatenated = torch.cat([zero_frames, resized_end_image.to(device)], dim=1)
         elif start_image is None and end_image is None:
             concatenated = torch.zeros(3, num_frames, H, W, device=device)
         else:
             if fun_model:
-                zero_frames = torch.zeros(3, num_frames-2, H, W, device=device)
+                zero_frames = torch.zeros(3, num_frames-(start_image.shape[0]+end_image.shape[0]), H, W, device=device)
             else:
                 zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
             concatenated = torch.cat([resized_start_image.to(device), zero_frames, resized_end_image.to(device)], dim=1)
