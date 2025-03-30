@@ -940,7 +940,7 @@ class LoadWanVideoClipTextEncoder:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model_name": (folder_paths.get_filename_list("clip_vision"), {"tooltip": "These models are loaded from 'ComfyUI/models/clip_vision'"}),
+                "model_name": (folder_paths.get_filename_list("clip_vision") + folder_paths.get_filename_list("text_encoders"), {"tooltip": "These models are loaded from 'ComfyUI/models/clip_vision'"}),
                  "precision": (["fp16", "fp32", "bf16"],
                     {"default": "fp16"}
                 ),
@@ -949,18 +949,6 @@ class LoadWanVideoClipTextEncoder:
                 "load_device": (["main_device", "offload_device"], {"default": "offload_device"}),
             }
         }
-
-    @classmethod
-    def VALIDATE_INPUTS(s, model_name):
-        # By default we expect the model file to be in the clip_vision folder
-        clip_vision_list = folder_paths.get_filename_list("clip_vision")
-        if model_name not in clip_vision_list:
-            # However, we also support legacy setups where the model is in the text_encoders folder
-            text_encoders_list = folder_paths.get_filename_list("text_encoders")
-            if model_name not in text_encoders_list:
-                # If we still can't find the model, then only mention the clip_vision contents in the error.
-                return f"'{model_name}' not in {clip_vision_list}"
-        return True
 
     RETURN_TYPES = ("CLIP_VISION",) 
     RETURN_NAMES = ("wan_clip_vision", )
