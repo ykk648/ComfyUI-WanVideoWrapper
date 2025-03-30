@@ -28,6 +28,7 @@ import comfy.model_base
 import comfy.latent_formats
 from comfy.clip_vision import clip_preprocess, ClipVisionModel
 from comfy.sd import load_lora_for_models
+from comfy.cli_args import args, LatentPreviewMethod
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
 
@@ -1944,7 +1945,10 @@ class WanVideoSampler:
            
         pbar = ProgressBar(steps)
 
-        from .latent_preview import prepare_callback
+        if args.preview_method in [LatentPreviewMethod.Auto, LatentPreviewMethod.Latent2RGB]: #default for latent2rgb
+            from latent_preview import prepare_callback
+        else:
+            from .latent_preview import prepare_callback #custom for tiny VAE previews
         callback = prepare_callback(patcher, steps)
 
         #blockswap init        
