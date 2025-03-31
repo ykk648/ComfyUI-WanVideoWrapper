@@ -224,7 +224,7 @@ def standardize_lora_key_format(lora_sd):
         if "img_attn.qkv" in k:
             k = k.replace("img_attn.qkv", "img_attn_qkv")
         if "txt_attn.proj" in k:
-            k = k.replace("txt_attn.proj ", "txt_attn_proj")
+            k = k.replace("txt_attn.proj", "txt_attn_proj")
         if "txt_attn.qkv" in k:
             k = k.replace("txt_attn.qkv", "txt_attn_qkv")
         new_sd[k] = v
