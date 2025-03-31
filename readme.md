@@ -15,6 +15,8 @@ https://huggingface.co/Kijai/WanVideo_comfy/tree/main
 
 Text encoders to `ComfyUI/models/text_encoders`
 
+Clip vision to `ComfyUI/models/clip_vision`
+
 Transformer to `ComfyUI/models/diffusion_models`
 
 Vae to `ComfyUI/models/vae`
