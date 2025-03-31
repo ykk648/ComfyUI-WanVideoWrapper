@@ -1325,9 +1325,8 @@ class WanVideoClipVisionEncode:
                     negative_clip_embeds = clip_vision.visual(pixel_values)
         log.info(f"Clip embeds shape: {clip_embeds.shape}")
 
-        
+        embed_1 = clip_embeds[0:1] * strength_1
         if clip_embeds.shape[0] > 1:
-            embed_1 = clip_embeds[0:1] * strength_1
             embed_2 = clip_embeds[1:2] * strength_2
             if combine_embeds == "average":
                 clip_embeds = torch.mean(torch.stack([embed_1, embed_2]), dim=0)
@@ -1405,7 +1404,11 @@ class WanVideoImageToVideoEncode:
             if end_image is not None:
                 mask[:, -end_image.shape[0]:] = 1  # End frame if exists
         else:
-            mask = temporal_mask[:base_frames, :lat_h, :lat_w]
+            mask = common_upscale(temporal_mask.unsqueeze(1), lat_w, lat_h, "nearest", "disabled").squeeze(1)
+            if mask.shape[0] > base_frames:
+                mask = mask[:base_frames]
+            elif mask.shape[0] < base_frames:
+                mask = torch.cat([mask, torch.zeros(base_frames - mask.shape[0], lat_h, lat_w, device=device)])
             mask = mask.unsqueeze(0).to(device)
 
         # Repeat first frame and optionally end frame
@@ -1452,6 +1455,7 @@ class WanVideoImageToVideoEncode:
                     zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
                 concatenated = torch.cat([resized_start_image.to(device), zero_frames, resized_end_image.to(device)], dim=1)
         else:
+            temporal_mask = common_upscale(temporal_mask.unsqueeze(1), W, H, "nearest", "disabled").squeeze(1)
             concatenated = resized_start_image[:,:num_frames] * temporal_mask[:num_frames].unsqueeze(0)
 
         y = vae.encode([concatenated.to(device=device, dtype=vae.dtype)], device, end_=(end_image is not None and not fun_model))[0]
