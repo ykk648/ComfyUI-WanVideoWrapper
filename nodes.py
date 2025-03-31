@@ -1449,7 +1449,7 @@ class WanVideoImageToVideoEncode:
                     zero_frames = torch.zeros(3, num_frames-1, H, W, device=device)
                 concatenated = torch.cat([resized_start_image.to(device), zero_frames, resized_end_image.to(device)], dim=1)
         else:
-            concatenated = resized_start_image * temporal_mask
+            concatenated = resized_start_image[:,:num_frames] * temporal_mask[:num_frames].unsqueeze(0)
 
         y = vae.encode([concatenated.to(device=device, dtype=vae.dtype)], device, end_=(end_image is not None and not fun_model))[0]
         y[:, :1] *= start_latent_strength
