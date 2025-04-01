@@ -199,27 +199,6 @@ class WanSelfAttention(nn.Module):
 
         q, k, v = qkv_fn(x)
 
-        # if self.attention_mode == 'spargeattn_tune' or self.attention_mode == 'spargeattn':
-        #     tune_mode = False
-        #     if self.attention_mode == 'spargeattn_tune':
-        #         tune_mode = True
-                
-        #     if hasattr(self, 'inner_attention'):
-        #         #print("has inner attention")
-        #         q=rope_apply(q, grid_sizes, freqs)
-        #         k=rope_apply(k, grid_sizes, freqs)
-        #         q = q.permute(0, 2, 1, 3)
-        #         k = k.permute(0, 2, 1, 3)
-        #         v = v.permute(0, 2, 1, 3)
-        #         x = self.inner_attention(
-        #             q=q, 
-        #             k=k,
-        #             v=v, 
-        #             is_causal=False, 
-        #             tune_mode=tune_mode
-        #             ).permute(0, 2, 1, 3)
-        #         #print("inner attention", x.shape) #inner attention torch.Size([1, 12, 32760, 128])
-        #else:
         if rope_func == "comfy":
             q, k = apply_rope_comfy(q, k, freqs)
         else:
@@ -228,7 +207,8 @@ class WanSelfAttention(nn.Module):
 
         if is_enhance_enabled():
             feta_scores = get_feta_scores(q, k)
-        # Split by frames
+
+        # Split by frames if multiple prompts are provided
         if seq_chunks > 1 and current_step in video_attention_split_steps:
             outputs = []
             # Extract frame, height, width from grid_sizes - force to CPU scalars

@@ -1,6 +1,5 @@
 import os
 import torch
-import torch.nn.functional as F
 import gc
 from .utils import log, print_memory, apply_lora, clip_encode_image_tiled
 import numpy as np
@@ -23,7 +22,7 @@ from accelerate.utils import set_module_tensor_to_device
 
 import folder_paths
 import comfy.model_management as mm
-from comfy.utils import load_torch_file, save_torch_file, ProgressBar, common_upscale
+from comfy.utils import load_torch_file, ProgressBar, common_upscale
 import comfy.model_base
 import comfy.latent_formats
 from comfy.clip_vision import clip_preprocess, ClipVisionModel
@@ -1776,6 +1775,7 @@ class WanVideoSampler:
             "use_dynamic_shifting": False,
         }
 
+        timesteps = None
         if scheduler == 'unipc':
             sample_scheduler = FlowUniPCMultistepScheduler(**scheduler_args)
             sample_scheduler.set_timesteps(steps, device=device, shift=shift)
@@ -1793,7 +1793,7 @@ class WanVideoSampler:
             sample_scheduler = FlowDPMSolverMultistepScheduler(**scheduler_args, algorithm_type= algorithm_type)
             sample_scheduler.set_timesteps(steps, device=device, mu=1)
         
-        if not flowedit_args:
+        if timesteps is None:
             timesteps = sample_scheduler.timesteps
         
         if denoise_strength < 1.0:
@@ -2048,24 +2048,6 @@ class WanVideoSampler:
         self.teacache_state = [None, None]
         self.teacache_state_source = [None, None]
         self.teacache_states_context = []
-
-
-        # if "sparge" in transformer.attention_mode:
-        #     from spas_sage_attn.autotune import (
-        #         SparseAttentionMeansim,
-        #         extract_sparse_attention_state_dict,
-        #         load_sparse_attention_state_dict,
-        #     )
-                
-        #     for idx, block in enumerate(transformer.blocks):
-        #         block.self_attn.verbose = True
-        #         block.self_attn.inner_attention = SparseAttentionMeansim(l1=0.06, pv_l1=0.065)
-        #     if transformer.attention_mode == "spargeattn":
-        #         try:
-        #             saved_state_dict = torch.load("sparge_wan.pt")
-        #         except:
-        #             raise ValueError("No saved parameters found for sparse attention, tuning is required first")
-        #         load_sparse_attention_state_dict(transformer, saved_state_dict, verbose = True)
 
         if flowedit_args is not None:
             source_embeds = flowedit_args["source_embeds"]
@@ -2720,85 +2702,6 @@ class WanVideoEncode:
  
         return ({"samples": latents, "mask": latent_mask},)
 
-class WanVideoLatentPreview:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "samples": ("LATENT",),
-                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
-                 "min_val": ("FLOAT", {"default": -0.15, "min": -1.0, "max": 0.0, "step": 0.0001}),
-                 "max_val": ("FLOAT", {"default": 0.15, "min": 0.0, "max": 1.0, "step": 0.0001}),
-                 "r_bias": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.0001}),
-                 "g_bias": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.0001}),
-                 "b_bias": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.0001}),
-            },
-        }
-
-    RETURN_TYPES = ("IMAGE", "STRING", )
-    RETURN_NAMES = ("images", "latent_rgb_factors",)
-    FUNCTION = "sample"
-    CATEGORY = "WanVideoWrapper"
-
-    def sample(self, samples, seed, min_val, max_val, r_bias, g_bias, b_bias):
-        mm.soft_empty_cache()
-
-        latents = samples["samples"].clone()
-        print("in sample", latents.shape)
-        #latent_rgb_factors =[[-0.02531045419704009, -0.00504800612542497, 0.13293717293982546], [-0.03421835830845858, 0.13996708548892614, -0.07081038680118075], [0.011091819063647063, -0.03372949685846012, -0.0698232210116172], [-0.06276524604742019, -0.09322986677909442, 0.01826383612148913], [0.021290659938126788, -0.07719530444034409, -0.08247812477766273], [0.04401102991215147, -0.0026401932105894754, -0.01410913586718443], [0.08979717602613707, 0.05361221258740831, 0.11501425309699129], [0.04695121980405198, -0.13053491609675175, 0.05025986885867986], [-0.09704684176098193, 0.03397687417738002, -0.1105886644677771], [0.14694697234804935, -0.12316902186157716, 0.04210404546699645], [0.14432470831243552, -0.002580008133591355, -0.08490676947390643], [0.051502750076553944, -0.10071695490292451, -0.01786223610178095], [-0.12503276881774464, 0.08877830923879379, 0.1076584501927316], [-0.020191205513213406, -0.1493425056303128, -0.14289740371758308], [-0.06470138952271293, -0.07410426095060325, 0.00980804676890873], [0.11747671720735695, 0.10916082743849789, -0.12235599365235904]]
-        latent_rgb_factors = [
-        [0.000159, -0.000223, 0.001299],
-        [0.000566, 0.000786, 0.001948],
-        [0.001531, -0.000337, 0.000863],
-        [0.001887, 0.002190, 0.002117],
-        [0.002032, 0.000782, -0.000512],
-        [0.001634, 0.001260, 0.001685],
-        [0.001360, -0.000292, 0.000189],
-        [0.001410, 0.000769, 0.001935],
-        [-0.000365, 0.000211, 0.000397],
-        [-0.000091, 0.001333, 0.001812],
-        [0.000201, 0.001866, 0.000546],
-        [0.001889, 0.000544, -0.000237],
-        [0.001779, 0.000022, 0.001764],
-        [0.001456, 0.000431, 0.001574],
-        [0.001791, 0.001738, -0.000121],
-        [-0.000034, -0.000405, 0.000708]
-    ]
-
-        import random
-        random.seed(seed)
-        #latent_rgb_factors = [[random.uniform(min_val, max_val) for _ in range(3)] for _ in range(16)]
-        #latent_rgb_factors = [[0.1 for _ in range(3)] for _ in range(16)]
-        out_factors = latent_rgb_factors
-        print(latent_rgb_factors)
-
-        latent_rgb_factors_bias = [-0.0011, 0.0, -0.0002]
-        #latent_rgb_factors_bias = [r_bias, g_bias, b_bias]
-
-        latent_rgb_factors = torch.tensor(latent_rgb_factors, device=latents.device, dtype=latents.dtype).transpose(0, 1)
-        latent_rgb_factors_bias = torch.tensor(latent_rgb_factors_bias, device=latents.device, dtype=latents.dtype)
-        print(latent_rgb_factors)
-
-        print("latent_rgb_factors", latent_rgb_factors.shape)
-
-        latent_images = []
-        for t in range(latents.shape[2]):
-            latent = latents[:, :, t, :, :]
-            latent = latent[0].permute(1, 2, 0)
-            latent_image = torch.nn.functional.linear(
-                latent,
-                latent_rgb_factors,
-                bias=latent_rgb_factors_bias
-            )
-            latent_images.append(latent_image)
-        latent_images = torch.stack(latent_images, dim=0)
-        print("latent_images", latent_images.shape)
-        latent_images_min = latent_images.min()
-        latent_images_max = latent_images.max()
-        latent_images = (latent_images - latent_images_min) / (latent_images_max - latent_images_min)
-
-        return (latent_images.float().cpu(), out_factors)
-
 NODE_CLASS_MAPPINGS = {
     "WanVideoSampler": WanVideoSampler,
     "WanVideoDecode": WanVideoDecode,
@@ -2813,7 +2716,6 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoEncode": WanVideoEncode,
     "WanVideoBlockSwap": WanVideoBlockSwap,
     "WanVideoTorchCompileSettings": WanVideoTorchCompileSettings,
-    "WanVideoLatentPreview": WanVideoLatentPreview,
     "WanVideoEmptyEmbeds": WanVideoEmptyEmbeds,
     "WanVideoLoraSelect": WanVideoLoraSelect,
     "WanVideoLoraBlockEdit": WanVideoLoraBlockEdit,
@@ -2846,7 +2748,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoEncode": "WanVideo Encode",
     "WanVideoBlockSwap": "WanVideo BlockSwap",
     "WanVideoTorchCompileSettings": "WanVideo Torch Compile Settings",
-    "WanVideoLatentPreview": "WanVideo Latent Preview",
     "WanVideoEmptyEmbeds": "WanVideo Empty Embeds",
     "WanVideoLoraSelect": "WanVideo Lora Select",
     "WanVideoLoraBlockEdit": "WanVideo Lora Block Edit",
