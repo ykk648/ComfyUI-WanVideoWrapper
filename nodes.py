@@ -596,6 +596,7 @@ class WanVideoModelLoader:
             #compile
             if compile_args is not None and vram_management_args is None:
                 torch._dynamo.config.cache_size_limit = compile_args["dynamo_cache_size_limit"]
+                torch._dynamo.config.recompile_limit = compile_args["dynamo_recompile_limit"]
                 if compile_args["compile_transformer_blocks_only"]:
                     for i, block in enumerate(patcher.model.diffusion_model.blocks):
                         patcher.model.diffusion_model.blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
@@ -805,7 +806,9 @@ class WanVideoTorchCompileSettings:
                 "dynamic": ("BOOLEAN", {"default": False, "tooltip": "Enable dynamic mode"}),
                 "dynamo_cache_size_limit": ("INT", {"default": 64, "min": 0, "max": 1024, "step": 1, "tooltip": "torch._dynamo.config.cache_size_limit"}),
                 "compile_transformer_blocks_only": ("BOOLEAN", {"default": True, "tooltip": "Compile only the transformer blocks, usually enough and can make compilation faster and less error prone"}),
-
+            },
+            "optional": {
+                "dynamo_recompile_limit": ("INT", {"default": 128, "min": 0, "max": 1024, "step": 1, "tooltip": "torch._dynamo.config.recompile_limit"}),
             },
         }
     RETURN_TYPES = ("WANCOMPILEARGS",)
@@ -814,7 +817,7 @@ class WanVideoTorchCompileSettings:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "torch.compile settings, when connected to the model loader, torch.compile of the selected layers is attempted. Requires Triton and torch 2.5.0 is recommended"
 
-    def set_args(self, backend, fullgraph, mode, dynamic, dynamo_cache_size_limit, compile_transformer_blocks_only):
+    def set_args(self, backend, fullgraph, mode, dynamic, dynamo_cache_size_limit, compile_transformer_blocks_only, dynamo_recompile_limit=128):
 
         compile_args = {
             "backend": backend,
@@ -822,6 +825,7 @@ class WanVideoTorchCompileSettings:
             "mode": mode,
             "dynamic": dynamic,
             "dynamo_cache_size_limit": dynamo_cache_size_limit,
+            "dynamo_recompile_limit": dynamo_recompile_limit,
             "compile_transformer_blocks_only": compile_transformer_blocks_only,
         }
 
@@ -1404,7 +1408,7 @@ class WanVideoImageToVideoEncode:
             if end_image is not None:
                 mask[:, -end_image.shape[0]:] = 1  # End frame if exists
         else:
-            mask = common_upscale(temporal_mask.unsqueeze(1), lat_w, lat_h, "nearest", "disabled").squeeze(1)
+            mask = common_upscale(temporal_mask.unsqueeze(1).to(device), lat_w, lat_h, "nearest", "disabled").squeeze(1)
             if mask.shape[0] > base_frames:
                 mask = mask[:base_frames]
             elif mask.shape[0] < base_frames:
@@ -1773,7 +1777,10 @@ class WanVideoSampler:
             sample_scheduler.set_timesteps(steps, device=device, shift=shift)
         elif scheduler in ['euler/beta', 'euler']:
             sample_scheduler = FlowMatchEulerDiscreteScheduler(**scheduler_args, use_beta_sigmas=(scheduler == 'euler/beta'))
-            sample_scheduler.set_timesteps(steps, device=device, mu=1)  
+            if flowedit_args: #seems to work better
+                timesteps, _ = retrieve_timesteps(sample_scheduler, device=device, sigmas=get_sampling_sigmas(steps, shift))
+            else:
+                sample_scheduler.set_timesteps(steps, device=device, mu=1)  
         elif 'dpm++' in scheduler:
             if scheduler == 'dpm++_sde':
                 algorithm_type = "sde-dpmsolver++"
@@ -1781,7 +1788,9 @@ class WanVideoSampler:
                 algorithm_type = "dpmsolver++"
             sample_scheduler = FlowDPMSolverMultistepScheduler(**scheduler_args, algorithm_type= algorithm_type)
             sample_scheduler.set_timesteps(steps, device=device, mu=1)
-        timesteps = sample_scheduler.timesteps
+        
+        if not flowedit_args:
+            timesteps = sample_scheduler.timesteps
         
         if denoise_strength < 1.0:
             steps = int(steps * denoise_strength)

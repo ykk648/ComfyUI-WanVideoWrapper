@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
-from einops import repeat
+from einops import repeat, rearrange
 from ...enhance_a_video.enhance import get_feta_scores
 from ...enhance_a_video.globals import is_enhance_enabled
 
@@ -21,7 +21,6 @@ from ...utils import log, get_module_memory_mb
 from comfy.ldm.flux.math import apply_rope as apply_rope_comfy
 
 def rope_riflex(pos, dim, theta, L_test, k, temporal):
-    from einops import rearrange
     assert dim % 2 == 0
     if mm.is_device_mps(pos.device) or mm.is_intel_xpu() or mm.is_directml_enabled():
         device = torch.device("cpu")
