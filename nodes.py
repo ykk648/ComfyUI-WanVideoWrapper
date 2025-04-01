@@ -1676,11 +1676,8 @@ class WanVideoVACEEncode:
             
             ref_images = ref_images.to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3).unsqueeze(0)
             ref_images = ref_images * 2 - 1
-        print("ref_images shape", ref_images.shape)
-        print("input_masks shape", input_masks.shape)
-        print("input_frames shape", input_frames.shape)
+      
         z0 = self.vace_encode_frames(input_frames, ref_images, masks=input_masks)
-        print("z0 shape", z0[0].shape)#torch.Size([1, 10, 16, 26, 26])
         
         m0 = self.vace_encode_masks(input_masks, ref_images)
         z = self.vace_latent(z0, m0)
