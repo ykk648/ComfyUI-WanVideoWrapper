@@ -500,8 +500,67 @@ class WanAttentionBlock(nn.Module):
                 return x
 
         x = cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes)
+
         return x
 
+class VaceWanAttentionBlock(WanAttentionBlock):
+    def __init__(
+            self,
+            cross_attn_type,
+            dim,
+            ffn_dim,
+            num_heads,
+            window_size=(-1, -1),
+            qk_norm=True,
+            cross_attn_norm=False,
+            eps=1e-6,
+            block_id=0
+    ):
+        super().__init__(cross_attn_type, dim, ffn_dim, num_heads, window_size, qk_norm, cross_attn_norm, eps)
+        self.block_id = block_id
+        if block_id == 0:
+            self.before_proj = nn.Linear(self.dim, self.dim)
+            nn.init.zeros_(self.before_proj.weight)
+            nn.init.zeros_(self.before_proj.bias)
+        self.after_proj = nn.Linear(self.dim, self.dim)
+        nn.init.zeros_(self.after_proj.weight)
+        nn.init.zeros_(self.after_proj.bias)
+
+    def forward(self, c, x, **kwargs):
+        if self.block_id == 0:
+            c = self.before_proj(c) + x
+            all_c = []
+        else:
+            all_c = list(torch.unbind(c))
+            c = all_c.pop(-1)
+        c = super().forward(c, **kwargs)
+        c_skip = self.after_proj(c)
+        all_c += [c_skip, c]
+        c = torch.stack(all_c)
+        return c
+
+class BaseWanAttentionBlock(WanAttentionBlock):
+    def __init__(
+        self,
+        cross_attn_type,
+        dim,
+        ffn_dim,
+        num_heads,
+        window_size=(-1, -1),
+        qk_norm=True,
+        cross_attn_norm=False,
+        eps=1e-6,
+        block_id=None,
+        attention_mode='sdpa'
+    ):
+        super().__init__(cross_attn_type, dim, ffn_dim, num_heads, window_size, qk_norm, cross_attn_norm, eps, attention_mode)
+        self.block_id = block_id
+
+    def forward(self, x, vace_hints, vace_context_scale=1.0, **kwargs):
+        x = super().forward(x, **kwargs)
+        if self.block_id is not None:
+            x = x + vace_hints[self.block_id] * vace_context_scale
+        return x
 
 class Head(nn.Module):
 
@@ -579,7 +638,10 @@ class WanModel(ModelMixin, ConfigMixin):
                  attention_mode='sdpa',
                  main_device=torch.device('cuda'),
                  offload_device=torch.device('cpu'),
-                 teacache_coefficients=[],):
+                 teacache_coefficients=[],
+                 vace_layers=None,
+                 vace_in_dim=None
+                 ):
         r"""
         Initialize the diffusion model backbone.
 
@@ -677,17 +739,43 @@ class WanModel(ModelMixin, ConfigMixin):
             nn.Linear(freq_dim, dim), nn.SiLU(), nn.Linear(dim, dim))
         self.time_projection = nn.Sequential(nn.SiLU(), nn.Linear(dim, dim * 6))
 
-        # blocks
-        cross_attn_type = 't2v_cross_attn' if model_type == 't2v' else 'i2v_cross_attn'
-        self.blocks = nn.ModuleList([
-            WanAttentionBlock(cross_attn_type, dim, ffn_dim, num_heads,
+        if vace_layers is not None:
+            self.vace_layers = [i for i in range(0, self.num_layers, 2)] if vace_layers is None else vace_layers
+            self.vace_in_dim = self.in_dim if vace_in_dim is None else vace_in_dim
+
+            self.vace_layers_mapping = {i: n for n, i in enumerate(self.vace_layers)}
+
+            # vace blocks
+            self.vace_blocks = nn.ModuleList([
+                VaceWanAttentionBlock('t2v_cross_attn', self.dim, self.ffn_dim, self.num_heads, self.window_size, self.qk_norm,
+                                        self.cross_attn_norm, self.eps, block_id=i)
+                for i in self.vace_layers
+            ])
+
+            # vace patch embeddings
+            self.vace_patch_embedding = nn.Conv3d(
+                self.vace_in_dim, self.dim, kernel_size=self.patch_size, stride=self.patch_size
+            )
+            self.blocks = nn.ModuleList([
+            BaseWanAttentionBlock('t2v_cross_attn', dim, ffn_dim, num_heads,
                               window_size, qk_norm, cross_attn_norm, eps,
-                              attention_mode=self.attention_mode)
-            for _ in range(num_layers)
-        ])
+                              attention_mode=self.attention_mode,
+                              block_id=self.vace_layers_mapping[i] if i in self.vace_layers else None)
+            for i in range(num_layers)
+            ])
+        else:
+            # blocks
+            cross_attn_type = 't2v_cross_attn' if model_type == 't2v' else 'i2v_cross_attn'
+            self.blocks = nn.ModuleList([
+                WanAttentionBlock(cross_attn_type, dim, ffn_dim, num_heads,
+                                window_size, qk_norm, cross_attn_norm, eps,
+                                attention_mode=self.attention_mode)
+                for _ in range(num_layers)
+            ])
 
         # head
         self.head = Head(dim, out_dim, patch_size, eps)
+        
 
         d = self.dim // self.num_heads
         self.rope_embedder = EmbedND_RifleX(
@@ -735,6 +823,30 @@ class WanModel(ModelMixin, ConfigMixin):
         log.info(f"Non-blocking memory transfer: {self.use_non_blocking}")
         log.info("----------------------")
 
+    def forward_vace(
+        self,
+        x,
+        vace_context,
+        seq_len,
+        kwargs
+    ):
+        # embeddings
+        c = [self.vace_patch_embedding(u.unsqueeze(0)) for u in vace_context]
+        c = [u.flatten(2).transpose(1, 2) for u in c]
+        c = torch.cat([
+            torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))],
+                      dim=1) for u in c
+        ])
+
+        # arguments
+        new_kwargs = dict(x=x)
+        new_kwargs.update(kwargs)
+
+        for block in self.vace_blocks:
+            c = block(c, **new_kwargs)
+        hints = torch.unbind(c)[:-1]
+        return hints
+
     def forward(
         self,
         x,
@@ -750,6 +862,9 @@ class WanModel(ModelMixin, ConfigMixin):
         current_step=0,
         pred_id=None,
         control_lora_enabled=False,
+        vace_context = None,
+        vace_scale=1.0,
+
     ):
         r"""
         Forward pass through the diffusion model
@@ -894,6 +1009,7 @@ class WanModel(ModelMixin, ConfigMixin):
         if not self.enable_teacache or (self.enable_teacache and should_calc):
             if self.enable_teacache:
                 original_x = x.clone()
+
             # arguments
             kwargs = dict(
                 e=e0,
@@ -905,8 +1021,14 @@ class WanModel(ModelMixin, ConfigMixin):
                 clip_embed=clip_embed,
                 rope_func=rope_func,
                 current_step=current_step,
-                video_attention_split_steps=self.video_attention_split_steps,
+                video_attention_split_steps=self.video_attention_split_steps
                 )
+
+            if vace_context is not None:
+                vace_hints = self.forward_vace(x, vace_context, seq_len, kwargs)
+                vace_context_scale = vace_scale
+                kwargs['vace_hints'] = vace_hints
+                kwargs['vace_context_scale'] = vace_context_scale
 
             for b, block in enumerate(self.blocks):
                 if self.slg_blocks is not None:

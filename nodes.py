@@ -1,5 +1,6 @@
 import os
 import torch
+import torch.nn.functional as F
 import gc
 from .utils import log, print_memory, apply_lora, clip_encode_image_tiled
 import numpy as np
@@ -407,6 +408,12 @@ class WanVideoModelLoader:
         num_heads = 40 if dim == 5120 else 12
         num_layers = 40 if dim == 5120 else 30
 
+        vace_layers, vace_in_dim = None, None
+        if "vace_blocks.0.after_proj.weight" in sd:
+            model_type = "t2v"
+            vace_layers = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28]
+            vace_in_dim = 96
+
         log.info(f"Model type: {model_type}, num_heads: {num_heads}, num_layers: {num_layers}")
 
         teacache_coefficients_map = {
@@ -453,6 +460,8 @@ class WanVideoModelLoader:
             "main_device": device,
             "offload_device": offload_device,
             "teacache_coefficients": teacache_coefficients_map[model_variant],
+            "vace_layers": vace_layers,
+            "vace_in_dim": vace_in_dim
         }
 
         with init_empty_weights():
@@ -1605,6 +1614,111 @@ class WanVideoSLG:
             "end_percent": end_percent,
         }
         return (slg_args,)
+    
+class WanVideoVACEEncode:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "vae": ("WANVAE",),
+            "input_frames": ("IMAGE",),
+            "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.001}),
+            },
+            "optional": {
+                "input_ref_images": ("IMAGE",),
+                "input_masks": ("MASK",),
+            },
+        }
+
+    RETURN_TYPES = ("VACEINPUT", )
+    RETURN_NAMES = ("vace_input",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+
+    def process(self, vae, input_frames, strength, ref_images=None, input_masks=None):
+        self.device = mm.get_torch_device()
+        offload_device = mm.unet_offload_device()
+        self.vae = vae.to(self.device)
+        self.vae_stride = (4, 8, 8)
+        # vace context encode
+
+        input_frames = (input_frames.clone()).to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3) # B, C, T, H, W
+        if input_masks is None:
+            input_masks = torch.ones_like(input_frames, device=self.device)
+        z0 = self.vace_encode_frames(input_frames, ref_images, masks=input_masks)
+        m0 = self.vace_encode_masks(input_masks, ref_images)
+        z = self.vace_latent(z0, m0)
+
+        self.vae.to(offload_device)
+
+        vace_input = {
+            "vace_context": z,
+            "vace_scale": strength,
+        }
+    
+        return (vace_input,)
+    def vace_encode_frames(self, frames, ref_images, masks=None):
+        if ref_images is None:
+            ref_images = [None] * len(frames)
+        else:
+            assert len(frames) == len(ref_images)
+
+        if masks is None:
+            latents = self.vae.encode(frames, self.device)
+        else:
+            inactive = [i * (1 - m) + 0 * m for i, m in zip(frames, masks)]
+            reactive = [i * m + 0 * (1 - m) for i, m in zip(frames, masks)]
+            inactive = self.vae.encode(inactive, self.device)
+            reactive = self.vae.encode(reactive, self.device)
+            latents = [torch.cat((u, c), dim=0) for u, c in zip(inactive, reactive)]
+
+        cat_latents = []
+        for latent, refs in zip(latents, ref_images):
+            if refs is not None:
+                if masks is None:
+                    ref_latent = self.vae.encode(refs, self.device)
+                else:
+                    ref_latent = self.vae.encode(refs, self.device)
+                    ref_latent = [torch.cat((u, torch.zeros_like(u)), dim=0) for u in ref_latent]
+                assert all([x.shape[1] == 1 for x in ref_latent])
+                latent = torch.cat([*ref_latent, latent], dim=1)
+            cat_latents.append(latent)
+        return cat_latents
+
+    def vace_encode_masks(self, masks, ref_images=None):
+        if ref_images is None:
+            ref_images = [None] * len(masks)
+        else:
+            assert len(masks) == len(ref_images)
+
+        result_masks = []
+        for mask, refs in zip(masks, ref_images):
+            c, depth, height, width = mask.shape
+            new_depth = int((depth + 3) // self.vae_stride[0])
+            height = 2 * (int(height) // (self.vae_stride[1] * 2))
+            width = 2 * (int(width) // (self.vae_stride[2] * 2))
+
+            # reshape
+            mask = mask[0, :, :, :]
+            mask = mask.view(
+                depth, height, self.vae_stride[1], width, self.vae_stride[1]
+            )  # depth, height, 8, width, 8
+            mask = mask.permute(2, 4, 0, 1, 3)  # 8, 8, depth, height, width
+            mask = mask.reshape(
+                self.vae_stride[1] * self.vae_stride[2], depth, height, width
+            )  # 8*8, depth, height, width
+
+            # interpolation
+            mask = F.interpolate(mask.unsqueeze(0), size=(new_depth, height, width), mode='nearest-exact').squeeze(0)
+
+            if refs is not None:
+                length = len(refs)
+                mask_pad = torch.zeros_like(mask[:, :length, :, :])
+                mask = torch.cat((mask_pad, mask), dim=1)
+            result_masks.append(mask)
+        return result_masks
+
+    def vace_latent(self, z, m):
+        return [torch.cat([zz, mm], dim=0) for zz, mm in zip(z, m)]
 
 
 #region Sampler
@@ -1746,6 +1860,7 @@ class WanVideoSampler:
                 "rope_function": (["default", "comfy"], {"default": "comfy", "tooltip": "Comfy's RoPE implementation doesn't use complex numbers and can thus be compiled, that should be a lot faster when using torch.compile"}),
                 "loop_args": ("LOOPARGS", ),
                 "experimental_args": ("EXPERIMENTALARGS", ),
+                "vace_input": ("VACEINPUT", ),
             }
         }
 
@@ -1756,7 +1871,7 @@ class WanVideoSampler:
 
     def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
         force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, 
-        teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None, experimental_args=None):
+        teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None, experimental_args=None, vace_input=None):
         #assert not (context_options and teacache_args), "Context options cannot currently be used together with teacache."
         patcher = model
         model = model.model
@@ -2093,6 +2208,7 @@ class WanVideoSampler:
             use_cfg_zero_star = experimental_args.get("cfg_zero_star", False)
             zero_star_steps = experimental_args.get("zero_star_steps", 0)
 
+        #region model pred
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, control_latents=None, teacache_state=None):
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
 
@@ -2137,6 +2253,8 @@ class WanVideoSampler:
                     'current_step': idx,
                     'y': [image_cond_input] if image_cond_input is not None else None,
                     'control_lora_enabled': control_lora_enabled,
+                    'vace_context': vace_input["vace_context"] if vace_input is not None else None,
+                    'vace_scale': vace_input["vace_scale"] if vace_input is not None else None,
                 }
 
                 batch_size = 1
@@ -2732,6 +2850,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoImageResizeToClosest": WanVideoImageResizeToClosest,
     "WanVideoSetBlockSwap": WanVideoSetBlockSwap,
     "WanVideoExperimentalArgs": WanVideoExperimentalArgs,
+    "WanVideoVACEEncode": WanVideoVACEEncode,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -2764,4 +2883,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoImageResizeToClosest": "WanVideo Image Resize To Closest",
     "WanVideoSetBlockSwap": "WanVideo Set BlockSwap",
     "WanVideoExperimentalArgs": "WanVideo Experimental Args",
+    "WanVideoVACEEncode": "WanVideo VACE Encode",
     }
