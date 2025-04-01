@@ -1607,7 +1607,8 @@ class WanVideoSLG:
             "end_percent": end_percent,
         }
         return (slg_args,)
-    
+
+#region VACE
 class WanVideoVACEEncode:
     @classmethod
     def INPUT_TYPES(s):
@@ -2192,6 +2193,7 @@ class WanVideoSampler:
             transformer.teacache_end_step = len(timesteps)-1 if teacache_args["end_step"] == -1 else teacache_args["end_step"]
             transformer.teacache_use_coefficients = teacache_args["use_coefficients"]
             transformer.teacache_mode = teacache_args["mode"]
+            transformer.teacache_state.clear_all()
         else:
             transformer.enable_teacache = False
 
