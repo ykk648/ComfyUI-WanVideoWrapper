@@ -1642,8 +1642,17 @@ class WanVideoVACEEncode:
         # vace context encode
 
         input_frames = (input_frames.clone()).to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3) # B, C, T, H, W
+        
+        input_frames = input_frames * 2 - 1
         if input_masks is None:
             input_masks = torch.ones_like(input_frames, device=self.device)
+        else:
+            input_masks = (input_masks.clone()).to(self.vae.dtype).to(self.device)
+            input_masks = input_masks.unsqueeze(-1).unsqueeze(0).permute(0, 4, 1, 2, 3).repeat(1, 3, 1, 1, 1) # B, C, T, H, W
+
+        if ref_images is not None:
+            ref_images = (ref_images.clone()).to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3)
+            ref_images = ref_images * 2 - 1
         z0 = self.vace_encode_frames(input_frames, ref_images, masks=input_masks)
         m0 = self.vace_encode_masks(input_masks, ref_images)
         z = self.vace_latent(z0, m0)
