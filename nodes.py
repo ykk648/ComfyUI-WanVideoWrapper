@@ -1644,6 +1644,7 @@ class WanVideoVACEEncode:
         if input_frames is None:
             input_frames = torch.zeros((1, 3, num_frames, height, width), device=self.device, dtype=self.vae.dtype)
         else:
+            input_frames = input_frames[:num_frames]
             input_frames = common_upscale(input_frames.clone().movedim(-1, 1), width, height, "lanczos", "disabled").movedim(1, -1)
             input_frames = input_frames.to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3) # B, C, T, H, W
             input_frames = input_frames * 2 - 1
@@ -1651,6 +1652,7 @@ class WanVideoVACEEncode:
             input_masks = torch.ones_like(input_frames, device=self.device)
         else:
             print("input_masks shape", input_masks.shape)
+            input_masks = input_masks[:num_frames]
             input_masks = common_upscale(input_masks.clone().unsqueeze(1), width, height, "nearest-exact", "disabled").squeeze(1)
             input_masks = input_masks.to(self.vae.dtype).to(self.device)
             input_masks = input_masks.unsqueeze(-1).unsqueeze(0).permute(0, 4, 1, 2, 3).repeat(1, 3, 1, 1, 1) # B, C, T, H, W
@@ -2145,7 +2147,7 @@ class WanVideoSampler:
         if block_swap_args is not None:
             transformer.use_non_blocking = block_swap_args.get("use_non_blocking", True)
             for name, param in transformer.named_parameters():
-                if "block" not in name:
+                if "block" not in name or "vace" in name:
                     param.data = param.data.to(device)
                 elif block_swap_args["offload_txt_emb"] and "txt_emb" in name:
                     param.data = param.data.to(offload_device, non_blocking=transformer.use_non_blocking)
