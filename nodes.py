@@ -1532,20 +1532,13 @@ class WanVideoEmptyEmbeds:
     CATEGORY = "WanVideoWrapper"
 
     def process(self, num_frames, width, height, control_embeds=None):
-
-        patch_size = (1, 2, 2)
         vae_stride = (4, 8, 8)
 
         target_shape = (16, (num_frames - 1) // vae_stride[0] + 1,
                         height // vae_stride[1],
                         width // vae_stride[2])
-
-        seq_len = math.ceil((target_shape[2] * target_shape[3]) /
-                            (patch_size[1] * patch_size[2]) *
-                            target_shape[1])
         
         embeds = {
-            "max_seq_len": seq_len,
             "target_shape": target_shape,
             "num_frames": num_frames,
             "control_embeds": control_embeds["control_embeds"] if control_embeds is not None else None,
@@ -1620,40 +1613,54 @@ class WanVideoVACEEncode:
     def INPUT_TYPES(s):
         return {"required": {
             "vae": ("WANVAE",),
-            "input_frames": ("IMAGE",),
+            "width": ("INT", {"default": 832, "min": 64, "max": 2048, "step": 8, "tooltip": "Width of the image to encode"}),
+            "height": ("INT", {"default": 480, "min": 64, "max": 29048, "step": 8, "tooltip": "Height of the image to encode"}),
+            "num_frames": ("INT", {"default": 81, "min": 1, "max": 10000, "step": 4, "tooltip": "Number of frames to encode"}),
             "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.001}),
             },
             "optional": {
-                "input_ref_images": ("IMAGE",),
+                "input_frames": ("IMAGE",),
+                "ref_images": ("IMAGE",),
                 "input_masks": ("MASK",),
             },
         }
 
-    RETURN_TYPES = ("VACEINPUT", )
-    RETURN_NAMES = ("vace_input",)
+    RETURN_TYPES = ("WANVIDIMAGE_EMBEDS", )
+    RETURN_NAMES = ("vace_embeds",)
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, vae, input_frames, strength, ref_images=None, input_masks=None):
+    def process(self, vae, width, height, num_frames, strength, input_frames=None, ref_images=None, input_masks=None):
+        
         self.device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
         self.vae = vae.to(self.device)
         self.vae_stride = (4, 8, 8)
-        # vace context encode
 
-        input_frames = (input_frames.clone()).to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3) # B, C, T, H, W
-        
-        input_frames = input_frames * 2 - 1
+        target_shape = (16, (num_frames - 1) // self.vae_stride[0] + 1,
+                        height // self.vae_stride[1],
+                        width // self.vae_stride[2])
+        # vace context encode
+        if input_frames is None:
+            input_frames = torch.zeros((1, 3, num_frames, width, height), device=self.device, dtype=self.vae.dtype)
+        else:
+            input_frames = common_upscale(input_frames.clone().movedim(-1, 1), width, height, "lanczos", "disabled").movedim(1, -1)
+            input_frames = input_frames.to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3) # B, C, T, H, W
+            input_frames = input_frames * 2 - 1
         if input_masks is None:
             input_masks = torch.ones_like(input_frames, device=self.device)
         else:
-            input_masks = (input_masks.clone()).to(self.vae.dtype).to(self.device)
+            print("input_masks shape", input_masks.shape)
+            input_masks = common_upscale(input_masks.clone().unsqueeze(1), width, height, "nearest-exact", "disabled").squeeze(1)
+            input_masks = input_masks.to(self.vae.dtype).to(self.device)
             input_masks = input_masks.unsqueeze(-1).unsqueeze(0).permute(0, 4, 1, 2, 3).repeat(1, 3, 1, 1, 1) # B, C, T, H, W
 
         if ref_images is not None:
-            ref_images = (ref_images.clone()).to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3)
+            ref_images = common_upscale(ref_images.clone().movedim(-1, 1), width, height, "lanczos", "disabled").movedim(1, -1)
+            ref_images = ref_images.to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3).unsqueeze(0)
             ref_images = ref_images * 2 - 1
         z0 = self.vace_encode_frames(input_frames, ref_images, masks=input_masks)
+        print("z0 shape", z0[0].shape)#torch.Size([1, 10, 16, 26, 26])
         m0 = self.vace_encode_masks(input_masks, ref_images)
         z = self.vace_latent(z0, m0)
 
@@ -1662,6 +1669,9 @@ class WanVideoVACEEncode:
         vace_input = {
             "vace_context": z,
             "vace_scale": strength,
+            "has_ref": ref_images is not None,
+            "num_frames": num_frames,
+            "target_shape": target_shape
         }
     
         return (vace_input,)
@@ -1686,6 +1696,7 @@ class WanVideoVACEEncode:
                 if masks is None:
                     ref_latent = self.vae.encode(refs, self.device)
                 else:
+                    print("refs shape", refs.shape)#torch.Size([3, 1, 512, 512])
                     ref_latent = self.vae.encode(refs, self.device)
                     ref_latent = [torch.cat((u, torch.zeros_like(u)), dim=0) for u in ref_latent]
                 assert all([x.shape[1] == 1 for x in ref_latent])
@@ -1869,7 +1880,6 @@ class WanVideoSampler:
                 "rope_function": (["default", "comfy"], {"default": "comfy", "tooltip": "Comfy's RoPE implementation doesn't use complex numbers and can thus be compiled, that should be a lot faster when using torch.compile"}),
                 "loop_args": ("LOOPARGS", ),
                 "experimental_args": ("EXPERIMENTALARGS", ),
-                "vace_input": ("VACEINPUT", ),
             }
         }
 
@@ -1880,7 +1890,7 @@ class WanVideoSampler:
 
     def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
         force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, 
-        teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None, experimental_args=None, vace_input=None):
+        teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None, experimental_args=None):
         #assert not (context_options and teacache_args), "Context options cannot currently be used together with teacache."
         patcher = model
         model = model.model
@@ -1928,6 +1938,7 @@ class WanVideoSampler:
         seed_g.manual_seed(seed)
        
         control_latents, clip_fea, clip_fea_neg, end_image = None, None, None, None
+        vace_context, vace_scale = None, None
         fun_model = False
 
         image_cond = image_embeds.get("image_embeds", None)
@@ -1964,15 +1975,21 @@ class WanVideoSampler:
             target_shape = image_embeds.get("target_shape", None)
             if target_shape is None:
                 raise ValueError("Empty image embeds must be provided for T2V (Text to Video")
-            seq_len = image_embeds["max_seq_len"]
+            
+            has_ref = image_embeds.get("has_ref", False)
+            vace_context = image_embeds.get("vace_context", None)
+            vace_scale = image_embeds.get("vace_scale", None)
+
             noise = torch.randn(
                     target_shape[0],
-                    target_shape[1],
+                    target_shape[1] + 1 if has_ref else target_shape[1],
                     target_shape[2],
                     target_shape[3],
                     dtype=torch.float32,
                     device=torch.device("cpu"),
                     generator=seed_g)
+            
+            seq_len = math.ceil((noise.shape[2] * noise.shape[3]) / 4 * noise.shape[1])
             
             control_embeds = image_embeds.get("control_embeds", None)
             if control_embeds is not None:
@@ -2262,8 +2279,8 @@ class WanVideoSampler:
                     'current_step': idx,
                     'y': [image_cond_input] if image_cond_input is not None else None,
                     'control_lora_enabled': control_lora_enabled,
-                    'vace_context': vace_input["vace_context"] if vace_input is not None else None,
-                    'vace_scale': vace_input["vace_scale"] if vace_input is not None else None,
+                    'vace_context': vace_context,
+                    'vace_scale': vace_scale,
                 }
 
                 batch_size = 1
