@@ -1642,7 +1642,7 @@ class WanVideoVACEEncode:
                         width // self.vae_stride[2])
         # vace context encode
         if input_frames is None:
-            input_frames = torch.zeros((1, 3, num_frames, width, height), device=self.device, dtype=self.vae.dtype)
+            input_frames = torch.zeros((1, 3, num_frames, height, width), device=self.device, dtype=self.vae.dtype)
         else:
             input_frames = common_upscale(input_frames.clone().movedim(-1, 1), width, height, "lanczos", "disabled").movedim(1, -1)
             input_frames = input_frames.to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3) # B, C, T, H, W
@@ -1659,8 +1659,12 @@ class WanVideoVACEEncode:
             ref_images = common_upscale(ref_images.clone().movedim(-1, 1), width, height, "lanczos", "disabled").movedim(1, -1)
             ref_images = ref_images.to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3).unsqueeze(0)
             ref_images = ref_images * 2 - 1
+        print("ref_images shape", ref_images.shape)
+        print("input_masks shape", input_masks.shape)
+        print("input_frames shape", input_frames.shape)
         z0 = self.vace_encode_frames(input_frames, ref_images, masks=input_masks)
         print("z0 shape", z0[0].shape)#torch.Size([1, 10, 16, 26, 26])
+        
         m0 = self.vace_encode_masks(input_masks, ref_images)
         z = self.vace_latent(z0, m0)
 
