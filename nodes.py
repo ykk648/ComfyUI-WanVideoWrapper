@@ -1680,8 +1680,9 @@ class WanVideoVACEEncode:
             ref_images = ref_images * 2 - 1
       
         z0 = self.vace_encode_frames(input_frames, ref_images, masks=input_masks)
-        
+        self.vae.model.clear_cache()
         m0 = self.vace_encode_masks(input_masks, ref_images)
+        self.vae.model.clear_cache()
         z = self.vace_latent(z0, m0)
 
         self.vae.to(offload_device)
@@ -1709,7 +1710,7 @@ class WanVideoVACEEncode:
             inactive = self.vae.encode(inactive, self.device)
             reactive = self.vae.encode(reactive, self.device)
             latents = [torch.cat((u, c), dim=0) for u, c in zip(inactive, reactive)]
-
+        self.vae.model.clear_cache()
         cat_latents = []
         for latent, refs in zip(latents, ref_images):
             if refs is not None:
