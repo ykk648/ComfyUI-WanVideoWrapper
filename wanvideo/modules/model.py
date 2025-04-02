@@ -820,15 +820,15 @@ class WanModel(ModelMixin, ConfigMixin):
         if vace_blocks_to_swap is not None:
             self.vace_blocks_to_swap = vace_blocks_to_swap
 
-        for b, block in tqdm(enumerate(self.vace_blocks), total=len(self.vace_blocks), desc="Initializing vace block swap"):
-            block_memory = get_module_memory_mb(block)
-            
-            if b > self.vace_blocks_to_swap:
-                block.to(self.main_device)
-                total_main_memory += block_memory
-            else:
-                block.to(self.offload_device, non_blocking=self.use_non_blocking)
-                total_offload_memory += block_memory
+            for b, block in tqdm(enumerate(self.vace_blocks), total=len(self.vace_blocks), desc="Initializing vace block swap"):
+                block_memory = get_module_memory_mb(block)
+                
+                if b > self.vace_blocks_to_swap:
+                    block.to(self.main_device)
+                    total_main_memory += block_memory
+                else:
+                    block.to(self.offload_device, non_blocking=self.use_non_blocking)
+                    total_offload_memory += block_memory
 
         mm.soft_empty_cache()
         gc.collect()
