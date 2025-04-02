@@ -2264,7 +2264,7 @@ class WanVideoSampler:
             zero_star_steps = experimental_args.get("zero_star_steps", 0)
 
         #region model pred
-        def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, control_latents=None, teacache_state=None):
+        def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, control_latents=None, vace_context=None, teacache_state=None):
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
 
                 if use_cfg_zero_star and (idx <= zero_star_steps) and use_zero_init:
@@ -2605,14 +2605,18 @@ class WanVideoSampler:
                                     partial_img_emb[:, 0, :, :] =  torch.cat([image[0][:,0,:,:], mask], dim=0)
                             else:
                                 partial_img_emb[:, 0, :, :] =  partial_image_cond
-                      
+                    
+                    partial_vace_context = None
+                    if vace_context is not None:
+                        print("vace_context", vace_context)
+                        partial_vace_context = vace_context[0][:, c, :, :]
                     partial_latent_model_input = latent_model_input[:, c, :, :]
 
                     noise_pred_context, new_teacache = predict_with_cfg(
                         partial_latent_model_input, 
                         cfg[idx], positive, 
                         text_embeds["negative_prompt_embeds"], 
-                        timestep, idx, partial_img_emb, clip_fea, partial_control_latents,
+                        timestep, idx, partial_img_emb, clip_fea, partial_control_latents, [partial_vace_context],
                         current_teacache)
 
                     # if callback is not None:
