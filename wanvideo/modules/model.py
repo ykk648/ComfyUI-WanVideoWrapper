@@ -1047,9 +1047,9 @@ class WanModel(ModelMixin, ConfigMixin):
             if self.enable_teacache and pred_id is not None:
                 self.teacache_state.update(
                     pred_id,
-                    previous_residual=(x - original_x),
-                    accumulated_rel_l1_distance=accumulated_rel_l1_distance,
-                    previous_modulated_input=previous_modulated_input
+                    previous_residual=(x - original_x).to(self.teacache_cache_device),
+                    accumulated_rel_l1_distance=accumulated_rel_l1_distance.to(self.teacache_cache_device),
+                    previous_modulated_input=previous_modulated_input.to(self.teacache_cache_device)
                 )
 
         x = self.head(x, e)
@@ -1107,8 +1107,6 @@ class TeaCacheState:
         if pred_id not in self.states:
             return None
         for key, value in kwargs.items():
-            if isinstance(value, torch.Tensor):
-                value = value.to(self.cache_device)
             self.states[pred_id][key] = value
     
     def get(self, pred_id):
