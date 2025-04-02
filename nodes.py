@@ -1662,6 +1662,9 @@ class WanVideoVACEEncode:
 
         if ref_images is not None:
             # Create padded image
+            if ref_images.shape[0] > 1:
+                ref_images = torch.cat([ref_images[i] for i in range(ref_images.shape[0])], dim=1).unsqueeze(0)
+        
             B, H, W, C = ref_images.shape
             current_aspect = W / H
             target_aspect = width / height
@@ -1671,13 +1674,15 @@ class WanVideoVACEEncode:
                 pad_h = (new_h - H) // 2
                 padded = torch.ones(ref_images.shape[0], new_h, W, ref_images.shape[3], device=ref_images.device, dtype=ref_images.dtype)
                 padded[:, pad_h:pad_h+H, :, :] = ref_images
-            else:
+                ref_images = padded
+            elif current_aspect < target_aspect:
                 # Image is taller than target, pad width
                 new_w = int(H * target_aspect)
                 pad_w = (new_w - W) // 2
                 padded = torch.ones(ref_images.shape[0], H, new_w, ref_images.shape[3], device=ref_images.device, dtype=ref_images.dtype)
                 padded[:, :, pad_w:pad_w+W, :] = ref_images
-            ref_images = common_upscale(padded.movedim(-1, 1), width, height, "lanczos", "center").movedim(1, -1)
+                ref_images = padded
+            ref_images = common_upscale(ref_images.movedim(-1, 1), width, height, "lanczos", "center").movedim(1, -1)
             
             ref_images = ref_images.to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3).unsqueeze(0)
             ref_images = ref_images * 2 - 1
