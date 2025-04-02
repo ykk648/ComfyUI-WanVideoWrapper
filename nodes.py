@@ -2608,7 +2608,6 @@ class WanVideoSampler:
                     
                     partial_vace_context = None
                     if vace_context is not None:
-                        print("vace_context", vace_context)
                         partial_vace_context = vace_context[0][:, c, :, :]
                     partial_latent_model_input = latent_model_input[:, c, :, :]
 
@@ -2639,7 +2638,7 @@ class WanVideoSampler:
                     cfg[idx], 
                     text_embeds["prompt_embeds"], 
                     text_embeds["negative_prompt_embeds"], 
-                    timestep, idx, image_cond, clip_fea, control_latents,
+                    timestep, idx, image_cond, clip_fea, control_latents, vace_context,
                     teacache_state=self.teacache_state)
 
             if latent_shift_loop:
