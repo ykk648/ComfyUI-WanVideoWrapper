@@ -556,8 +556,11 @@ class BaseWanAttentionBlock(WanAttentionBlock):
         super().__init__(cross_attn_type, dim, ffn_dim, num_heads, window_size, qk_norm, cross_attn_norm, eps, attention_mode)
         self.block_id = block_id
 
-    def forward(self, x, vace_hints, vace_context_scale=1.0, **kwargs):
+    def forward(self, x, vace_hints=None, vace_context_scale=1.0, **kwargs):
         x = super().forward(x, **kwargs)
+        if vace_hints is None:
+            return x
+        
         if self.block_id is not None:
             x = x + vace_hints[self.block_id] * vace_context_scale
         return x
@@ -1023,7 +1026,7 @@ class WanModel(ModelMixin, ConfigMixin):
                 current_step=current_step,
                 video_attention_split_steps=self.video_attention_split_steps
                 )
-
+            
             if vace_context is not None:
                 vace_hints = self.forward_vace(x, vace_context, seq_len, kwargs)
                 vace_context_scale = vace_scale

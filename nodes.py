@@ -1618,6 +1618,8 @@ class WanVideoVACEEncode:
             "height": ("INT", {"default": 480, "min": 64, "max": 29048, "step": 8, "tooltip": "Height of the image to encode"}),
             "num_frames": ("INT", {"default": 81, "min": 1, "max": 10000, "step": 4, "tooltip": "Number of frames to encode"}),
             "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.001}),
+            "vace_start_percent": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Start percent of the steps to apply VACE"}),
+            "vace_end_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "End percent of the steps to apply VACE"}),
             },
             "optional": {
                 "input_frames": ("IMAGE",),
@@ -1631,7 +1633,7 @@ class WanVideoVACEEncode:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, vae, width, height, num_frames, strength, input_frames=None, ref_images=None, input_masks=None):
+    def process(self, vae, width, height, num_frames, strength, vace_start_percent, vace_end_percent, input_frames=None, ref_images=None, input_masks=None):
         
         self.device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
@@ -1693,7 +1695,9 @@ class WanVideoVACEEncode:
             "vace_scale": strength,
             "has_ref": ref_images is not None,
             "num_frames": num_frames,
-            "target_shape": target_shape
+            "target_shape": target_shape,
+            "vace_start_percent": vace_start_percent,
+            "vace_end_percent": vace_end_percent,
         }
     
         return (vace_input,)
@@ -2001,6 +2005,8 @@ class WanVideoSampler:
             has_ref = image_embeds.get("has_ref", False)
             vace_context = image_embeds.get("vace_context", None)
             vace_scale = image_embeds.get("vace_scale", None)
+            vace_start_percent = image_embeds.get("vace_start_percent", 0.0)
+            vace_end_percent = image_embeds.get("vace_end_percent", 1.0)
 
             noise = torch.randn(
                     target_shape[0],
@@ -2293,6 +2299,12 @@ class WanVideoSampler:
                                 patcher.model.is_patched = True
                 else:
                     image_cond_input = image_cond
+
+                if vace_context is not None:
+                    vace_context_input = vace_context
+                    if not (vace_start_percent <= current_step_percentage <= vace_end_percent) or \
+                            (vace_end_percent > 0 and idx == 0 and current_step_percentage >= vace_start_percent):
+                        vace_context_input = None
     
                 base_params = {
                     'seq_len': seq_len,
@@ -2302,7 +2314,7 @@ class WanVideoSampler:
                     'current_step': idx,
                     'y': [image_cond_input] if image_cond_input is not None else None,
                     'control_lora_enabled': control_lora_enabled,
-                    'vace_context': vace_context,
+                    'vace_context': vace_context_input if vace_context is not None else None,
                     'vace_scale': vace_scale,
                 }
 
