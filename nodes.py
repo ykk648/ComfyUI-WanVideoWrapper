@@ -2614,6 +2614,8 @@ class WanVideoSampler:
                     partial_vace_context = None
                     if vace_context is not None:
                         partial_vace_context = vace_context[0][:, c, :, :]
+                        if has_ref:
+                            partial_vace_context[:, 0, :, :] = vace_context[0][:, 0, :, :]
                     partial_latent_model_input = latent_model_input[:, c, :, :]
 
                     noise_pred_context, new_teacache = predict_with_cfg(
