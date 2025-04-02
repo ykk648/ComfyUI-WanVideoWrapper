@@ -562,7 +562,7 @@ class BaseWanAttentionBlock(WanAttentionBlock):
             return x
         
         if self.block_id is not None:
-            x = x + vace_hints[self.block_id] * vace_context_scale
+            x = x + vace_hints[self.block_id].to(x.device) * vace_context_scale
         return x
 
 class Head(nn.Module):
@@ -707,6 +707,7 @@ class WanModel(ModelMixin, ConfigMixin):
         self.blocks_to_swap = -1
         self.offload_txt_emb = False
         self.offload_img_emb = False
+        self.vace_blocks_to_swap = -1
 
         #init TeaCache variables
         self.enable_teacache = False
@@ -796,9 +797,10 @@ class WanModel(ModelMixin, ConfigMixin):
         if model_type == 'i2v':
             self.img_emb = MLPProj(1280, dim)
 
-    def block_swap(self, blocks_to_swap, offload_txt_emb=False, offload_img_emb=False):
+    def block_swap(self, blocks_to_swap, offload_txt_emb=False, offload_img_emb=False, vace_blocks_to_swap=None):
         print(f"Swapping {blocks_to_swap + 1} transformer blocks")
         self.blocks_to_swap = blocks_to_swap
+        
         self.offload_img_emb = offload_img_emb
         self.offload_txt_emb = offload_txt_emb
 
@@ -809,6 +811,19 @@ class WanModel(ModelMixin, ConfigMixin):
             block_memory = get_module_memory_mb(block)
             
             if b > self.blocks_to_swap:
+                block.to(self.main_device)
+                total_main_memory += block_memory
+            else:
+                block.to(self.offload_device, non_blocking=self.use_non_blocking)
+                total_offload_memory += block_memory
+
+        if vace_blocks_to_swap is not None:
+            self.vace_blocks_to_swap = vace_blocks_to_swap
+
+        for b, block in tqdm(enumerate(self.vace_blocks), total=len(self.vace_blocks), desc="Initializing vace block swap"):
+            block_memory = get_module_memory_mb(block)
+            
+            if b > self.vace_blocks_to_swap:
                 block.to(self.main_device)
                 total_main_memory += block_memory
             else:
@@ -845,9 +860,18 @@ class WanModel(ModelMixin, ConfigMixin):
         new_kwargs = dict(x=x)
         new_kwargs.update(kwargs)
 
-        for block in self.vace_blocks:
+        for b, block in enumerate(self.vace_blocks):
+            if b <= self.vace_blocks_to_swap and self.vace_blocks_to_swap >= 0:
+                block.to(self.main_device)
             c = block(c, **new_kwargs)
+            if b <= self.vace_blocks_to_swap and self.vace_blocks_to_swap >= 0:
+                block.to(self.offload_device, non_blocking=self.use_non_blocking)
+
+        #for block in self.vace_blocks:
+        #    c = block(c, **new_kwargs)
         hints = torch.unbind(c)[:-1]
+        if self.vace_blocks_to_swap != -1:
+            hints = [h.to(self.offload_device) for h in hints] 
         return hints
 
     def forward(
@@ -1011,7 +1035,7 @@ class WanModel(ModelMixin, ConfigMixin):
 
         if not self.enable_teacache or (self.enable_teacache and should_calc):
             if self.enable_teacache:
-                original_x = x.clone()
+                original_x = x.clone().to(self.teacache_cache_device)
 
             # arguments
             kwargs = dict(
@@ -1047,7 +1071,7 @@ class WanModel(ModelMixin, ConfigMixin):
             if self.enable_teacache and pred_id is not None:
                 self.teacache_state.update(
                     pred_id,
-                    previous_residual=(x - original_x).to(self.teacache_cache_device),
+                    previous_residual=(x.to(original_x.device) - original_x),
                     accumulated_rel_l1_distance=accumulated_rel_l1_distance.to(self.teacache_cache_device),
                     previous_modulated_input=previous_modulated_input.to(self.teacache_cache_device)
                 )

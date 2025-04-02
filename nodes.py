@@ -63,6 +63,7 @@ class WanVideoBlockSwap:
             },
             "optional": {
                 "use_non_blocking": ("BOOLEAN", {"default": True, "tooltip": "Use non-blocking memory transfer for offloading, reserves more RAM but is faster"}),
+                "vace_blocks_to_swap": ("INT", {"default": 0, "min": 0, "max": 15, "step": 1, "tooltip": "Number of VACE blocks to swap, the VACE model has 15 blocks"}),
             },
         }
     RETURN_TYPES = ("BLOCKSWAPARGS",)
@@ -2160,7 +2161,7 @@ class WanVideoSampler:
         if block_swap_args is not None:
             transformer.use_non_blocking = block_swap_args.get("use_non_blocking", True)
             for name, param in transformer.named_parameters():
-                if "block" not in name or "vace" in name:
+                if "block" not in name:
                     param.data = param.data.to(device)
                 elif block_swap_args["offload_txt_emb"] and "txt_emb" in name:
                     param.data = param.data.to(offload_device, non_blocking=transformer.use_non_blocking)
@@ -2171,6 +2172,7 @@ class WanVideoSampler:
                 block_swap_args["blocks_to_swap"] - 1 ,
                 block_swap_args["offload_txt_emb"],
                 block_swap_args["offload_img_emb"],
+                vace_blocks_to_swap = block_swap_args.get("vace_blocks_to_swap", None),
             )
 
         elif model["auto_cpu_offload"]:
