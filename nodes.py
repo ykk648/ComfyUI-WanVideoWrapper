@@ -2277,10 +2277,6 @@ class WanVideoSampler:
         else:
             transformer.slg_blocks = None
 
-        mm.unload_all_models()
-        mm.soft_empty_cache()
-        gc.collect()
-
         self.teacache_state = [None, None]
         self.teacache_state_source = [None, None]
         self.teacache_states_context = []
@@ -2429,11 +2425,6 @@ class WanVideoSampler:
                     noise_pred_uncond=noise_pred_uncond.to(intermediate_device)
 
                 return noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond), [teacache_state_cond]
-        
-        try:
-            torch.cuda.reset_peak_memory_stats(device)
-        except:
-            pass
 
         log.info(f"Sampling {(latent_video_length-1) * 4 + 1} frames at {latent.shape[3]*8}x{latent.shape[2]*8} with {steps} steps")
 
@@ -2456,7 +2447,17 @@ class WanVideoSampler:
             latent_shift_start_percent = loop_args["start_percent"]
             latent_shift_end_percent = loop_args["end_percent"]
             shift_idx = 0
-        #main loop start
+
+        #clear memory before sampling
+        mm.unload_all_models()
+        mm.soft_empty_cache()
+        gc.collect()
+        try:
+            torch.cuda.reset_peak_memory_stats(device)
+        except:
+            pass
+
+        #region main loop start
         for idx, t in enumerate(tqdm(timesteps)):    
             if flowedit_args is not None:
                 if idx < skip_steps:
