@@ -287,6 +287,25 @@ class WanVideoLoraSelect:
 
         loras_list.append(lora)
         return (loras_list,)
+    
+class WanVideoVACEModelSelect:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "vace_model": (folder_paths.get_filename_list("diffusion_models"), {"tooltip": "These models are loaded from the 'ComfyUI/models/diffusion_models' VACE model to use when not using model that has it included"}),
+            },
+        }
+
+    RETURN_TYPES = ("VACEPATH",)
+    RETURN_NAMES = ("vace_path", )
+    FUNCTION = "getvacepath"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "VACE model to use when not using model that has it included, loaded from 'ComfyUI/models/diffusion_models'"
+
+    def getvacepath(self, vace_model):
+        vace_model_path = folder_paths.get_full_path_or_raise("diffusion_models", vace_model)
+        return (vace_model_path,)
 
 class WanVideoLoraBlockEdit:
     def __init__(self):
@@ -339,6 +358,7 @@ class WanVideoModelLoader:
                 "block_swap_args": ("BLOCKSWAPARGS", ),
                 "lora": ("WANVIDLORA", {"default": None}),
                 "vram_management_args": ("VRAM_MANAGEMENTARGS", {"default": None, "tooltip": "Alternative offloading method from DiffSynth-Studio, more aggressive in reducing memory use than block swapping, but can be slower"}),
+                "vace_model": ("VACEPATH", {"default": None, "tooltip": "VACE model to use when not using model that has it included"}),
             }
         }
 
@@ -348,7 +368,7 @@ class WanVideoModelLoader:
     CATEGORY = "WanVideoWrapper"
 
     def loadmodel(self, model, base_precision, load_device,  quantization,
-                  compile_args=None, attention_mode="sdpa", block_swap_args=None, lora=None, vram_management_args=None):
+                  compile_args=None, attention_mode="sdpa", block_swap_args=None, lora=None, vram_management_args=None, vace_model=None):
         assert not (vram_management_args is not None and block_swap_args is not None), "Can't use both block_swap_args and vram_management_args at the same time"
         lora_low_mem_load = False
         if lora is not None:
@@ -388,7 +408,12 @@ class WanVideoModelLoader:
                 pass
 
         model_path = folder_paths.get_full_path_or_raise("diffusion_models", model)
+      
         sd = load_torch_file(model_path, device=transformer_load_device, safe_load=True)
+
+        if vace_model is not None:
+            vace_sd = load_torch_file(vace_model, device=transformer_load_device, safe_load=True)
+            sd.update(vace_sd)
 
         first_key = next(iter(sd))
         if first_key.startswith("model.diffusion_model."):
@@ -2992,6 +3017,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoExperimentalArgs": WanVideoExperimentalArgs,
     "WanVideoVACEEncode": WanVideoVACEEncode,
     "WanVideoVACEStartToEndFrame": WanVideoVACEStartToEndFrame,
+    "WanVideoVACEModelSelect": WanVideoVACEModelSelect,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -3026,4 +3052,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoExperimentalArgs": "WanVideo Experimental Args",
     "WanVideoVACEEncode": "WanVideo VACE Encode",
     "WanVideoVACEStartToEndFrame": "WanVideo VACE Start To End Frame",
+    "WanVideoVACEModelSelect": "WanVideo VACE Model Select",
     }
