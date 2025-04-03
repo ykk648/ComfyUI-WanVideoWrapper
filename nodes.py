@@ -1775,6 +1775,48 @@ class WanVideoVACEEncode:
     def vace_latent(self, z, m):
         return [torch.cat([zz, mm], dim=0) for zz, mm in zip(z, m)]
 
+class WanVideoVACEStartToEndFrame:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "num_frames": ("INT", {"default": 81, "min": 1, "max": 10000, "step": 4, "tooltip": "Number of frames to encode"}),
+            "empty_frame_level": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "White level of empty frame to use"}),
+            },
+            "optional": {
+                "start_image": ("IMAGE",),
+                "end_image": ("IMAGE",),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "MASK", )
+    RETURN_NAMES = ("images", "masks",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Helper node to create start/end frame batch and masks for VACE"
+
+    def process(self, num_frames, empty_frame_level, start_image=None, end_image=None):
+
+        B, H, W, C = start_image.shape
+
+        masks = torch.ones((num_frames, H, W), device=start_image.device)
+        
+        if start_image is not None and end_image is not None:
+            if start_image.shape != end_image.shape:
+                end_image = common_upscale(end_image.movedim(-1, 1), W, H, "lanczos", "disabled").movedim(0, 1)
+            empty_frames = torch.ones((num_frames - start_image.shape[0] - end_image.shape[0], H, W, 3), device=start_image.device) * empty_frame_level
+            out_batch = torch.cat([start_image, empty_frames, end_image], dim=0)
+            masks[0:start_image.shape[0]] = 0
+            masks[-end_image.shape[0]:] = 0
+        elif start_image is not None:
+            empty_frames = torch.ones((num_frames - start_image.shape[0], H, W, 3), device=start_image.device) * empty_frame_level
+            out_batch = torch.cat([start_image, empty_frames], dim=0)
+            masks[0:start_image.shape[0]] = 0
+        elif end_image is not None:
+            empty_frames = torch.ones((num_frames - end_image.shape[0], H, W, 3), device=end_image.device) * empty_frame_level
+            out_batch = torch.cat([empty_frames, end_image], dim=0)
+            masks[-end_image.shape[0]:] = 0
+    
+        return (out_batch.cpu().float(), masks.cpu().float())
 
 #region Sampler
 
@@ -2313,7 +2355,9 @@ class WanVideoSampler:
                 if vace_context is not None:
                     vace_context_input = vace_context
                     if not (vace_start_percent <= current_step_percentage <= vace_end_percent) or \
-                            (vace_end_percent > 0 and idx == 0 and current_step_percentage >= vace_start_percent):
+                        (vace_end_percent < 1.0 and vace_end_percent > 0 and idx == 0 and 
+                         (current_step_percentage >= vace_start_percent and current_step_percentage > vace_end_percent)):
+                        print("VACE context not used on step", idx)
                         vace_context_input = None
     
                 base_params = {
@@ -2931,6 +2975,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoSetBlockSwap": WanVideoSetBlockSwap,
     "WanVideoExperimentalArgs": WanVideoExperimentalArgs,
     "WanVideoVACEEncode": WanVideoVACEEncode,
+    "WanVideoVACEStartToEndFrame": WanVideoVACEStartToEndFrame,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -2964,4 +3009,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSetBlockSwap": "WanVideo Set BlockSwap",
     "WanVideoExperimentalArgs": "WanVideo Experimental Args",
     "WanVideoVACEEncode": "WanVideo VACE Encode",
+    "WanVideoVACEStartToEndFrame": "WanVideo VACE Start To End Frame",
     }
