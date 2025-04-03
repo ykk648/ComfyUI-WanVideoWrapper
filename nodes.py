@@ -613,6 +613,9 @@ class WanVideoModelLoader:
                 if compile_args["compile_transformer_blocks_only"]:
                     for i, block in enumerate(patcher.model.diffusion_model.blocks):
                         patcher.model.diffusion_model.blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
+                    if vace_layers is not None:
+                        for i, block in enumerate(patcher.model.diffusion_model.vace_blocks):
+                            patcher.model.diffusion_model.vace_blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
                 else:
                     patcher.model.diffusion_model = torch.compile(patcher.model.diffusion_model, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])        
             

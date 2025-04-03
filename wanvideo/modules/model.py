@@ -798,7 +798,7 @@ class WanModel(ModelMixin, ConfigMixin):
             self.img_emb = MLPProj(1280, dim)
 
     def block_swap(self, blocks_to_swap, offload_txt_emb=False, offload_img_emb=False, vace_blocks_to_swap=None):
-        print(f"Swapping {blocks_to_swap + 1} transformer blocks")
+        log.info(f"Swapping {blocks_to_swap + 1} transformer blocks")
         self.blocks_to_swap = blocks_to_swap
         
         self.offload_img_emb = offload_img_emb
