@@ -1785,6 +1785,7 @@ class WanVideoVACEStartToEndFrame:
             "optional": {
                 "start_image": ("IMAGE",),
                 "end_image": ("IMAGE",),
+                "control_images": ("IMAGE",),
             },
         }
 
@@ -1794,25 +1795,38 @@ class WanVideoVACEStartToEndFrame:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "Helper node to create start/end frame batch and masks for VACE"
 
-    def process(self, num_frames, empty_frame_level, start_image=None, end_image=None):
+    def process(self, num_frames, empty_frame_level, start_image=None, end_image=None, control_images=None):
+        
+        B, H, W, C = start_image.shape if start_image is not None else end_image.shape
+        device = start_image.device if start_image is not None else end_image.device
 
-        B, H, W, C = start_image.shape
+        masks = torch.ones((num_frames, H, W), device=device)
 
-        masks = torch.ones((num_frames, H, W), device=start_image.device)
+        if control_images is not None:
+            control_images = common_upscale(control_images.movedim(-1, 1), W, H, "lanczos", "disabled").movedim(1, -1)
         
         if start_image is not None and end_image is not None:
             if start_image.shape != end_image.shape:
-                end_image = common_upscale(end_image.movedim(-1, 1), W, H, "lanczos", "disabled").movedim(0, 1)
-            empty_frames = torch.ones((num_frames - start_image.shape[0] - end_image.shape[0], H, W, 3), device=start_image.device) * empty_frame_level
+                end_image = common_upscale(end_image.movedim(-1, 1), W, H, "lanczos", "disabled").movedim(1, -1)
+            if control_images is None:
+                empty_frames = torch.ones((num_frames - start_image.shape[0] - end_image.shape[0], H, W, 3), device=device) * empty_frame_level
+            else:
+                empty_frames = control_images[start_image.shape[0]:num_frames - end_image.shape[0]]
             out_batch = torch.cat([start_image, empty_frames, end_image], dim=0)
             masks[0:start_image.shape[0]] = 0
             masks[-end_image.shape[0]:] = 0
         elif start_image is not None:
-            empty_frames = torch.ones((num_frames - start_image.shape[0], H, W, 3), device=start_image.device) * empty_frame_level
+            if control_images is None:
+                empty_frames = torch.ones((num_frames - start_image.shape[0], H, W, 3), device=device) * empty_frame_level
+            else:
+                empty_frames = control_images[start_image.shape[0]:num_frames]
             out_batch = torch.cat([start_image, empty_frames], dim=0)
             masks[0:start_image.shape[0]] = 0
         elif end_image is not None:
-            empty_frames = torch.ones((num_frames - end_image.shape[0], H, W, 3), device=end_image.device) * empty_frame_level
+            if control_images is None:
+                empty_frames = torch.ones((num_frames - end_image.shape[0], H, W, 3), device=device) * empty_frame_level
+            else:
+                empty_frames = control_images[:num_frames - end_image.shape[0]]
             out_batch = torch.cat([empty_frames, end_image], dim=0)
             masks[-end_image.shape[0]:] = 0
     
@@ -2357,7 +2371,6 @@ class WanVideoSampler:
                     if not (vace_start_percent <= current_step_percentage <= vace_end_percent) or \
                         (vace_end_percent < 1.0 and vace_end_percent > 0 and idx == 0 and 
                          (current_step_percentage >= vace_start_percent and current_step_percentage > vace_end_percent)):
-                        print("VACE context not used on step", idx)
                         vace_context_input = None
     
                 base_params = {
