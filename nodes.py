@@ -887,6 +887,8 @@ class LoadWanVideoT5TextEncoder:
         
         if "token_embedding.weight" not in sd and "shared.weight" not in sd:
             raise ValueError("Invalid T5 text encoder model, this node expects the 'umt5-xxl' model")
+        if "scaled_fp8" in sd:
+            raise ValueError("Invalid T5 text encoder model, fp8 scaled is not supported by this node")
 
         # Convert state dict keys from T5 format to the expected format
         if "shared.weight" in sd:
