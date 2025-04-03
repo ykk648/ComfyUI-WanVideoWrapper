@@ -2621,13 +2621,14 @@ class WanVideoSampler:
                         partial_vace_context = vace_context[0][:, c, :, :]
                         if has_ref:
                             partial_vace_context[:, 0, :, :] = vace_context[0][:, 0, :, :]
+                        partial_vace_context = [partial_vace_context]
                     partial_latent_model_input = latent_model_input[:, c, :, :]
 
                     noise_pred_context, new_teacache = predict_with_cfg(
                         partial_latent_model_input, 
                         cfg[idx], positive, 
                         text_embeds["negative_prompt_embeds"], 
-                        timestep, idx, partial_img_emb, clip_fea, partial_control_latents, [partial_vace_context],
+                        timestep, idx, partial_img_emb, clip_fea, partial_control_latents, partial_vace_context,
                         current_teacache)
 
                     # if callback is not None:
