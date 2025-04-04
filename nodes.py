@@ -2115,18 +2115,18 @@ class WanVideoSampler:
             vace_end_percent = image_embeds.get("vace_end_percent", 1.0)
 
             vace_additional_embeds = image_embeds.get("additional_vace_inputs", [])
-
-            vace_data = [
-                {"context": vace_context, "scale": vace_scale, "start": vace_start_percent, "end": vace_end_percent}
-            ]
-            if len(vace_additional_embeds) > 0:
-                for i in range(len(vace_additional_embeds)):
-                    vace_data.append({
-                        "context": vace_additional_embeds[i]["vace_context"],
-                        "scale": vace_additional_embeds[i]["vace_scale"],
-                        "start": vace_additional_embeds[i]["vace_start_percent"],
-                        "end": vace_additional_embeds[i]["vace_end_percent"],
-                    })
+            if vace_context is not None:
+                vace_data = [
+                    {"context": vace_context, "scale": vace_scale, "start": vace_start_percent, "end": vace_end_percent}
+                ]
+                if len(vace_additional_embeds) > 0:
+                    for i in range(len(vace_additional_embeds)):
+                        vace_data.append({
+                            "context": vace_additional_embeds[i]["vace_context"],
+                            "scale": vace_additional_embeds[i]["vace_scale"],
+                            "start": vace_additional_embeds[i]["vace_start_percent"],
+                            "end": vace_additional_embeds[i]["vace_end_percent"],
+                        })
 
             noise = torch.randn(
                     target_shape[0],
