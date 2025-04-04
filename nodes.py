@@ -2070,7 +2070,7 @@ class WanVideoSampler:
         seed_g.manual_seed(seed)
        
         control_latents, clip_fea, clip_fea_neg, end_image = None, None, None, None
-        vace_data, vace_scale = None, None
+        vace_data, vace_context, vace_scale = None, None, None
         fun_model, has_ref = False, False
 
         image_cond = image_embeds.get("image_embeds", None)
