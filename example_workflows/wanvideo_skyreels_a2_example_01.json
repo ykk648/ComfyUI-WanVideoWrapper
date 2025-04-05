@@ -715,8 +715,7 @@
         0,
         1,
         "",
-        "comfy",
-        ""
+        "comfy"
       ]
     },
     {
@@ -1161,74 +1160,6 @@
       ]
     },
     {
-      "id": 142,
-      "type": "GetNode",
-      "pos": [
-        -1606.621826171875,
-        1842.2674560546875
-      ],
-      "size": [
-        210,
-        58
-      ],
-      "flags": {
-        "collapsed": true
-      },
-      "order": 16,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "INT",
-          "type": "INT",
-          "links": [
-            256
-          ]
-        }
-      ],
-      "title": "Get_Width",
-      "properties": {},
-      "widgets_values": [
-        "Width"
-      ],
-      "color": "#1b4669",
-      "bgcolor": "#29699c"
-    },
-    {
-      "id": 143,
-      "type": "GetNode",
-      "pos": [
-        -1596.621826171875,
-        1902.2674560546875
-      ],
-      "size": [
-        210,
-        58
-      ],
-      "flags": {
-        "collapsed": true
-      },
-      "order": 17,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "INT",
-          "type": "INT",
-          "links": [
-            257
-          ]
-        }
-      ],
-      "title": "Get_Height",
-      "properties": {},
-      "widgets_values": [
-        "Height"
-      ],
-      "color": "#1b4669",
-      "bgcolor": "#29699c"
-    },
-    {
       "id": 28,
       "type": "WanVideoDecode",
       "pos": [
@@ -1372,7 +1303,7 @@
         266
       ],
       "flags": {},
-      "order": 47,
+      "order": 54,
       "mode": 0,
       "inputs": [
         {
@@ -1470,7 +1401,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 51,
+      "order": 50,
       "mode": 0,
       "inputs": [
         {
@@ -1575,15 +1506,6 @@
           "link": null
         },
         {
-          "name": "target_width",
-          "shape": 7,
-          "type": "INT",
-          "widget": {
-            "name": "target_width"
-          },
-          "link": 288
-        },
-        {
           "name": "target_height",
           "shape": 7,
           "type": "INT",
@@ -1619,9 +1541,7 @@
         0,
         256,
         "color",
-        "255,255,255",
-        512,
-        512
+        "255,255,255"
       ]
     },
     {
@@ -1649,15 +1569,6 @@
           "shape": 7,
           "type": "MASK",
           "link": null
-        },
-        {
-          "name": "target_width",
-          "shape": 7,
-          "type": "INT",
-          "widget": {
-            "name": "target_width"
-          },
-          "link": 282
         },
         {
           "name": "target_height",
@@ -1695,9 +1606,7 @@
         0,
         256,
         "color",
-        "255,255,255",
-        512,
-        512
+        "255,255,255"
       ]
     },
     {
@@ -1714,7 +1623,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 18,
+      "order": 16,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1722,8 +1631,7 @@
           "name": "INT",
           "type": "INT",
           "links": [
-            280,
-            282
+            280
           ]
         }
       ],
@@ -1749,7 +1657,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 19,
+      "order": 17,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1784,7 +1692,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 20,
+      "order": 18,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1818,7 +1726,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 21,
+      "order": 19,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1951,7 +1859,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 22,
+      "order": 20,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1959,8 +1867,7 @@
           "name": "INT",
           "type": "INT",
           "links": [
-            254,
-            288
+            254
           ]
         }
       ],
@@ -1986,7 +1893,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 23,
+      "order": 21,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2076,9 +1983,7 @@
         "ver": "0.3.27",
         "Node name for S&R": "PreviewImage"
       },
-      "widgets_values": [
-        ""
-      ]
+      "widgets_values": []
     },
     {
       "id": 164,
@@ -2135,7 +2040,8 @@
         "cnr_id": "comfyui-kjnodes",
         "ver": "26aea1889d02d0bf072ac9aae0e90e5815ffa175",
         "Node name for S&R": "GetImageSizeAndCount"
-      }
+      },
+      "widgets_values": []
     },
     {
       "id": 165,
@@ -2191,7 +2097,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 24,
+      "order": 22,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2226,7 +2132,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 58,
+      "order": 62,
       "mode": 0,
       "inputs": [
         {
@@ -2364,7 +2270,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 25,
+      "order": 23,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2398,7 +2304,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 48,
+      "order": 47,
       "mode": 0,
       "inputs": [
         {
@@ -2457,7 +2363,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 26,
+      "order": 24,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2491,7 +2397,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 27,
+      "order": 25,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2525,7 +2431,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 50,
+      "order": 49,
       "mode": 0,
       "inputs": [
         {
@@ -2584,7 +2490,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 49,
+      "order": 48,
       "mode": 0,
       "inputs": [
         {
@@ -2721,7 +2627,7 @@
         314.4845886230469
       ],
       "flags": {},
-      "order": 60,
+      "order": 59,
       "mode": 0,
       "inputs": [
         {
@@ -2736,9 +2642,7 @@
         "ver": "0.3.27",
         "Node name for S&R": "PreviewImage"
       },
-      "widgets_values": [
-        ""
-      ]
+      "widgets_values": []
     },
     {
       "id": 152,
@@ -2836,7 +2740,7 @@
         58
       ],
       "flags": {},
-      "order": 28,
+      "order": 26,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2874,7 +2778,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 29,
+      "order": 27,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2908,7 +2812,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 30,
+      "order": 28,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2942,7 +2846,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 31,
+      "order": 29,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2976,7 +2880,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 52,
+      "order": 51,
       "mode": 0,
       "inputs": [
         {
@@ -3026,7 +2930,7 @@
         88
       ],
       "flags": {},
-      "order": 32,
+      "order": 30,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -3050,7 +2954,7 @@
         58
       ],
       "flags": {},
-      "order": 33,
+      "order": 31,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -3085,7 +2989,7 @@
         130
       ],
       "flags": {},
-      "order": 34,
+      "order": 32,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -3124,7 +3028,7 @@
         82
       ],
       "flags": {},
-      "order": 35,
+      "order": 33,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -3162,7 +3066,7 @@
         262
       ],
       "flags": {},
-      "order": 61,
+      "order": 60,
       "mode": 0,
       "inputs": [
         {
@@ -3285,7 +3189,7 @@
         88
       ],
       "flags": {},
-      "order": 36,
+      "order": 34,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -3308,7 +3212,7 @@
         58
       ],
       "flags": {},
-      "order": 37,
+      "order": 35,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -3346,7 +3250,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 53,
+      "order": 52,
       "mode": 0,
       "inputs": [
         {
@@ -3384,7 +3288,7 @@
         261.5306701660156
       ],
       "flags": {},
-      "order": 62,
+      "order": 61,
       "mode": 0,
       "inputs": [
         {
@@ -3434,7 +3338,7 @@
         110.52178955078125
       ],
       "flags": {},
-      "order": 38,
+      "order": 36,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -3586,7 +3490,7 @@
         170
       ],
       "flags": {},
-      "order": 59,
+      "order": 58,
       "mode": 0,
       "inputs": [
         {
@@ -3741,7 +3645,7 @@
         88
       ],
       "flags": {},
-      "order": 39,
+      "order": 37,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -3842,7 +3746,7 @@
         154
       ],
       "flags": {},
-      "order": 40,
+      "order": 38,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -3882,7 +3786,7 @@
         234
       ],
       "flags": {},
-      "order": 54,
+      "order": 53,
       "mode": 0,
       "inputs": [
         {
@@ -3941,6 +3845,74 @@
       ],
       "color": "#223",
       "bgcolor": "#335"
+    },
+    {
+      "id": 142,
+      "type": "GetNode",
+      "pos": [
+        -1606.621826171875,
+        1842.2674560546875
+      ],
+      "size": [
+        210,
+        58
+      ],
+      "flags": {
+        "collapsed": true
+      },
+      "order": 39,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            256
+          ]
+        }
+      ],
+      "title": "Get_GenWidth",
+      "properties": {},
+      "widgets_values": [
+        "GenWidth"
+      ],
+      "color": "#1b4669",
+      "bgcolor": "#29699c"
+    },
+    {
+      "id": 143,
+      "type": "GetNode",
+      "pos": [
+        -1596.621826171875,
+        1902.2674560546875
+      ],
+      "size": [
+        210,
+        58
+      ],
+      "flags": {
+        "collapsed": true
+      },
+      "order": 40,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            257
+          ]
+        }
+      ],
+      "title": "Get_GenHeight",
+      "properties": {},
+      "widgets_values": [
+        "GenHeight"
+      ],
+      "color": "#1b4669",
+      "bgcolor": "#29699c"
     }
   ],
   "links": [
@@ -4433,19 +4405,11 @@
       "INT"
     ],
     [
-      282,
-      158,
-      0,
-      125,
-      2,
-      "INT"
-    ],
-    [
       283,
       159,
       0,
       125,
-      3,
+      2,
       "INT"
     ],
     [
@@ -4473,19 +4437,11 @@
       "IMAGE"
     ],
     [
-      288,
-      140,
-      0,
-      71,
-      2,
-      "INT"
-    ],
-    [
       289,
       141,
       0,
       71,
-      3,
+      2,
       "INT"
     ],
     [
@@ -4735,10 +4691,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.7400249944258702,
+      "scale": 1.0834705943389153,
       "offset": [
-        1217.69543243124,
-        1681.459947239614
+        2396.949399330303,
+        -1394.0098266998048
       ]
     },
     "node_versions": {
