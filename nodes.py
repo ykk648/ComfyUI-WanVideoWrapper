@@ -1380,20 +1380,29 @@ class WanVideoClipVisionEncode:
                     negative_clip_embeds = clip_vision.visual(pixel_values)
         log.info(f"Clip embeds shape: {clip_embeds.shape}")
 
-        embed_1 = clip_embeds[0:1] * strength_1
+        weighted_embeds = []
+        weighted_embeds.append(clip_embeds[0:1] * strength_1)
+
+        # Handle all additional embeddings
         if clip_embeds.shape[0] > 1:
-            embed_2 = clip_embeds[1:2] * strength_2
+            weighted_embeds.append(clip_embeds[1:2] * strength_2)
+            
+            if clip_embeds.shape[0] > 2:
+                for i in range(2, clip_embeds.shape[0]):
+                    weighted_embeds.append(clip_embeds[i:i+1])  # Add as-is without strength modifier
+            
+            # Combine all weighted embeddings
             if combine_embeds == "average":
-                clip_embeds = torch.mean(torch.stack([embed_1, embed_2]), dim=0)
+                clip_embeds = torch.mean(torch.stack(weighted_embeds), dim=0)
             elif combine_embeds == "sum":
-                clip_embeds = torch.sum(torch.stack([embed_1, embed_2]), dim=0)
+                clip_embeds = torch.sum(torch.stack(weighted_embeds), dim=0)
             elif combine_embeds == "concat":
-                clip_embeds = torch.cat([embed_1, embed_2], dim=1)
+                clip_embeds = torch.cat(weighted_embeds, dim=1)
             elif combine_embeds == "batch":
-                clip_embeds = torch.cat([embed_1, embed_2], dim=0)
+                clip_embeds = torch.cat(weighted_embeds, dim=0)
                 
 
-            log.info(f"Combined clip embeds shape: {clip_embeds.shape}")
+        log.info(f"Combined clip embeds shape: {clip_embeds.shape}")
         
         if force_offload:
             clip_vision.model.to(offload_device)
@@ -1519,7 +1528,7 @@ class WanVideoImageToVideoEncode:
         if extra_latents is not None:
             samples = extra_latents["samples"].squeeze(0)
             y = torch.cat([samples, y], dim=1)
-            mask = torch.cat([torch.ones_like(mask[:, 0:1]), mask], dim=1)
+            mask = torch.cat([torch.ones_like(mask[:, 0:samples.shape[1]]), mask], dim=1)
             num_frames += samples.shape[1] * 4
             has_ref = True
         y[:, :1] *= start_latent_strength
