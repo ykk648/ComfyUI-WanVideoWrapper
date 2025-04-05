@@ -2540,7 +2540,7 @@
         "Node name for S&R": "SimpleMath+"
       },
       "widgets_values": [
-        "a - b + 3"
+        "a - (b + 3)"
       ]
     },
     {
