@@ -1515,13 +1515,13 @@ class WanVideoImageToVideoEncode:
             concatenated = resized_start_image[:,:num_frames] * temporal_mask[:num_frames].unsqueeze(0)
 
         y = vae.encode([concatenated.to(device=device, dtype=vae.dtype)], device, end_=(end_image is not None and not fun_model))[0]
-        drop_last = False
+        has_ref = False
         if extra_latents is not None:
             samples = extra_latents["samples"].squeeze(0)
-            y = torch.cat([y, samples], dim=1)
-            mask = torch.cat([mask, torch.ones_like(mask[:, 0:1])], dim=1)
+            y = torch.cat([samples, y], dim=1)
+            mask = torch.cat([torch.ones_like(mask[:, 0:1]), mask], dim=1)
             num_frames += samples.shape[1] * 4
-            drop_last = True
+            has_ref = True
         y[:, :1] *= start_latent_strength
         y[:, -1:] *= end_latent_strength
         if control_embeds is None:
@@ -1556,7 +1556,7 @@ class WanVideoImageToVideoEncode:
             "control_embeds": control_embeds["control_embeds"] if control_embeds is not None else None,
             "end_image": resized_end_image if end_image is not None else None,
             "fun_model": fun_model,
-            "drop_last": drop_last,
+            "has_ref": has_ref,
         }
 
         return (image_embeds,)
@@ -2113,6 +2113,7 @@ class WanVideoSampler:
                 control_start_percent = control_embeds.get("start_percent", 0.0)
                 control_end_percent = control_embeds.get("end_percent", 1.0)
             drop_last = image_embeds.get("drop_last", False)
+            has_ref = image_embeds.get("has_ref", False)
         else: #t2v
             target_shape = image_embeds.get("target_shape", None)
             if target_shape is None:
@@ -2913,9 +2914,7 @@ class WanVideoDecode:
         if has_ref:
             latents = latents[:, :, 1:]
         if drop_last:
-            print("latents.shape", latents.shape)
             latents = latents[:, :, :-1]
-            print("latents.shape", latents.shape)
 
         #if is_looped:
         #   latents = torch.cat([latents[:, :, :warmup_latent_count],latents], dim=2)
