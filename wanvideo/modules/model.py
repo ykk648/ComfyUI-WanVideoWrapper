@@ -526,7 +526,7 @@ class VaceWanAttentionBlock(WanAttentionBlock):
         nn.init.zeros_(self.after_proj.weight)
         nn.init.zeros_(self.after_proj.bias)
 
-    def forward(self, c_list, x, **kwargs):
+    def forward(self, c_list, x, intermediate_device=None, nonblocking=True, **kwargs):
         if self.block_id == 0:
             c = self.before_proj(c_list[0]) + x
             all_c = []
@@ -536,7 +536,7 @@ class VaceWanAttentionBlock(WanAttentionBlock):
         c = super().forward(c, **kwargs)
         c_skip = self.after_proj(c)
 
-        all_c += [c_skip, c]
+        all_c += [c_skip.to(intermediate_device, non_blocking=nonblocking), c]
         
         return all_c
 
@@ -819,7 +819,7 @@ class WanModel(ModelMixin, ConfigMixin):
                 block.to(self.offload_device, non_blocking=self.use_non_blocking)
                 total_offload_memory += block_memory
 
-        if blocks_to_swap > 0 and vace_blocks_to_swap == 0:
+        if blocks_to_swap != -1 and vace_blocks_to_swap == 0:
             vace_blocks_to_swap = 1
 
         if vace_blocks_to_swap > 0 and self.vace_layers is not None:
@@ -860,19 +860,20 @@ class WanModel(ModelMixin, ConfigMixin):
             torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))],
                       dim=1) for u in c
         ])
+        
         c_list = [c]
         for b, block in enumerate(self.vace_blocks):
             if b <= self.vace_blocks_to_swap and self.vace_blocks_to_swap >= 0:
                 block.to(self.main_device)
-            c_list = block(c_list, x, **kwargs)
+            c_list = block(
+                c_list, x, 
+                intermediate_device=self.offload_device if self.vace_blocks_to_swap != -1 else self.main_device, 
+                nonblocking=self.use_non_blocking,
+                **kwargs)
             if b <= self.vace_blocks_to_swap and self.vace_blocks_to_swap >= 0:
                 block.to(self.offload_device, non_blocking=self.use_non_blocking)
 
         hints = c_list[:-1]
-        if self.vace_blocks_to_swap != -1:
-            hints = [h.to(self.offload_device) for h in hints]
-            mm.soft_empty_cache()
-            gc.collect()
         
         return hints
 
