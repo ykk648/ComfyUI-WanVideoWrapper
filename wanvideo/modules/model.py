@@ -526,19 +526,19 @@ class VaceWanAttentionBlock(WanAttentionBlock):
         nn.init.zeros_(self.after_proj.weight)
         nn.init.zeros_(self.after_proj.bias)
 
-    def forward(self, c, x, **kwargs):
+    def forward(self, c_list, x, **kwargs):
         if self.block_id == 0:
-            c = self.before_proj(c) + x
+            c = self.before_proj(c_list[0]) + x
             all_c = []
         else:
-            all_c = list(torch.unbind(c))
+            all_c = c_list
             c = all_c.pop(-1)
         c = super().forward(c, **kwargs)
         c_skip = self.after_proj(c)
+
         all_c += [c_skip, c]
-        c = torch.stack(all_c)
-        del all_c
-        return c
+        
+        return all_c
 
 class BaseWanAttentionBlock(WanAttentionBlock):
     def __init__(
@@ -860,25 +860,20 @@ class WanModel(ModelMixin, ConfigMixin):
             torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))],
                       dim=1) for u in c
         ])
-
-        # arguments
-        new_kwargs = dict(x=x)
-        new_kwargs.update(kwargs)
-
+        c_list = [c]
         for b, block in enumerate(self.vace_blocks):
             if b <= self.vace_blocks_to_swap and self.vace_blocks_to_swap >= 0:
                 block.to(self.main_device)
-            c = block(c, **new_kwargs)
+            c_list = block(c_list, x, **kwargs)
             if b <= self.vace_blocks_to_swap and self.vace_blocks_to_swap >= 0:
                 block.to(self.offload_device, non_blocking=self.use_non_blocking)
 
-        del new_kwargs
-
-        hints = torch.unbind(c)[:-1]
+        hints = c_list[:-1]
         if self.vace_blocks_to_swap != -1:
             hints = [h.to(self.offload_device) for h in hints]
             mm.soft_empty_cache()
             gc.collect()
+        
         return hints
 
     def forward(
