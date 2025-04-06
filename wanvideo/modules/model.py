@@ -537,6 +537,7 @@ class VaceWanAttentionBlock(WanAttentionBlock):
         c_skip = self.after_proj(c)
         all_c += [c_skip, c]
         c = torch.stack(all_c)
+        del all_c
         return c
 
 class BaseWanAttentionBlock(WanAttentionBlock):
@@ -871,11 +872,13 @@ class WanModel(ModelMixin, ConfigMixin):
             if b <= self.vace_blocks_to_swap and self.vace_blocks_to_swap >= 0:
                 block.to(self.offload_device, non_blocking=self.use_non_blocking)
 
-        #for block in self.vace_blocks:
-        #    c = block(c, **new_kwargs)
+        del new_kwargs
+
         hints = torch.unbind(c)[:-1]
         if self.vace_blocks_to_swap != -1:
-            hints = [h.to(self.offload_device) for h in hints] 
+            hints = [h.to(self.offload_device) for h in hints]
+            mm.soft_empty_cache()
+            gc.collect()
         return hints
 
     def forward(
@@ -1168,27 +1171,3 @@ def relative_l1_distance(last_tensor, current_tensor):
     norm = torch.abs(last_tensor).mean()
     relative_l1_distance = l1_distance / norm
     return relative_l1_distance.to(torch.float32).to(current_tensor.device)
-
-def normalize_values(values):
-    min_val = min(values)
-    max_val = max(values)
-    if max_val == min_val:
-        return [0.0] * len(values)
-    return [(x - min_val) / (max_val - min_val) for x in values]
-
-def rescale_differences(input_diffs, output_diffs):
-    """Polynomial fitting between input and output differences"""
-    poly_degree = 4
-    if len(input_diffs) < 2:
-        return input_diffs
-    
-    x = np.array([x.item() for x in input_diffs])
-    y = np.array([y.item() for y in output_diffs])
-    print("x ", x)
-    print("y ", y)
-    
-    # Fit polynomial
-    coeffs = np.polyfit(x, y, poly_degree)
-    
-    # Apply polynomial transformation
-    return np.polyval(coeffs, x)
