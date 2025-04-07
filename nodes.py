@@ -1798,6 +1798,7 @@ class WanVideoVACEEncode:
                 "ref_images": ("IMAGE",),
                 "input_masks": ("MASK",),
                 "prev_vace_embeds": ("WANVIDIMAGE_EMBEDS",),
+                "tiled_vae": ("BOOLEAN", {"default": False, "tooltip": "Use tiled VAE encoding for reduced memory use"}),
             },
         }
 
@@ -1806,7 +1807,7 @@ class WanVideoVACEEncode:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, vae, width, height, num_frames, strength, vace_start_percent, vace_end_percent, input_frames=None, ref_images=None, input_masks=None, prev_vace_embeds=None):
+    def process(self, vae, width, height, num_frames, strength, vace_start_percent, vace_end_percent, input_frames=None, ref_images=None, input_masks=None, prev_vace_embeds=None, tiled_vae=False):
         
         self.device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
@@ -1860,10 +1861,9 @@ class WanVideoVACEEncode:
             ref_images = ref_images.to(self.vae.dtype).to(self.device).unsqueeze(0).permute(0, 4, 1, 2, 3).unsqueeze(0)
             ref_images = ref_images * 2 - 1
       
-        z0 = self.vace_encode_frames(input_frames, ref_images, masks=input_masks)
+        z0 = self.vace_encode_frames(input_frames, ref_images, masks=input_masks, tiled_vae=tiled_vae)
         self.vae.model.clear_cache()
         m0 = self.vace_encode_masks(input_masks, ref_images)
-        self.vae.model.clear_cache()
         z = self.vace_latent(z0, m0)
 
         self.vae.to(offload_device)
@@ -1883,29 +1883,29 @@ class WanVideoVACEEncode:
             vace_input["additional_vace_inputs"].append(prev_vace_embeds)
     
         return (vace_input,)
-    def vace_encode_frames(self, frames, ref_images, masks=None):
+    def vace_encode_frames(self, frames, ref_images, masks=None, tiled_vae=False):
         if ref_images is None:
             ref_images = [None] * len(frames)
         else:
             assert len(frames) == len(ref_images)
 
         if masks is None:
-            latents = self.vae.encode(frames, self.device)
+            latents = self.vae.encode(frames, device=self.device, tiled=tiled_vae)
         else:
             inactive = [i * (1 - m) + 0 * m for i, m in zip(frames, masks)]
             reactive = [i * m + 0 * (1 - m) for i, m in zip(frames, masks)]
-            inactive = self.vae.encode(inactive, self.device)
-            reactive = self.vae.encode(reactive, self.device)
+            inactive = self.vae.encode(inactive, device=self.device, tiled=tiled_vae)
+            reactive = self.vae.encode(reactive, device=self.device, tiled=tiled_vae)
             latents = [torch.cat((u, c), dim=0) for u, c in zip(inactive, reactive)]
         self.vae.model.clear_cache()
         cat_latents = []
         for latent, refs in zip(latents, ref_images):
             if refs is not None:
                 if masks is None:
-                    ref_latent = self.vae.encode(refs, self.device)
+                    ref_latent = self.vae.encode(refs, device=self.device, tiled=tiled_vae)
                 else:
                     print("refs shape", refs.shape)#torch.Size([3, 1, 512, 512])
-                    ref_latent = self.vae.encode(refs, self.device)
+                    ref_latent = self.vae.encode(refs, device=self.device, tiled=tiled_vae)
                     ref_latent = [torch.cat((u, torch.zeros_like(u)), dim=0) for u in ref_latent]
                 assert all([x.shape[1] == 1 for x in ref_latent])
                 latent = torch.cat([*ref_latent, latent], dim=1)

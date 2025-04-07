@@ -772,8 +772,13 @@ class WanVideoVAE(nn.Module):
 
     def tiled_encode(self, video, device, tile_size, tile_stride):
         _, _, T, H, W = video.shape
-        size_h, size_w = tile_size
-        stride_h, stride_w = tile_stride
+        
+        if tile_size is None and tile_stride is None:
+            size_h, size_w = H //2, W // 2
+            stride_h, stride_w = size_h // 2, size_w // 2
+        else:
+            size_h, size_w = tile_size[0] * self.upsampling_factor, tile_size[1] * self.upsampling_factor
+            stride_h, stride_w = tile_stride[0] * self.upsampling_factor, tile_stride[1] * self.upsampling_factor
 
         # Split tasks
         tasks = []
@@ -784,13 +789,14 @@ class WanVideoVAE(nn.Module):
                 h_, w_ = h + size_h, w + size_w
                 tasks.append((h, h_, w, w_))
 
-        data_device = "cpu"
+        data_device = device
         computation_device = device
 
         out_T = (T + 3) // 4
         weight = torch.zeros((1, 1, out_T, H // self.upsampling_factor, W // self.upsampling_factor), dtype=video.dtype, device=data_device)
         values = torch.zeros((1, 16, out_T, H // self.upsampling_factor, W // self.upsampling_factor), dtype=video.dtype, device=data_device)
 
+        pbar = ProgressBar(len(tasks))
         for h, h_, w, w_ in tqdm(tasks, desc="VAE encoding"):
             hidden_states_batch = video[:, :, :, h:h_, w:w_].to(computation_device)
             hidden_states_batch = self.model.encode(hidden_states_batch, self.scale).to(data_device)
@@ -817,6 +823,7 @@ class WanVideoVAE(nn.Module):
                 target_h: target_h + hidden_states_batch.shape[3],
                 target_w: target_w + hidden_states_batch.shape[4],
             ] += mask
+            pbar.update(1)
         values = values / weight
         values = values.float()
         return values
@@ -845,15 +852,12 @@ class WanVideoVAE(nn.Module):
         video = self.model.decode_2(hidden_state, self.scale)
         return video.float().clamp_(-1, 1)
 
-    def encode(self, videos, device, tiled=False,end_=False, tile_size=(34, 34), tile_stride=(18, 16)):
-
+    def encode(self, videos, device, tiled=False,end_=False, tile_size=None, tile_stride=None):
         videos = [video.to("cpu") for video in videos]
         hidden_states = []
         for video in videos:
             video = video.unsqueeze(0)
             if tiled:
-                tile_size = (tile_size[0], tile_size[1])
-                tile_stride = (tile_stride[0], tile_stride[1])
                 hidden_state = self.tiled_encode(video, device, tile_size, tile_stride)
             else:
                 if end_:
