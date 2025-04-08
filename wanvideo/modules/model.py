@@ -180,7 +180,52 @@ class WanSelfAttention(nn.Module):
         self.norm_q = WanRMSNorm(dim, eps=eps) if qk_norm else nn.Identity()
         self.norm_k = WanRMSNorm(dim, eps=eps) if qk_norm else nn.Identity()
 
-    def forward(self, x, seq_lens, grid_sizes, freqs, seq_chunks=1,current_step=0, video_attention_split_steps = [], rope_func = "default"):
+    def forward(self, x, seq_lens, grid_sizes, freqs, rope_func = "default"):
+        r"""
+        Args:
+            x(Tensor): Shape [B, L, num_heads, C / num_heads]
+            seq_lens(Tensor): Shape [B]
+            grid_sizes(Tensor): Shape [B, 3], the second dimension contains (F, H, W)
+            freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
+        """
+        b, s, n, d = *x.shape[:2], self.num_heads, self.head_dim
+
+        # query, key, value function
+        def qkv_fn(x):
+            q = self.norm_q(self.q(x)).view(b, s, n, d)
+            k = self.norm_k(self.k(x)).view(b, s, n, d)
+            v = self.v(x).view(b, s, n, d)
+            return q, k, v
+
+        q, k, v = qkv_fn(x)
+
+        if rope_func == "comfy":
+            q, k = apply_rope_comfy(q, k, freqs)
+        else:
+            q=rope_apply(q, grid_sizes, freqs)
+            k=rope_apply(k, grid_sizes, freqs)
+
+        if is_enhance_enabled():
+            feta_scores = get_feta_scores(q, k)
+
+        x = attention(
+            q=q,
+            k=k,
+            v=v,
+            k_lens=seq_lens,
+            window_size=self.window_size,
+            attention_mode=self.attention_mode)
+
+        # output
+        x = x.flatten(2)
+        x = self.o(x)
+
+        if is_enhance_enabled():
+            x *= feta_scores
+
+        return x
+    
+    def forward_split(self, x, seq_lens, grid_sizes, freqs, seq_chunks=1,current_step=0, video_attention_split_steps = [], rope_func = "default"):
         r"""
         Args:
             x(Tensor): Shape [B, L, num_heads, C / num_heads]
@@ -423,7 +468,8 @@ class WanAttentionBlock(nn.Module):
         e = (self.modulation + e).chunk(6, dim=1)
 
         # self-attention
-        y = self.self_attn(
+        if (context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1)) and x.shape[0] == 1:
+             y = self.self_attn.forward_split(
             self.norm1(x) * (1 + e[1]) + e[0], 
             seq_lens, grid_sizes,
             freqs, rope_func=rope_func, 
@@ -431,75 +477,84 @@ class WanAttentionBlock(nn.Module):
             current_step=current_step,
             video_attention_split_steps=video_attention_split_steps
             )
+        else:
+            y = self.self_attn.forward(
+            self.norm1(x) * (1 + e[1]) + e[0], 
+            seq_lens, grid_sizes,
+            freqs, rope_func=rope_func
+            )
         
         x = x.to(torch.float32) + (y.to(torch.float32) * e[2].to(torch.float32))
 
         # cross-attention & ffn function
-        def cross_attn_ffn(x, context, context_lens, e, clip_embed=None, grid_sizes=None):
-            if (context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1)) and x.shape[0] == 1:
-                # Get number of prompts
-                num_prompts = context.shape[0]
-                num_clip_embeds = 0 if clip_embed is None else clip_embed.shape[0]
-                num_segments = max(num_prompts, num_clip_embeds)
-                
-                # Extract spatial dimensions
-                frames, height, width = grid_sizes[0]  # Assuming batch size 1
-                tokens_per_frame = height * width
-                
-                # Distribute frames across prompts
-                frames_per_segment = max(1, frames // num_segments)
-                
-                # Process each prompt segment
-                x_combined = torch.zeros_like(x)
-                
-                for i in range(num_segments):
-                    # Calculate frame boundaries for this segment
-                    start_frame = i * frames_per_segment
-                    end_frame = min((i+1) * frames_per_segment, frames) if i < num_segments-1 else frames
-                    
-                    # Convert frame indices to token indices
-                    start_idx = start_frame * tokens_per_frame
-                    end_idx = end_frame * tokens_per_frame
-                    segment_indices = torch.arange(start_idx, end_idx, device=x.device, dtype=torch.long)
-                    
-                    # Get prompt segment (cycle through available prompts if needed)
-                    prompt_idx = i % num_prompts
-                    segment_context = context[prompt_idx:prompt_idx+1]
-                    segment_context_lens = None
-                    if context_lens is not None:
-                        segment_context_lens = context_lens[prompt_idx:prompt_idx+1]
-                    
-                    # Handle clip_embed for this segment (cycle through available embeddings)
-                    segment_clip_embed = None
-                    if clip_embed is not None:
-                        clip_idx = i % num_clip_embeds
-                        segment_clip_embed = clip_embed[clip_idx:clip_idx+1]
-                    
-                    # Get tensor segment
-                    x_segment = x[:, segment_indices, :]
-                    
-                    # Process segment with its prompt and clip embedding
-                    processed_segment = self.cross_attn(self.norm3(x_segment), segment_context, segment_context_lens, clip_embed=segment_clip_embed)
-                    processed_segment = processed_segment.to(x.dtype)
-                    
-                    # Add to combined result
-                    x_combined[:, segment_indices, :] = processed_segment
-                
-                # Continue with FFN
-                x = x + x_combined
-                y = self.ffn(self.norm2(x).float() * (1 + e[4]) + e[3])
-                x = x.to(torch.float32) + (y.to(torch.float32) * e[5].to(torch.float32))
-                return x
-                
-            else:
-                x = x + self.cross_attn(self.norm3(x), context, context_lens, clip_embed=clip_embed)
-                y = self.ffn(self.norm2(x).float() * (1 + e[4]) + e[3])
-                x = x.to(torch.float32) + (y.to(torch.float32) * e[5])
-                return x
-
-        x = cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes)
+        if (context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1)) and x.shape[0] == 1:
+            x = self.split_cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes)
+        else:
+            x = self.cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes)
 
         return x
+    
+    def cross_attn_ffn(self, x, context, context_lens, e, clip_embed=None, grid_sizes=None):
+            x = x + self.cross_attn(self.norm3(x), context, context_lens, clip_embed=clip_embed)
+            y = self.ffn(self.norm2(x).float() * (1 + e[4]) + e[3])
+            x = x.to(torch.float32) + (y.to(torch.float32) * e[5])
+            return x
+    
+    @torch.compiler.disable()
+    def split_cross_attn_ffn(self, x, context, context_lens, e, clip_embed=None, grid_sizes=None):
+        # Get number of prompts
+        num_prompts = context.shape[0]
+        num_clip_embeds = 0 if clip_embed is None else clip_embed.shape[0]
+        num_segments = max(num_prompts, num_clip_embeds)
+        
+        # Extract spatial dimensions
+        frames, height, width = grid_sizes[0]  # Assuming batch size 1
+        tokens_per_frame = height * width
+        
+        # Distribute frames across prompts
+        frames_per_segment = max(1, frames // num_segments)
+        
+        # Process each prompt segment
+        x_combined = torch.zeros_like(x)
+        
+        for i in range(num_segments):
+            # Calculate frame boundaries for this segment
+            start_frame = i * frames_per_segment
+            end_frame = min((i+1) * frames_per_segment, frames) if i < num_segments-1 else frames
+            
+            # Convert frame indices to token indices
+            start_idx = start_frame * tokens_per_frame
+            end_idx = end_frame * tokens_per_frame
+            segment_indices = torch.arange(start_idx, end_idx, device=x.device, dtype=torch.long)
+            
+            # Get prompt segment (cycle through available prompts if needed)
+            prompt_idx = i % num_prompts
+            segment_context = context[prompt_idx:prompt_idx+1]
+            segment_context_lens = None
+            if context_lens is not None:
+                segment_context_lens = context_lens[prompt_idx:prompt_idx+1]
+            
+            # Handle clip_embed for this segment (cycle through available embeddings)
+            segment_clip_embed = None
+            if clip_embed is not None:
+                clip_idx = i % num_clip_embeds
+                segment_clip_embed = clip_embed[clip_idx:clip_idx+1]
+            
+            # Get tensor segment
+            x_segment = x[:, segment_indices, :]
+            
+            # Process segment with its prompt and clip embedding
+            processed_segment = self.cross_attn(self.norm3(x_segment), segment_context, segment_context_lens, clip_embed=segment_clip_embed)
+            processed_segment = processed_segment.to(x.dtype)
+            
+            # Add to combined result
+            x_combined[:, segment_indices, :] = processed_segment
+        
+        # Continue with FFN
+        x = x + x_combined
+        y = self.ffn(self.norm2(x).float() * (1 + e[4]) + e[3])
+        x = x.to(torch.float32) + (y.to(torch.float32) * e[5].to(torch.float32))
+        return x            
 
 class VaceWanAttentionBlock(WanAttentionBlock):
     def __init__(
