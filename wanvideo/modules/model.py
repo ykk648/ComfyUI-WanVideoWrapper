@@ -420,13 +420,11 @@ class WanAttentionBlock(nn.Module):
             grid_sizes(Tensor): Shape [B, 3], the second dimension contains (F, H, W)
             freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
         """
-        assert e.dtype == torch.float32
-        e = (self.modulation.to(torch.float32).to(e.device) + e.to(torch.float32)).chunk(6, dim=1)
-        assert e[0].dtype == torch.float32
+        e = (self.modulation + e).chunk(6, dim=1)
 
         # self-attention
         y = self.self_attn(
-            self.norm1(x).float() * (1 + e[1]) + e[0], 
+            self.norm1(x) * (1 + e[1]) + e[0], 
             seq_lens, grid_sizes,
             freqs, rope_func=rope_func, 
             seq_chunks=max(context.shape[0], clip_embed.shape[0] if clip_embed is not None else 0),
@@ -438,7 +436,7 @@ class WanAttentionBlock(nn.Module):
 
         # cross-attention & ffn function
         def cross_attn_ffn(x, context, context_lens, e, clip_embed=None, grid_sizes=None):
-            if context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1):
+            if (context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1)) and x.shape[0] == 1:
                 # Get number of prompts
                 num_prompts = context.shape[0]
                 num_clip_embeds = 0 if clip_embed is None else clip_embed.shape[0]
@@ -496,7 +494,7 @@ class WanAttentionBlock(nn.Module):
             else:
                 x = x + self.cross_attn(self.norm3(x), context, context_lens, clip_embed=clip_embed)
                 y = self.ffn(self.norm2(x).float() * (1 + e[4]) + e[3])
-                x = x.to(torch.float32) + (y.to(torch.float32) * e[5].to(torch.float32))
+                x = x.to(torch.float32) + (y.to(torch.float32) * e[5])
                 return x
 
         x = cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes)
@@ -591,10 +589,9 @@ class Head(nn.Module):
             e(Tensor): Shape [B, C]
         """
         assert e.dtype == torch.float32
-        e_unsqueezed = e.unsqueeze(1).to(torch.float32)
-        e = (self.modulation.to(torch.float32).to(e.device) + e_unsqueezed).chunk(2, dim=1)
-        normed = self.norm(x).to(torch.float32)
-        x = self.head(normed * (1 + e[1].to(torch.float32)) + e[0].to(torch.float32))
+        e = (self.modulation + e.unsqueeze(1)).chunk(2, dim=1)
+        normed = self.norm(x)
+        x = self.head(normed * (1 + e[1]) + e[0])
         return x
 
 
@@ -1029,7 +1026,7 @@ class WanModel(ModelMixin, ConfigMixin):
 
             previous_modulated_input = e.clone() if (self.teacache_use_coefficients and self.teacache_mode == 'e') else e0.clone()
             if not should_calc:
-                x += previous_residual.to(x.device)
+                x = x.to(previous_residual.dtype) + previous_residual.to(x.device)
                 #log.info(f"TeaCache: Skipping uncond step {current_step+1}")
                 self.teacache_state.update(
                     pred_id,
@@ -1063,11 +1060,11 @@ class WanModel(ModelMixin, ConfigMixin):
                         if (data["start"] <= current_step_percentage <= data["end"]) or \
                             (data["end"] > 0 and current_step == 0 and current_step_percentage >= data["start"]):
 
-                            vace_hints = self.forward_vace(x, data["context"], data["seq_len"], kwargs)
+                            vace_hints = self.forward_vace(x.to(torch.float32), data["context"], data["seq_len"], kwargs)
                             vace_hint_list.append(vace_hints)
                             vace_scale_list.append(data["scale"])
                 else:
-                    vace_hints = self.forward_vace(x, vace_data, seq_len, kwargs)
+                    vace_hints = self.forward_vace(x.to(torch.float32), vace_data, seq_len, kwargs)
                     vace_hint_list.append(vace_hints)
                     vace_scale_list.append(1.0)
                 
@@ -1081,7 +1078,7 @@ class WanModel(ModelMixin, ConfigMixin):
                             continue
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.main_device)
-                x = block(x, **kwargs)
+                x = block(x.to(torch.float32), **kwargs)
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.offload_device, non_blocking=self.use_non_blocking)
 
@@ -1092,7 +1089,6 @@ class WanModel(ModelMixin, ConfigMixin):
                     accumulated_rel_l1_distance=accumulated_rel_l1_distance.to(self.teacache_cache_device, non_blocking=self.use_non_blocking),
                     previous_modulated_input=previous_modulated_input.to(self.teacache_cache_device, non_blocking=self.use_non_blocking)
                 )
-
         x = self.head(x, e)
         x = self.unpatchify(x, grid_sizes) # type: ignore[arg-type]
         x = [u.float() for u in x]

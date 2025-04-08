@@ -642,6 +642,8 @@ class WanVideoModelLoader:
                        total=param_count,
                        leave=True):
                     dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
+                    if "modulation" in name:
+                        dtype_to_use = torch.float32
                     set_module_tensor_to_device(transformer, name, device=transformer_load_device, dtype=dtype_to_use, value=sd[name])
 
             comfy_model.diffusion_model = transformer
@@ -2388,7 +2390,6 @@ class WanVideoSampler:
             input_samples = samples["samples"].squeeze(0).to(noise)
             if input_samples.shape[1] != noise.shape[1]:
                 input_samples = torch.cat([input_samples[:, :1].repeat(1, noise.shape[1] - input_samples.shape[1], 1, 1), input_samples], dim=1)
-                print("input_samples shape:", input_samples.shape)
             noise = noise * latent_timestep / 1000 + (1 - latent_timestep / 1000) * input_samples
 
         if samples is not None:
@@ -2608,28 +2609,28 @@ class WanVideoSampler:
                         pred_id=teacache_state[1] if teacache_state else None,
                         **base_params
                     )
-                    noise_pred_uncond=noise_pred_uncond[0].to(intermediate_device)
-
-                    #https://github.com/WeichenFan/CFG-Zero-star/
-                    if use_cfg_zero_star:
-                        alpha = optimized_scale(
-                            noise_pred_cond.view(batch_size, -1),
-                            noise_pred_uncond.view(batch_size, -1)
-                        ).view(batch_size, 1, 1, 1)
-                        noise_pred = noise_pred_uncond * alpha + cfg_scale * (noise_pred_cond - noise_pred_uncond * alpha)
-                    else:
-                        noise_pred = noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond)
-                    return noise_pred, [teacache_state_cond, teacache_state_uncond]
+                    noise_pred_uncond = noise_pred_uncond[0].to(intermediate_device)
                 #batched
                 else:
+                    teacache_state_uncond = None
                     [noise_pred_cond, noise_pred_uncond], teacache_state_cond = transformer(
-                        [z] + [z], context= positive_embeds + negative_embeds, clip_fea=clip_fea, is_uncond=False, current_step_percentage=current_step_percentage,
+                        [z] + [z], context=positive_embeds + negative_embeds, clip_fea=clip_fea, is_uncond=False, current_step_percentage=current_step_percentage,
                         pred_id=teacache_state[0] if teacache_state else None,
                         **base_params
                     )
-                    noise_pred_uncond=noise_pred_uncond.to(intermediate_device)
+                #cfg
 
-                return noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond), [teacache_state_cond]
+                #https://github.com/WeichenFan/CFG-Zero-star/
+                if use_cfg_zero_star:
+                    alpha = optimized_scale(
+                        noise_pred_cond.view(batch_size, -1),
+                        noise_pred_uncond.view(batch_size, -1)
+                    ).view(batch_size, 1, 1, 1)
+                    noise_pred = noise_pred_uncond * alpha + cfg_scale * (noise_pred_cond - noise_pred_uncond * alpha)
+                else:
+                    noise_pred = noise_pred_uncond + cfg_scale * (noise_pred_cond - noise_pred_uncond)
+
+                return noise_pred, [teacache_state_cond, teacache_state_uncond]
 
         log.info(f"Sampling {(latent_video_length-1) * 4 + 1} frames at {latent.shape[3]*8}x{latent.shape[2]*8} with {steps} steps")
 
