@@ -1876,6 +1876,7 @@ class WanVideoVACEEncode:
             "target_shape": target_shape,
             "vace_start_percent": vace_start_percent,
             "vace_end_percent": vace_end_percent,
+            "vace_seq_len": math.ceil((z[0].shape[2] * z[0].shape[3]) / 4 * z[0].shape[1]),
             "additional_vace_inputs": [],
         }
 
@@ -1959,6 +1960,7 @@ class WanVideoVACEStartToEndFrame:
                 "start_image": ("IMAGE",),
                 "end_image": ("IMAGE",),
                 "control_images": ("IMAGE",),
+                "inpaint_mask": ("MASK", {"tooltip": "Inpaint mask to use for the empty frames"}),
             },
         }
 
@@ -1968,7 +1970,7 @@ class WanVideoVACEStartToEndFrame:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "Helper node to create start/end frame batch and masks for VACE"
 
-    def process(self, num_frames, empty_frame_level, start_image=None, end_image=None, control_images=None):
+    def process(self, num_frames, empty_frame_level, start_image=None, end_image=None, control_images=None, inpaint_mask=None):
         
         B, H, W, C = start_image.shape if start_image is not None else end_image.shape
         device = start_image.device if start_image is not None else end_image.device
@@ -2002,6 +2004,16 @@ class WanVideoVACEStartToEndFrame:
                 empty_frames = control_images[:num_frames - end_image.shape[0]]
             out_batch = torch.cat([empty_frames, end_image], dim=0)
             masks[-end_image.shape[0]:] = 0
+
+        if inpaint_mask is not None:
+            inpaint_mask = common_upscale(inpaint_mask.unsqueeze(1), W, H, "nearest-exact", "disabled").squeeze(1).to(device)
+            if inpaint_mask.shape[0] > num_frames:
+                inpaint_mask = inpaint_mask[:num_frames]
+            elif inpaint_mask.shape[0] < num_frames:
+                inpaint_mask = inpaint_mask.repeat(num_frames // inpaint_mask.shape[0] + 1, 1, 1)[:num_frames]
+
+            empty_mask = torch.ones_like(masks, device=device)
+            masks = inpaint_mask * empty_mask
     
         return (out_batch.cpu().float(), masks.cpu().float())
 
@@ -2248,11 +2260,17 @@ class WanVideoSampler:
             vace_scale = image_embeds.get("vace_scale", None)
             vace_start_percent = image_embeds.get("vace_start_percent", 0.0)
             vace_end_percent = image_embeds.get("vace_end_percent", 1.0)
+            vace_seqlen = image_embeds.get("vace_seq_len", None)
 
             vace_additional_embeds = image_embeds.get("additional_vace_inputs", [])
             if vace_context is not None:
                 vace_data = [
-                    {"context": vace_context, "scale": vace_scale, "start": vace_start_percent, "end": vace_end_percent}
+                    {"context": vace_context, 
+                     "scale": vace_scale, 
+                     "start": vace_start_percent, 
+                     "end": vace_end_percent,
+                     "seq_len": vace_seqlen
+                     }
                 ]
                 if len(vace_additional_embeds) > 0:
                     for i in range(len(vace_additional_embeds)):
@@ -2261,6 +2279,7 @@ class WanVideoSampler:
                             "scale": vace_additional_embeds[i]["vace_scale"],
                             "start": vace_additional_embeds[i]["vace_start_percent"],
                             "end": vace_additional_embeds[i]["vace_end_percent"],
+                            "seq_len": vace_additional_embeds[i]["vace_seq_len"]
                         })
 
             noise = torch.randn(
@@ -2366,7 +2385,11 @@ class WanVideoSampler:
 
         if samples is not None and denoise_strength < 1.0:
             latent_timestep = timesteps[:1].to(noise)
-            noise = noise * latent_timestep / 1000 + (1 - latent_timestep / 1000) * samples["samples"].squeeze(0).to(noise)
+            input_samples = samples["samples"].squeeze(0).to(noise)
+            if input_samples.shape[1] != noise.shape[1]:
+                input_samples = torch.cat([input_samples[:, :1].repeat(1, noise.shape[1] - input_samples.shape[1], 1, 1), input_samples], dim=1)
+                print("input_samples shape:", input_samples.shape)
+            noise = noise * latent_timestep / 1000 + (1 - latent_timestep / 1000) * input_samples
 
         if samples is not None:
             original_image = samples["samples"].clone().squeeze(0).to(device)

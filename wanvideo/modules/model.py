@@ -860,6 +860,9 @@ class WanModel(ModelMixin, ConfigMixin):
             torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))],
                       dim=1) for u in c
         ])
+
+        if x.shape[1] != c.shape[1]:
+            c = c[:, :x.shape[1]]
         
         c_list = [c]
         for b, block in enumerate(self.vace_blocks):
@@ -1060,7 +1063,7 @@ class WanModel(ModelMixin, ConfigMixin):
                         if (data["start"] <= current_step_percentage <= data["end"]) or \
                             (data["end"] > 0 and current_step == 0 and current_step_percentage >= data["start"]):
 
-                            vace_hints = self.forward_vace(x, data["context"], seq_len, kwargs)
+                            vace_hints = self.forward_vace(x, data["context"], data["seq_len"], kwargs)
                             vace_hint_list.append(vace_hints)
                             vace_scale_list.append(data["scale"])
                 else:
