@@ -465,7 +465,7 @@ class WanAttentionBlock(nn.Module):
             grid_sizes(Tensor): Shape [B, 3], the second dimension contains (F, H, W)
             freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
         """
-        e = (self.modulation + e).chunk(6, dim=1)
+        e = (self.modulation.to(e.device) + e).chunk(6, dim=1)
 
         # self-attention
         if (context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1)) and x.shape[0] == 1:
@@ -644,7 +644,7 @@ class Head(nn.Module):
             e(Tensor): Shape [B, C]
         """
         assert e.dtype == torch.float32
-        e = (self.modulation + e.unsqueeze(1)).chunk(2, dim=1)
+        e = (self.modulation.to(e.device) + e.unsqueeze(1)).chunk(2, dim=1)
         normed = self.norm(x)
         x = self.head(normed * (1 + e[1]) + e[0])
         return x
