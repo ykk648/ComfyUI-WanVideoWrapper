@@ -1816,6 +1816,9 @@ class WanVideoVACEEncode:
         self.vae = vae.to(self.device)
         self.vae_stride = (4, 8, 8)
 
+        width = (width // 16) * 16
+        height = (height // 16) * 16
+
         target_shape = (16, (num_frames - 1) // self.vae_stride[0] + 1,
                         height // self.vae_stride[1],
                         width // self.vae_stride[2])
@@ -3131,7 +3134,16 @@ class WanVideoEncode:
 
         vae.to(device)
 
-        image = (image.clone()).to(vae.dtype).to(device).unsqueeze(0).permute(0, 4, 1, 2, 3) # B, C, T, H, W
+        image = image.clone()
+
+        B, H, W, C = image.shape
+        if W % 16 != 0 or H % 16 != 0:
+            new_height = (H // 16) * 16
+            new_width = (W // 16) * 16
+            log.warning(f"Image size {W}x{H} is not divisible by 16, resizing to {new_width}x{new_height}")
+            image = common_upscale(image.movedim(-1, 1), new_width, new_height, "lanczos", "disabled").movedim(1, -1)
+
+        image = image.to(vae.dtype).to(device).unsqueeze(0).permute(0, 4, 1, 2, 3) # B, C, T, H, W
         if noise_aug_strength > 0.0:
             image = add_noise_to_reference_video(image, ratio=noise_aug_strength)
 
