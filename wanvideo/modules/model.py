@@ -473,7 +473,7 @@ class WanAttentionBlock(nn.Module):
             # encode ReCamMaster camera
             camera_embed = self.cam_encoder(camera_embed.to(x))
             camera_embed = camera_embed.repeat(1, 2, 1)
-            camera_embed = camera_embed.unsqueeze(2).unsqueeze(3).repeat(1, 1, 30, 52, 1)
+            camera_embed = camera_embed.unsqueeze(2).unsqueeze(3).repeat(1, 1, grid_sizes[0][1], grid_sizes[0][2], 1)
             camera_embed = rearrange(camera_embed, 'b f h w d -> b (f h w) d')
             input_x += camera_embed
 
