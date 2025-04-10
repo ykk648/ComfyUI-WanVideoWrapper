@@ -2046,7 +2046,18 @@ class WanVideoReCamMasterCameraEmbed:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-            "camera_type": ([str(i+1) for i in range(10)], {"default": "0", "tooltip": "Camera type to use"}),
+            "camera_type": ([
+                "pan_right", 
+                "pan_left",
+                "tilt_up",
+                "tilt_down",
+                "zoom_in",
+                "zoom_out",
+                "translate_up",
+                "translate_down",
+                "arc_left",
+                "arc_right",
+                ], {"default": "pan_right", "tooltip": "Camera type to use"}),
             "latents": ("LATENT", {"tooltip": "source video"}),
         },
         }
@@ -2070,9 +2081,22 @@ class WanVideoReCamMasterCameraEmbed:
         C, T, H, W = samples.shape
         num_frames = (T - 1) * 4 + 1
 
+        camera_type_map = {
+            "pan_right": 1,
+            "pan_left": 2,
+            "tilt_up": 3,
+            "tilt_down": 4,
+            "zoom_in": 5,
+            "zoom_out": 6,
+            "translate_up": 7,
+            "translate_down": 8,
+            "arc_left": 9,
+            "arc_right": 10,
+        }
+
         cam_idx = list(range(num_frames))[::4]
         print("cam_idx", cam_idx)
-        traj = [self.parse_matrix(cam_data[f"frame{idx}"][f"cam{int(camera_type):02d}"]) for idx in cam_idx]
+        traj = [self.parse_matrix(cam_data[f"frame{idx}"][f"cam{int(camera_type_map[camera_type]):02d}"]) for idx in cam_idx]
         traj = np.stack(traj).transpose(0, 2, 1)
         c2ws = []
         for c2w in traj:

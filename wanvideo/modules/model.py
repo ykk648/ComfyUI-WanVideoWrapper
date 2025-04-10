@@ -493,8 +493,10 @@ class WanAttentionBlock(nn.Module):
             seq_lens, grid_sizes,
             freqs, rope_func=rope_func
             )
+        #ReCamMaster
         if camera_embed is not None:
             y = self.projector(y)
+
         x = x.to(torch.float32) + (y.to(torch.float32) * e[2].to(torch.float32))
 
         # cross-attention & ffn function
