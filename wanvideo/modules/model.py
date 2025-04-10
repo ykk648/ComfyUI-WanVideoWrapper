@@ -455,6 +455,7 @@ class WanAttentionBlock(nn.Module):
         video_attention_split_steps=[],
         rope_func = "default",
         clip_embed=None,
+        camera_embed=None
         
     ):
         r"""
@@ -466,11 +467,20 @@ class WanAttentionBlock(nn.Module):
             freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
         """
         e = (self.modulation.to(e.device) + e).chunk(6, dim=1)
+        input_x = self.norm1(x) * (1 + e[1]) + e[0]
+
+        if camera_embed is not None:
+            # encode ReCamMaster camera
+            camera_embed = self.cam_encoder(camera_embed.to(x))
+            camera_embed = camera_embed.repeat(1, 2, 1)
+            camera_embed = camera_embed.unsqueeze(2).unsqueeze(3).repeat(1, 1, 30, 52, 1)
+            camera_embed = rearrange(camera_embed, 'b f h w d -> b (f h w) d')
+            input_x += camera_embed
 
         # self-attention
         if (context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1)) and x.shape[0] == 1:
-             y = self.self_attn.forward_split(
-            self.norm1(x) * (1 + e[1]) + e[0], 
+            y = self.self_attn.forward_split(
+            input_x, 
             seq_lens, grid_sizes,
             freqs, rope_func=rope_func, 
             seq_chunks=max(context.shape[0], clip_embed.shape[0] if clip_embed is not None else 0),
@@ -479,11 +489,12 @@ class WanAttentionBlock(nn.Module):
             )
         else:
             y = self.self_attn.forward(
-            self.norm1(x) * (1 + e[1]) + e[0], 
+            input_x, 
             seq_lens, grid_sizes,
             freqs, rope_func=rope_func
             )
-        
+        if camera_embed is not None:
+            y = self.projector(y)
         x = x.to(torch.float32) + (y.to(torch.float32) * e[2].to(torch.float32))
 
         # cross-attention & ffn function
@@ -948,6 +959,7 @@ class WanModel(ModelMixin, ConfigMixin):
         pred_id=None,
         control_lora_enabled=False,
         vace_data = None,
+        camera_embed = None
     ):
         r"""
         Forward pass through the diffusion model
@@ -1104,7 +1116,8 @@ class WanModel(ModelMixin, ConfigMixin):
                 clip_embed=clip_embed,
                 rope_func=rope_func,
                 current_step=current_step,
-                video_attention_split_steps=self.video_attention_split_steps
+                video_attention_split_steps=self.video_attention_split_steps,
+                camera_embed=camera_embed,
                 )
             
             if vace_data is not None:

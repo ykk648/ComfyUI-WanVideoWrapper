@@ -617,6 +617,17 @@ class WanVideoModelLoader:
             transformer = WanModel(**TRANSFORMER_CONFIG)
         transformer.eval()
 
+        if "blocks.0.cam_encoder.weight" in sd:
+            log.info("ReCamMaster model detected, patching model...")
+            import torch.nn as nn
+            for block in transformer.blocks:
+                block.cam_encoder = nn.Linear(12, dim)
+                block.projector = nn.Linear(dim, dim)
+                block.cam_encoder.weight.data.zero_()
+                block.cam_encoder.bias.data.zero_()
+                block.projector.weight = nn.Parameter(torch.eye(dim))
+                block.projector.bias = nn.Parameter(torch.zeros(dim))
+
         comfy_model = WanVideoModel(
             WanVideoModelConfig(base_dtype),
             model_type=comfy.model_base.ModelType.FLOW,
@@ -2022,8 +2033,100 @@ class WanVideoVACEStartToEndFrame:
     
         return (out_batch.cpu().float(), masks.cpu().float())
 
+#region ReCamMaster
 
+class Camera(object):
+    def __init__(self, c2w):
+        c2w_mat = np.array(c2w).reshape(4, 4)
+        self.c2w_mat = c2w_mat
+        self.w2c_mat = np.linalg.inv(c2w_mat)
+        
 
+class WanVideoReCamMasterCameraEmbed:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "camera_type": ([str(i+1) for i in range(10)], {"default": "0", "tooltip": "Camera type to use"}),
+            "latents": ("LATENT", {"tooltip": "source video"}),
+        },
+        }
+
+    RETURN_TYPES = ("WANVIDIMAGE_EMBEDS", )
+    RETURN_NAMES = ("camera_embeds",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "https://github.com/KwaiVGI/ReCamMaster"
+
+    def process(self, camera_type, latents):
+        # load camera
+        import json
+        from einops import rearrange
+        
+        camera_data_path = os.path.join(script_directory, "camera_extrinsics.json")
+        with open(camera_data_path, 'r') as file:
+            cam_data = json.load(file)
+        
+        samples = latents["samples"].squeeze(0)
+        C, T, H, W = samples.shape
+        num_frames = (T - 1) * 4 + 1
+
+        cam_idx = list(range(num_frames))[::4]
+        print("cam_idx", cam_idx)
+        traj = [self.parse_matrix(cam_data[f"frame{idx}"][f"cam{int(camera_type):02d}"]) for idx in cam_idx]
+        traj = np.stack(traj).transpose(0, 2, 1)
+        c2ws = []
+        for c2w in traj:
+            c2w = c2w[:, [1, 2, 0, 3]]
+            c2w[:3, 1] *= -1.
+            c2w[:3, 3] /= 100
+            c2ws.append(c2w)
+        tgt_cam_params = [Camera(cam_param) for cam_param in c2ws]
+        relative_poses = []
+        for i in range(len(tgt_cam_params)):
+            relative_pose = self.get_relative_pose([tgt_cam_params[0], tgt_cam_params[i]])
+            relative_poses.append(torch.as_tensor(relative_pose)[:,:3,:][1])
+        pose_embedding = torch.stack(relative_poses, dim=0)  # 21x3x4
+        pose_embedding = rearrange(pose_embedding, 'b c d -> b (c d)')
+
+        seq_len = math.ceil((H * W) / 4 * ((num_frames - 1) // 4 + 1))
+      
+        embeds = {
+            "max_seq_len": seq_len,
+            "target_shape": samples.shape,
+            "num_frames": num_frames,
+            "recammaster": {
+                "camera_embed": pose_embedding,
+                "source_latents": samples
+            }
+        }
+
+        return (embeds,)
+    
+    def parse_matrix(self, matrix_str):
+        rows = matrix_str.strip().split('] [')
+        matrix = []
+        for row in rows:
+            row = row.replace('[', '').replace(']', '')
+            matrix.append(list(map(float, row.split())))
+        return np.array(matrix)
+    
+    def get_relative_pose(self, cam_params):
+        abs_w2cs = [cam_param.w2c_mat for cam_param in cam_params]
+        abs_c2ws = [cam_param.c2w_mat for cam_param in cam_params]
+
+        cam_to_origin = 0
+        target_cam_c2w = np.array([
+            [1, 0, 0, 0],
+            [0, 1, 0, -cam_to_origin],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]
+        ])
+        abs2rel = target_cam_c2w @ abs_w2cs[0]
+        ret_poses = [target_cam_c2w, ] + [abs2rel @ abs_c2w for abs_c2w in abs_c2ws[1:]]
+        ret_poses = np.array(ret_poses, dtype=np.float32)
+        return ret_poses
+
+#region context options
 class WanVideoContextOptions:
     @classmethod
     def INPUT_TYPES(s):
@@ -2219,7 +2322,7 @@ class WanVideoSampler:
         seed_g = torch.Generator(device=torch.device("cpu"))
         seed_g.manual_seed(seed)
        
-        control_latents, clip_fea, clip_fea_neg, end_image = None, None, None, None
+        control_latents, clip_fea, clip_fea_neg, end_image, recammaster, camera_embed = None, None, None, None, None, None
         vace_data, vace_context, vace_scale = None, None, None
         fun_model, has_ref, drop_last = False, False, False
 
@@ -2297,6 +2400,15 @@ class WanVideoSampler:
                     generator=seed_g)
             
             seq_len = math.ceil((noise.shape[2] * noise.shape[3]) / 4 * noise.shape[1])
+
+            recammaster = image_embeds.get("recammaster", None)
+            if recammaster is not None:
+                camera_embed = recammaster.get("camera_embed", None)
+                recam_latents = recammaster.get("source_latents", None)
+                orig_noise_len = noise.shape[1]
+                log.info(f"RecamMaster camera embed shape: {camera_embed.shape}")
+                log.info(f"RecamMaster source video shape: {recam_latents.shape}")
+                seq_len *= 2
             
             control_embeds = image_embeds.get("control_embeds", None)
             if control_embeds is not None:
@@ -2578,6 +2690,9 @@ class WanVideoSampler:
                                 patcher.model.is_patched = True
                 else:
                     image_cond_input = image_cond
+
+                if recammaster is not None:
+                    z = torch.cat([z, recam_latents.to(z)], dim=1)
     
                 base_params = {
                     'seq_len': seq_len,
@@ -2588,6 +2703,7 @@ class WanVideoSampler:
                     'y': [image_cond_input] if image_cond_input is not None else None,
                     'control_lora_enabled': control_lora_enabled,
                     'vace_data': vace_data if vace_data is not None else None,
+                    'camera_embed': camera_embed,
                 }
 
                 batch_size = 1
@@ -2932,16 +3048,19 @@ class WanVideoSampler:
                 latent = latent.to(intermediate_device)
                 
                 temp_x0 = sample_scheduler.step(
-                    noise_pred.unsqueeze(0),
+                    noise_pred[:, :orig_noise_len].unsqueeze(0) if recammaster is not None else noise_pred.unsqueeze(0),
                     t,
-                    latent.unsqueeze(0),
+                    latent[:, :orig_noise_len].unsqueeze(0) if recammaster is not None else latent.unsqueeze(0),
                     return_dict=False,
                     generator=seed_g)[0]
                 latent = temp_x0.squeeze(0)
 
                 x0 = latent.to(device)
                 if callback is not None:
-                    callback_latent = (latent_model_input - noise_pred.to(t.device) * t / 1000).detach().permute(1,0,2,3)
+                    if recammaster is not None:
+                        callback_latent = (latent_model_input[:, :orig_noise_len] - noise_pred[:, :orig_noise_len].to(t.device) * t / 1000).detach().permute(1,0,2,3)
+                    else:
+                        callback_latent = (latent_model_input - noise_pred.to(t.device) * t / 1000).detach().permute(1,0,2,3)
                     callback(idx, callback_latent, None, steps)
                 else:
                     pbar.update(1)
@@ -3214,6 +3333,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoVACEEncode": WanVideoVACEEncode,
     "WanVideoVACEStartToEndFrame": WanVideoVACEStartToEndFrame,
     "WanVideoVACEModelSelect": WanVideoVACEModelSelect,
+    "WanVideoReCamMasterCameraEmbed": WanVideoReCamMasterCameraEmbed,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -3249,4 +3369,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoVACEEncode": "WanVideo VACE Encode",
     "WanVideoVACEStartToEndFrame": "WanVideo VACE Start To End Frame",
     "WanVideoVACEModelSelect": "WanVideo VACE Model Select",
+    "WanVideoReCamMasterCameraEmbed": "WanVideo ReCam Master Camera Embed",
     }
