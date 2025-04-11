@@ -30,6 +30,11 @@ You can also use the native ComfyUI text encoding and clip vision loader with th
 Examples:
 ---
 
+[ReCamMaster](https://github.com/KwaiVGI/ReCamMaster):
+
+https://github.com/user-attachments/assets/c58a12c2-13ba-4af8-8041-e283dbef197e
+
+
 TeaCache (with the old temporary WIP naive version, I2V):
 
 **Note that with the new version the threshold values should be 10x higher**
