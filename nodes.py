@@ -2033,122 +2033,6 @@ class WanVideoVACEStartToEndFrame:
     
         return (out_batch.cpu().float(), masks.cpu().float())
 
-#region ReCamMaster
-
-class Camera(object):
-    def __init__(self, c2w):
-        c2w_mat = np.array(c2w).reshape(4, 4)
-        self.c2w_mat = c2w_mat
-        self.w2c_mat = np.linalg.inv(c2w_mat)
-        
-
-class WanVideoReCamMasterCameraEmbed:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {"required": {
-            "camera_type": ([
-                "pan_right", 
-                "pan_left",
-                "tilt_up",
-                "tilt_down",
-                "zoom_in",
-                "zoom_out",
-                "translate_up",
-                "translate_down",
-                "arc_left",
-                "arc_right",
-                ], {"default": "pan_right", "tooltip": "Camera type to use"}),
-            "latents": ("LATENT", {"tooltip": "source video"}),
-        },
-        }
-
-    RETURN_TYPES = ("WANVIDIMAGE_EMBEDS", )
-    RETURN_NAMES = ("camera_embeds",)
-    FUNCTION = "process"
-    CATEGORY = "WanVideoWrapper"
-    DESCRIPTION = "https://github.com/KwaiVGI/ReCamMaster"
-
-    def process(self, camera_type, latents):
-        # load camera
-        import json
-        from einops import rearrange
-        
-        camera_data_path = os.path.join(script_directory, "camera_extrinsics.json")
-        with open(camera_data_path, 'r') as file:
-            cam_data = json.load(file)
-        
-        samples = latents["samples"].squeeze(0)
-        C, T, H, W = samples.shape
-        num_frames = (T - 1) * 4 + 1
-
-        camera_type_map = {
-            "pan_right": 1,
-            "pan_left": 2,
-            "tilt_up": 3,
-            "tilt_down": 4,
-            "zoom_in": 5,
-            "zoom_out": 6,
-            "translate_up": 7,
-            "translate_down": 8,
-            "arc_left": 9,
-            "arc_right": 10,
-        }
-
-        cam_idx = list(range(num_frames))[::4]
-        print("cam_idx", cam_idx)
-        traj = [self.parse_matrix(cam_data[f"frame{idx}"][f"cam{int(camera_type_map[camera_type]):02d}"]) for idx in cam_idx]
-        traj = np.stack(traj).transpose(0, 2, 1)
-        c2ws = []
-        for c2w in traj:
-            c2w = c2w[:, [1, 2, 0, 3]]
-            c2w[:3, 1] *= -1.
-            c2w[:3, 3] /= 100
-            c2ws.append(c2w)
-        tgt_cam_params = [Camera(cam_param) for cam_param in c2ws]
-        relative_poses = []
-        for i in range(len(tgt_cam_params)):
-            relative_pose = self.get_relative_pose([tgt_cam_params[0], tgt_cam_params[i]])
-            relative_poses.append(torch.as_tensor(relative_pose)[:,:3,:][1])
-        pose_embedding = torch.stack(relative_poses, dim=0)  # 21x3x4
-        pose_embedding = rearrange(pose_embedding, 'b c d -> b (c d)')
-
-        seq_len = math.ceil((H * W) / 4 * ((num_frames - 1) // 4 + 1))
-      
-        embeds = {
-            "max_seq_len": seq_len,
-            "target_shape": samples.shape,
-            "num_frames": num_frames,
-            "recammaster": {
-                "camera_embed": pose_embedding,
-                "source_latents": samples
-            }
-        }
-
-        return (embeds,)
-    
-    def parse_matrix(self, matrix_str):
-        rows = matrix_str.strip().split('] [')
-        matrix = []
-        for row in rows:
-            row = row.replace('[', '').replace(']', '')
-            matrix.append(list(map(float, row.split())))
-        return np.array(matrix)
-    
-    def get_relative_pose(self, cam_params):
-        abs_w2cs = [cam_param.w2c_mat for cam_param in cam_params]
-        abs_c2ws = [cam_param.c2w_mat for cam_param in cam_params]
-
-        cam_to_origin = 0
-        target_cam_c2w = np.array([
-            [1, 0, 0, 0],
-            [0, 1, 0, -cam_to_origin],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1]
-        ])
-        abs2rel = target_cam_c2w @ abs_w2cs[0]
-        ret_poses = [target_cam_c2w, ] + [abs2rel @ abs_c2w for abs_c2w in abs_c2ws[1:]]
-        ret_poses = np.array(ret_poses, dtype=np.float32)
-        return ret_poses
 
 #region context options
 class WanVideoContextOptions:
@@ -3357,7 +3241,6 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoVACEEncode": WanVideoVACEEncode,
     "WanVideoVACEStartToEndFrame": WanVideoVACEStartToEndFrame,
     "WanVideoVACEModelSelect": WanVideoVACEModelSelect,
-    "WanVideoReCamMasterCameraEmbed": WanVideoReCamMasterCameraEmbed,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -3393,5 +3276,4 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoVACEEncode": "WanVideo VACE Encode",
     "WanVideoVACEStartToEndFrame": "WanVideo VACE Start To End Frame",
     "WanVideoVACEModelSelect": "WanVideo VACE Model Select",
-    "WanVideoReCamMasterCameraEmbed": "WanVideo ReCam Master Camera Embed",
     }
