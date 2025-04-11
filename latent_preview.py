@@ -117,6 +117,8 @@ from threading import Thread
 import torch.nn.functional as F
 import io
 import time
+import struct
+from importlib.util import find_spec
 serv = server.PromptServer.instance
 
 class WrappedPreviewer(LatentPreviewer):
@@ -125,6 +127,9 @@ class WrappedPreviewer(LatentPreviewer):
         self.last_time = 0
         self.c_index = 0
         self.rate = rate
+        self.swarmui_env = find_spec("SwarmComfyCommon") is not None
+        if self.swarmui_env:
+            print("previewer: SwarmUI output enabled")
         if hasattr(previewer, 'taesd'):
             self.taesd = previewer.taesd
         elif hasattr(previewer, 'latent_rgb_factors'):
@@ -173,6 +178,8 @@ class WrappedPreviewer(LatentPreviewer):
         previews_ubyte = (image_tensor.clamp(0, 1)
                          .mul(0xFF)  # to 0..255
                          ).to(device="cpu", dtype=torch.uint8)
+
+        # Send VHS preview
         for preview in previews_ubyte:
             i = Image.fromarray(preview.numpy())
             message = io.BytesIO()
@@ -186,6 +193,26 @@ class WrappedPreviewer(LatentPreviewer):
                 ind = (ind + 1) % ((leng-1) * 4 - 1)
             else:
                 ind = (ind + 1) % leng
+
+        # Send SwarmUI preview if detected
+        if self.swarmui_env:
+            images = [Image.fromarray(preview.numpy()) for preview in previews_ubyte]
+            message = io.BytesIO()
+            header = struct.pack(">I", 3)
+            message.write(header)
+            images[0].save(
+                message,
+                save_all=True,
+                duration=int(1000.0/self.rate),
+                append_images=images[1 : len(images)],
+                lossless=False,
+                quality=80,
+                method=0,
+                format="WEBP",
+            )
+            message.seek(0)
+            preview_bytes = message.getvalue()
+            serv.send_sync(1, preview_bytes, sid=serv.client_id)
     def decode_latent_to_preview(self, x0):
         if hasattr(self, 'taesd'):
             x0 = x0.unsqueeze(0)
