@@ -230,6 +230,7 @@ class FlowDPMSolverMultistepScheduler(SchedulerMixin, ConfigMixin):
         sigmas: Optional[List[float]] = None,
         mu: Optional[Union[float, None]] = None,
         shift: Optional[Union[float, None]] = None,
+        use_beta_sigmas: Optional[bool] = False,
     ):
         """
         Sets the discrete timesteps used for the diffusion chain (to be run before inference).
@@ -247,26 +248,20 @@ class FlowDPMSolverMultistepScheduler(SchedulerMixin, ConfigMixin):
 
         if sigmas is None:
             sigmas = np.linspace(self.sigma_max, self.sigma_min,
-                                 num_inference_steps +
-                                 1).copy()[:-1]  # pyright: ignore
+                                 num_inference_steps +1).copy()[:-1]  # pyright: ignore
 
         if self.config.use_dynamic_shifting:
             sigmas = self.time_shift(mu, 1.0, sigmas)  # pyright: ignore
         else:
             if shift is None:
                 shift = self.config.shift
-            sigmas = shift * sigmas / (1 +
-                                       (shift - 1) * sigmas)  # pyright: ignore
+            sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)  # pyright: ignore
 
-        if self.config.final_sigmas_type == "sigma_min":
-            sigma_last = ((1 - self.alphas_cumprod[0]) /
-                          self.alphas_cumprod[0])**0.5
-        elif self.config.final_sigmas_type == "zero":
+        if use_beta_sigmas:
+            sigmas = self._convert_to_beta(in_sigmas=sigmas, num_inference_steps=num_inference_steps)
+
+        if self.config.final_sigmas_type == "zero":
             sigma_last = 0
-        else:
-            raise ValueError(
-                f"`final_sigmas_type` must be one of 'zero', or 'sigma_min', but got {self.config.final_sigmas_type}"
-            )
 
         timesteps = sigmas * self.config.num_train_timesteps
         sigmas = np.concatenate([sigmas, [sigma_last]
@@ -287,7 +282,38 @@ class FlowDPMSolverMultistepScheduler(SchedulerMixin, ConfigMixin):
         self._begin_index = None
         # self.sigmas = self.sigmas.to(
         #     "cpu")  # to avoid too much CPU/GPU communication
+    
+    def _convert_to_beta(
+        self, in_sigmas: torch.Tensor, num_inference_steps: int, alpha: float = 0.6, beta: float = 0.6
+    ) -> torch.Tensor:
+        import scipy
+        """From "Beta Sampling is All You Need" [arXiv:2407.12173] (Lee et. al, 2024)"""
 
+        # Hack to make sure that other schedulers which copy this function don't break
+        # TODO: Add this logic to the other schedulers
+        if hasattr(self.config, "sigma_min"):
+            sigma_min = self.config.sigma_min
+        else:
+            sigma_min = None
+
+        if hasattr(self.config, "sigma_max"):
+            sigma_max = self.config.sigma_max
+        else:
+            sigma_max = None
+
+        sigma_min = sigma_min if sigma_min is not None else in_sigmas[-1].item()
+        sigma_max = sigma_max if sigma_max is not None else in_sigmas[0].item()
+
+        sigmas = np.array(
+            [
+                sigma_min + (ppf * (sigma_max - sigma_min))
+                for ppf in [
+                    scipy.stats.beta.ppf(timestep, alpha, beta)
+                    for timestep in 1 - np.linspace(0, 1, num_inference_steps)
+                ]
+            ]
+        )
+        return sigmas
     # Copied from diffusers.schedulers.scheduling_ddpm.DDPMScheduler._threshold_sample
     def _threshold_sample(self, sample: torch.Tensor) -> torch.Tensor:
         """

@@ -13,7 +13,7 @@ from .wanvideo.modules.t5 import T5EncoderModel
 from .wanvideo.utils.fm_solvers import (FlowDPMSolverMultistepScheduler,
                                get_sampling_sigmas, retrieve_timesteps)
 from .wanvideo.utils.fm_solvers_unipc import FlowUniPCMultistepScheduler
-from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
+from diffusers.schedulers import FlowMatchEulerDiscreteScheduler, DEISMultistepScheduler
 
 from .enhance_a_video.globals import enable_enhance, disable_enhance, set_enhance_weight, set_num_frames
 from .taehv import TAEHV
@@ -2153,7 +2153,7 @@ class WanVideoSampler:
                 "shift": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 1000.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "force_offload": ("BOOLEAN", {"default": True, "tooltip": "Moves the model to the offload device after sampling"}),
-                "scheduler": (["unipc", "dpm++", "dpm++_sde", "euler", "euler/beta"],
+                "scheduler": (["unipc", "unipc/beta", "dpm++", "dpm++/beta","dpm++_sde", "dpm++_sde/beta", "euler", "euler/beta", "deis"],
                     {
                         "default": 'unipc'
                     }),
@@ -2196,29 +2196,27 @@ class WanVideoSampler:
         
         steps = int(steps/denoise_strength)
 
-        scheduler_args = {
-            "num_train_timesteps": 1000,
-            "shift": shift,
-            "use_dynamic_shifting": False,
-        }
-
         timesteps = None
-        if scheduler == 'unipc':
-            sample_scheduler = FlowUniPCMultistepScheduler(**scheduler_args)
-            sample_scheduler.set_timesteps(steps, device=device, shift=shift)
+        if 'unipc' in scheduler:
+            sample_scheduler = FlowUniPCMultistepScheduler(shift=shift)
+            sample_scheduler.set_timesteps(steps, device=device, shift=shift, use_beta_sigmas=('beta' in scheduler))
         elif scheduler in ['euler/beta', 'euler']:
-            sample_scheduler = FlowMatchEulerDiscreteScheduler(**scheduler_args, use_beta_sigmas=(scheduler == 'euler/beta'))
+            sample_scheduler = FlowMatchEulerDiscreteScheduler(shift=shift, use_beta_sigmas=(scheduler == 'euler/beta'))
             if flowedit_args: #seems to work better
                 timesteps, _ = retrieve_timesteps(sample_scheduler, device=device, sigmas=get_sampling_sigmas(steps, shift))
             else:
                 sample_scheduler.set_timesteps(steps, device=device, mu=1)  
         elif 'dpm++' in scheduler:
-            if scheduler == 'dpm++_sde':
+            if 'sde' in scheduler:
                 algorithm_type = "sde-dpmsolver++"
             else:
                 algorithm_type = "dpmsolver++"
-            sample_scheduler = FlowDPMSolverMultistepScheduler(**scheduler_args, algorithm_type= algorithm_type)
-            sample_scheduler.set_timesteps(steps, device=device, mu=1)
+            sample_scheduler = FlowDPMSolverMultistepScheduler(shift=shift, algorithm_type=algorithm_type)
+            sample_scheduler.set_timesteps(steps, device=device, use_beta_sigmas=('beta' in scheduler))
+        elif scheduler == 'deis':
+            sample_scheduler = DEISMultistepScheduler(use_flow_sigmas=True, prediction_type="flow_prediction", flow_shift=shift)
+            sample_scheduler.set_timesteps(steps, device=device)
+            sample_scheduler.sigmas[-1] = 1e-6
         
         if timesteps is None:
             timesteps = sample_scheduler.timesteps
@@ -2408,16 +2406,19 @@ class WanVideoSampler:
             from .context import get_context_scheduler
             context = get_context_scheduler(context_schedule)
 
-        if samples is not None and denoise_strength < 1.0:
-            latent_timestep = timesteps[:1].to(noise)
+        if samples is not None:
             input_samples = samples["samples"].squeeze(0).to(noise)
             if input_samples.shape[1] != noise.shape[1]:
                 input_samples = torch.cat([input_samples[:, :1].repeat(1, noise.shape[1] - input_samples.shape[1], 1, 1), input_samples], dim=1)
-            noise = noise * latent_timestep / 1000 + (1 - latent_timestep / 1000) * input_samples
+            original_image = input_samples.to(device)
+            if denoise_strength < 1.0:
+                latent_timestep = timesteps[:1].to(noise)
+                noise = noise * latent_timestep / 1000 + (1 - latent_timestep / 1000) * input_samples
 
-        if samples is not None:
-            original_image = samples["samples"].clone().squeeze(0).to(device)
             mask = samples.get("mask", None)
+            if mask is not None:
+                if mask.shape[2] != noise.shape[1]:
+                    mask = torch.cat([torch.zeros(1, noise.shape[0], noise.shape[1] - mask.shape[2], noise.shape[2], noise.shape[3]), mask], dim=2)            
 
         latent = noise.to(device)
 
@@ -2439,7 +2440,7 @@ class WanVideoSampler:
         if not isinstance(cfg, list):
             cfg = [cfg] * (steps +1)
 
-        print("Seq len:", seq_len)
+        log.info(f"Seq len: {seq_len}")
            
         pbar = ProgressBar(steps)
 
@@ -2954,13 +2955,17 @@ class WanVideoSampler:
             
             if flowedit_args is None:
                 latent = latent.to(intermediate_device)
-                
+                step_args = {
+                    "generator": seed_g,
+                }
+                if isinstance(sample_scheduler, DEISMultistepScheduler):
+                    step_args.pop("generator", None)
                 temp_x0 = sample_scheduler.step(
                     noise_pred[:, :orig_noise_len].unsqueeze(0) if recammaster is not None else noise_pred.unsqueeze(0),
                     t,
                     latent[:, :orig_noise_len].unsqueeze(0) if recammaster is not None else latent.unsqueeze(0),
                     return_dict=False,
-                    generator=seed_g)[0]
+                    **step_args)[0]
                 latent = temp_x0.squeeze(0)
 
                 x0 = latent.to(device)
@@ -3080,15 +3085,12 @@ class WanVideoDecode:
         drop_last = samples.get("drop_last", False)
         is_looped = samples.get("looped", False)
 
-        print("drop_last", drop_last)
-
         vae.to(device)
 
         latents = latents.to(device = device, dtype = vae.dtype)
 
         mm.soft_empty_cache()
 
-        
         if has_ref:
             latents = latents[:, :, 1:]
         if drop_last:
