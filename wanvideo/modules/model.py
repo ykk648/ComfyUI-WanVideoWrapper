@@ -926,7 +926,9 @@ class WanModel(ModelMixin, ConfigMixin):
                       dim=1) for u in c
         ])
 
-        if x.shape[1] != c.shape[1]:
+        if x.shape[1] > c.shape[1]:
+            c = torch.cat([c.new_zeros(x.shape[0], x.shape[1] - c.shape[1], c.shape[2]), c], dim=1)
+        if c.shape[1] > x.shape[1]:
             c = c[:, :x.shape[1]]
         
         c_list = [c]

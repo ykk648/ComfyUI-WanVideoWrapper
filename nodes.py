@@ -2173,6 +2173,7 @@ class WanVideoSampler:
                 "rope_function": (["default", "comfy"], {"default": "comfy", "tooltip": "Comfy's RoPE implementation doesn't use complex numbers and can thus be compiled, that should be a lot faster when using torch.compile"}),
                 "loop_args": ("LOOPARGS", ),
                 "experimental_args": ("EXPERIMENTALARGS", ),
+                "sigmas": ("SIGMAS", ),
             }
         }
 
@@ -2183,7 +2184,7 @@ class WanVideoSampler:
 
     def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
         force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, 
-        teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None, experimental_args=None):
+        teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None, experimental_args=None, sigmas=None):
         #assert not (context_options and teacache_args), "Context options cannot currently be used together with teacache."
         patcher = model
         model = model.model
@@ -2199,20 +2200,31 @@ class WanVideoSampler:
         timesteps = None
         if 'unipc' in scheduler:
             sample_scheduler = FlowUniPCMultistepScheduler(shift=shift)
-            sample_scheduler.set_timesteps(steps, device=device, shift=shift, use_beta_sigmas=('beta' in scheduler))
+            if sigmas is None:
+                sample_scheduler.set_timesteps(steps, device=device, shift=shift, use_beta_sigmas=('beta' in scheduler))
+            else:
+                sample_scheduler.sigmas = sigmas.to(device)
+                sample_scheduler.timesteps = (sample_scheduler.sigmas[:-1] * 1000).to(torch.int64).to(device)
+                sample_scheduler.num_inference_steps = len(sample_scheduler.timesteps)
+
         elif scheduler in ['euler/beta', 'euler']:
             sample_scheduler = FlowMatchEulerDiscreteScheduler(shift=shift, use_beta_sigmas=(scheduler == 'euler/beta'))
             if flowedit_args: #seems to work better
                 timesteps, _ = retrieve_timesteps(sample_scheduler, device=device, sigmas=get_sampling_sigmas(steps, shift))
             else:
-                sample_scheduler.set_timesteps(steps, device=device, mu=1)  
+                sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None) 
         elif 'dpm++' in scheduler:
             if 'sde' in scheduler:
                 algorithm_type = "sde-dpmsolver++"
             else:
                 algorithm_type = "dpmsolver++"
             sample_scheduler = FlowDPMSolverMultistepScheduler(shift=shift, algorithm_type=algorithm_type)
-            sample_scheduler.set_timesteps(steps, device=device, use_beta_sigmas=('beta' in scheduler))
+            if sigmas is None:
+                sample_scheduler.set_timesteps(steps, device=device, use_beta_sigmas=('beta' in scheduler))
+            else:
+                sample_scheduler.sigmas = sigmas.to(device)
+                sample_scheduler.timesteps = (sample_scheduler.sigmas[:-1] * 1000).to(torch.int64).to(device)
+                sample_scheduler.num_inference_steps = len(sample_scheduler.timesteps)
         elif scheduler == 'deis':
             sample_scheduler = DEISMultistepScheduler(use_flow_sigmas=True, prediction_type="flow_prediction", flow_shift=shift)
             sample_scheduler.set_timesteps(steps, device=device)
@@ -2288,6 +2300,8 @@ class WanVideoSampler:
                 ]
                 if len(vace_additional_embeds) > 0:
                     for i in range(len(vace_additional_embeds)):
+                        if vace_additional_embeds[i].get("has_ref", False):
+                            has_ref = True
                         vace_data.append({
                             "context": vace_additional_embeds[i]["vace_context"],
                             "scale": vace_additional_embeds[i]["vace_scale"],
