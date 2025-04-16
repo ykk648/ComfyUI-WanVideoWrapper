@@ -665,15 +665,19 @@ class Head(nn.Module):
 
 class MLPProj(torch.nn.Module):
 
-    def __init__(self, in_dim, out_dim):
+    def __init__(self, in_dim, out_dim, fl_pos_emb=False):
         super().__init__()
 
         self.proj = torch.nn.Sequential(
             torch.nn.LayerNorm(in_dim), torch.nn.Linear(in_dim, in_dim),
             torch.nn.GELU(), torch.nn.Linear(in_dim, out_dim),
             torch.nn.LayerNorm(out_dim))
+        if fl_pos_emb:  # NOTE: we only use this for `fl2v`
+            self.emb_pos = nn.Parameter(torch.zeros(1, 257 * 2, 1280))
 
     def forward(self, image_embeds):
+        if hasattr(self, 'emb_pos'):
+            image_embeds = image_embeds + self.emb_pos
         clip_extra_context_tokens = self.proj(image_embeds)
         return clip_extra_context_tokens
 
@@ -750,7 +754,6 @@ class WanModel(ModelMixin, ConfigMixin):
 
         super().__init__()
 
-        assert model_type in ['t2v', 'i2v']
         self.model_type = model_type
 
         self.patch_size = patch_size
@@ -861,8 +864,8 @@ class WanModel(ModelMixin, ConfigMixin):
         assert (dim % num_heads) == 0 and (dim // num_heads) % 2 == 0
         
 
-        if model_type == 'i2v':
-            self.img_emb = MLPProj(1280, dim)
+        if model_type == 'i2v' or model_type == 'fl2v':
+            self.img_emb = MLPProj(1280, dim, fl_pos_emb=model_type == 'fl2v')
 
     def block_swap(self, blocks_to_swap, offload_txt_emb=False, offload_img_emb=False, vace_blocks_to_swap=None):
         log.info(f"Swapping {blocks_to_swap + 1} transformer blocks")
