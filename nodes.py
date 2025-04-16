@@ -548,7 +548,7 @@ class WanVideoModelLoader:
         log.info(f"Detected model in_channels: {in_channels}")
         ffn_dim = sd["blocks.0.ffn.0.bias"].shape[0]
 
-        if "model_type.Wan2_1-FLF2V-14B-720P" in sd or "flf2v" in model.lower():
+        if "model_type.Wan2_1-FLF2V-14B-720P" in sd or "img_emb.emb_pos" in sd or "flf2v" in model.lower():
             model_type = "fl2v"
         elif in_channels in [36, 48]:
             model_type = "i2v"
