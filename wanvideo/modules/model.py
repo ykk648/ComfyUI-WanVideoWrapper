@@ -1157,7 +1157,7 @@ class WanModel(ModelMixin, ConfigMixin):
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.offload_device, non_blocking=self.use_non_blocking)
 
-            if self.enable_teacache and pred_id is not None:
+            if self.enable_teacache and (self.teacache_start_step <= current_step <= self.teacache_end_step) and pred_id is not None:
                 self.teacache_state.update(
                     pred_id,
                     previous_residual=(x.to(original_x.device) - original_x),
