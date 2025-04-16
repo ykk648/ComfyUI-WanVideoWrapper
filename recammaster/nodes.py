@@ -10,9 +10,16 @@ class Camera(object):
         c2w_mat = np.array(c2w).reshape(4, 4)
         self.c2w_mat = c2w_mat
         self.w2c_mat = np.linalg.inv(c2w_mat)
-        
 
-class WanVideoReCamMasterCameraEmbed:
+def parse_matrix(matrix_str):
+    rows = matrix_str.strip().split('] [')
+    matrix = []
+    for row in rows:
+        row = row.replace('[', '').replace(']', '')
+        matrix.append(list(map(float, row.split())))
+    return np.array(matrix)
+
+class WanVideoReCamMasterDefaultCamera:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
@@ -32,18 +39,16 @@ class WanVideoReCamMasterCameraEmbed:
         },
         }
 
-    RETURN_TYPES = ("WANVIDIMAGE_EMBEDS", "CAMERAPOSES",)
-    RETURN_NAMES = ("camera_embeds", "camera_poses",)
+    RETURN_TYPES = ("CAMERAPOSES",)
+    RETURN_NAMES = ("camera_poses",)
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "https://github.com/KwaiVGI/ReCamMaster"
 
     def process(self, camera_type, latents):
-        # load camera
         import json
-        from einops import rearrange
         
-        camera_data_path = os.path.join(script_directory, "camera_extrinsics.json")
+        camera_data_path = os.path.join(script_directory, "recam_extrinsics.json")
         with open(camera_data_path, 'r') as file:
             cam_data = json.load(file)
         
@@ -65,10 +70,96 @@ class WanVideoReCamMasterCameraEmbed:
         }
 
         cam_idx = list(range(num_frames))[::4]
-        traj = [self.parse_matrix(cam_data[f"frame{idx}"][f"cam{int(camera_type_map[camera_type]):02d}"]) for idx in cam_idx]
+        traj = [parse_matrix(cam_data[f"frame{idx}"][f"cam{int(camera_type_map[camera_type]):02d}"]) for idx in cam_idx]
         traj = np.stack(traj).transpose(0, 2, 1)
+       
+        return (traj,)
+        
+class WanVideoReCamMasterGenerateOrbitCamera:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "num_frames": ("INT", {"default": 81, "min": 1, "max": 1000, "step": 1, "tooltip": "Number of frames to generate"}),
+            "degrees": ("INT", {"default": 90, "min": -180, "max": 180, "step": 1, "tooltip": "Degrees to orbit"}),
+        },
+        }
+
+    RETURN_TYPES = ("CAMERAPOSES",)
+    RETURN_NAMES = ("camera_poses",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "https://github.com/KwaiVGI/ReCamMaster"
+
+    def process(self, degrees, num_frames):
+
+        def generate_orbit(num_frames=num_frames, degrees=degrees):
+            camera_data = []
+            center = np.array([3390, 1380, 240])  # Center point of orbit
+            
+            for i in range(num_frames):
+                # Calculate angle from 0 to specified degrees
+                angle = i * degrees / (num_frames - 1)
+                angle_rad = np.radians(angle)
+                
+                # Calculate position - circular path around center
+                x = center[0] - np.cos(angle_rad)
+                y = center[1] - np.sin(angle_rad)
+                z = center[2]
+                
+                # Calculate direction from camera to center point
+                camera_pos = np.array([x, y, z])
+                dir_to_center = center - camera_pos
+                
+                # Calculate the angle needed to face the center
+                look_angle = np.arctan2(dir_to_center[1], dir_to_center[0])
+                
+                # Rotation matrix for facing the center (corrected)
+                cos_look = np.cos(look_angle)
+                sin_look = np.sin(look_angle)
+                
+                # Create transformation matrix directly
+                transform = np.array([
+                    [cos_look, -sin_look, 0, x],
+                    [sin_look, cos_look, 0, y],
+                    [0, 0, 1, z],
+                    [0, 0, 0, 1]
+                ])
+                
+                camera_data.append(transform)
+                
+            return camera_data
+        
+        # Generate orbit data
+        camera_transforms = generate_orbit(num_frames=num_frames, degrees=degrees)
+        
+        traj = camera_transforms[::4]
+        traj = np.stack(traj)
+       
+        return (traj,)
+class WanVideoReCamMasterCameraEmbed:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "camera_poses": ("CAMERAPOSES",),
+            "latents": ("LATENT", {"tooltip": "source video"}),
+        },
+        }
+
+    RETURN_TYPES = ("WANVIDIMAGE_EMBEDS", "CAMERAPOSES",)
+    RETURN_NAMES = ("camera_embeds", "camera_poses",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "https://github.com/KwaiVGI/ReCamMaster"
+
+    def process(self, camera_poses, latents):
+        from einops import rearrange
+        samples = latents["samples"].squeeze(0)
+        C, T, H, W = samples.shape
+        num_frames = (T - 1) * 4 + 1
+        
+        
         c2ws = []
-        for c2w in traj:
+        for c2w in camera_poses:
             c2w = c2w[:, [1, 2, 0, 3]]
             c2w[:3, 1] *= -1.
             c2w[:3, 3] /= 100
@@ -93,15 +184,7 @@ class WanVideoReCamMasterCameraEmbed:
             }
         }
 
-        return (embeds, traj,)
-    
-    def parse_matrix(self, matrix_str):
-        rows = matrix_str.strip().split('] [')
-        matrix = []
-        for row in rows:
-            row = row.replace('[', '').replace(']', '')
-            matrix.append(list(map(float, row.split())))
-        return np.array(matrix)
+        return (embeds, camera_poses,)
     
     def get_relative_pose(self, cam_params):
         abs_w2cs = [cam_param.w2c_mat for cam_param in cam_params]
@@ -274,8 +357,12 @@ or a .txt file with RealEstate camera intrinsics and coordinates, in a 3D plot.
 NODE_CLASS_MAPPINGS = {
     "WanVideoReCamMasterCameraEmbed": WanVideoReCamMasterCameraEmbed,
     "ReCamMasterPoseVisualizer": ReCamMasterPoseVisualizer,
+    "WanVideoReCamMasterGenerateOrbitCamera": WanVideoReCamMasterGenerateOrbitCamera,
+    "WanVideoReCamMasterDefaultCamera": WanVideoReCamMasterDefaultCamera,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoReCamMasterCameraEmbed": "WanVideo ReCamMaster Camera Embed",
     "ReCamMasterPoseVisualizer": "ReCamMaster Pose Visualizer",
+    "WanVideoReCamMasterGenerateOrbitCamera": "WanVideo ReCamMaster Generate Orbit Camera",
+    "WanVideoReCamMasterDefaultCamera": "WanVideo ReCamMaster Default Camera",
     }
