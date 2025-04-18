@@ -114,7 +114,7 @@ class DWposeDetector:
     def __init__(self, model_det, model_pose):
         self.pose_estimation = Wholebody(model_det, model_pose)
 
-    def __call__(self, oriImg):
+    def __call__(self, oriImg, score_threshold=0.3):
         oriImg = oriImg.copy()
         H, W, C = oriImg.shape
         with torch.no_grad():
@@ -130,18 +130,18 @@ class DWposeDetector:
             
             for i in range(len(score)):
                 for j in range(len(score[i])):
-                    if score[i][j] > 0.3:
+                    if score[i][j] > score_threshold:
                         score[i][j] = int(18*i+j)
                     else:
                         score[i][j] = -1
 
-            un_visible = subset<0.3
+            un_visible = subset<score_threshold
             candidate[un_visible] = -1
 
             bodyfoot_score = subset[:,:24].copy()
             for i in range(len(bodyfoot_score)):
                 for j in range(len(bodyfoot_score[i])):
-                    if bodyfoot_score[i][j] > 0.3:
+                    if bodyfoot_score[i][j] > score_threshold:
                         bodyfoot_score[i][j] = int(18*i+j)
                     else:
                         bodyfoot_score[i][j] = -1
@@ -200,20 +200,20 @@ def draw_pose(pose, H, W):
     return canvas_without_face, canvas
 
 
-def pose_extract(pose_images, ref_image, dwpose_model, height, width):
+def pose_extract(pose_images, ref_image, dwpose_model, height, width, score_threshold):
     
     results_vis = []
     comfy_pbar = ProgressBar(len(pose_images))
 
     if ref_image is not None:
         try:
-            pose_ref = dwpose_model(ref_image.squeeze(0))
+            pose_ref = dwpose_model(ref_image.squeeze(0), score_threshold=score_threshold)
         except:
             raise ValueError("No pose detected in reference image")
     
     for img in tqdm(pose_images, desc="Pose Extraction", unit="image", total=len(pose_images)):
         try:
-            pose = dwpose_model(img)
+            pose = dwpose_model(img, score_threshold=score_threshold)
         except:
             pose = torch.zeros_like(img)
         results_vis.append(pose)
@@ -673,8 +673,12 @@ def pose_extract(pose_images, ref_image, dwpose_model, height, width):
     
     dwpose_woface_list = []
     for i in range(len(results_vis)):
-        dwpose_woface, dwpose_wface = draw_pose(results_vis[i], H=height, W=width)
-        dwpose_woface_list.append(torch.from_numpy(dwpose_woface))
+        try:
+            dwpose_woface, dwpose_wface = draw_pose(results_vis[i], H=height, W=width)
+            result = torch.from_numpy(dwpose_woface)
+        except:
+            result = torch.zeros((height, width, 3), dtype=torch.uint8)
+        dwpose_woface_list.append(result)
     dwpose_woface_tensor = torch.stack(dwpose_woface_list, dim=0)
 
     dwpose_woface_ref_tensor = None
@@ -689,6 +693,7 @@ class WanVideoUniAnimateDWPoseDetector:
     def INPUT_TYPES(s):
         return {"required": {
              "pose_images": ("IMAGE", {"tooltip": "Pose images"}),
+             "score_threshold": ("FLOAT", {"default": 0.3, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Score threshold for pose detection"}),
             },
             "optional": {
                 "reference_pose_image": ("IMAGE", {"tooltip": "Reference pose image"}),
@@ -700,7 +705,7 @@ class WanVideoUniAnimateDWPoseDetector:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, pose_images, reference_pose_image=None):
+    def process(self, pose_images, score_threshold, reference_pose_image=None):
 
         device = mm.get_torch_device()
         
@@ -744,7 +749,7 @@ class WanVideoUniAnimateDWPoseDetector:
             ref = reference_pose_image
             ref_np = ref.cpu().numpy() * 255
 
-        poses, reference_pose = pose_extract(pose_np, ref_np, self.dwpose_detector, height, width)
+        poses, reference_pose = pose_extract(pose_np, ref_np, self.dwpose_detector, height, width, score_threshold)
         poses = poses / 255.0
         if reference_pose_image is not None:
             reference_pose = reference_pose.unsqueeze(0) / 255.0
