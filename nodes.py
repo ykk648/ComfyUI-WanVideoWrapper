@@ -1576,7 +1576,6 @@ class WanVideoImageToVideoEncode:
                 "fun_or_fl2v_model": ("BOOLEAN", {"default": True, "tooltip": "Enable when using official FLF2V or Fun model"}),
                 "temporal_mask": ("MASK", {"tooltip": "mask"}),
                 "extra_latents": ("LATENT", {"tooltip": "Extra latents to add to the input front, used for Skyreels A2 reference images"}),
-                "unianimate_poses": ("UNIANIMATEPOSES", {"tooltip": "Unianimate poses"}),
             }
         }
 
@@ -1587,7 +1586,7 @@ class WanVideoImageToVideoEncode:
 
     def process(self, vae, width, height, num_frames, clip_embeds, force_offload, noise_aug_strength, 
                 start_latent_strength, end_latent_strength, start_image=None, end_image=None, control_embeds=None, fun_or_fl2v_model=False, 
-                temporal_mask=None, extra_latents=None, unianimate_poses=None):
+                temporal_mask=None, extra_latents=None):
 
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
@@ -1708,7 +1707,6 @@ class WanVideoImageToVideoEncode:
             "end_image": resized_end_image if end_image is not None else None,
             "fun_or_fl2v_model": fun_or_fl2v_model,
             "has_ref": has_ref,
-            "unianimate_poses": unianimate_poses
         }
 
         return (image_embeds,)
