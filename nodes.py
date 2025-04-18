@@ -586,17 +586,15 @@ class WanVideoModelLoader:
                 "e0": [8.10705460e+03, 2.13393892e+03, -3.72934672e+02, 1.66203073e+01, -4.17769401e-02],
             },
         }
-        
+        model_variant = "14B" #default to this
         if model_type == "i2v" or model_type == "fl2v":
-            if "480" in model or "fun" in model.lower() or "a2" in model.lower(): #just a guess for the Fun model for now...
+            if "480" in model or "fun" in model.lower() or "a2" in model.lower() or "540" in model: #just a guess for the Fun model for now...
                 model_variant = "i2v_480"
             elif "720" in model:
                 model_variant = "i2v_720"
         elif model_type == "t2v":
             model_variant = "14B"
-        else:
-            model_variant = "14B" #default to this
-            log.warning("Model variant not detected, defaulting TeaCache coefficients to 14B")
+            
         if dim == 1536:
             model_variant = "1_3B"
         log.info(f"Model variant detected: {model_variant}")
