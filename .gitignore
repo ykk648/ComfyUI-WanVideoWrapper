@@ -10,3 +10,4 @@ logs/
 tools/
 .vscode/
 convert_*
+*.pt

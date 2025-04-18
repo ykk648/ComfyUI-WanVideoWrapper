@@ -966,7 +966,8 @@ class WanModel(ModelMixin, ConfigMixin):
         pred_id=None,
         control_lora_enabled=False,
         vace_data = None,
-        camera_embed = None
+        camera_embed = None,
+        unianim_data = None
     ):
         r"""
         Forward pass through the diffusion model
@@ -1111,6 +1112,9 @@ class WanModel(ModelMixin, ConfigMixin):
         if not self.enable_teacache or (self.enable_teacache and should_calc):
             if self.enable_teacache:
                 original_x = x.clone().to(self.teacache_cache_device, non_blocking=self.use_non_blocking)
+
+            if hasattr(self, "dwpose_embedding") and unianim_data is not None:
+                x += rearrange(unianim_data['dwpose'], 'b c f h w -> b (f h w) c').contiguous()
 
             # arguments
             kwargs = dict(
