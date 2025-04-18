@@ -20,6 +20,7 @@ from .taehv import TAEHV
 
 from accelerate import init_empty_weights
 from accelerate.utils import set_module_tensor_to_device
+from einops import rearrange
 
 import folder_paths
 import comfy.model_management as mm
@@ -2380,6 +2381,7 @@ class WanVideoSampler:
             dwpose_data = transformer.dwpose_embedding(
                 (torch.cat([dwpose_data[:,:,:1].repeat(1,1,3,1,1), dwpose_data], dim=2)
                     ).to(device)).to(model["dtype"])
+            dwpose_data = rearrange(dwpose_data, 'b c f h w -> b (f h w) c').contiguous()
             
             random_ref_dwpose_data = None
             if image_cond is not None:
@@ -2387,11 +2389,13 @@ class WanVideoSampler:
                 random_ref_dwpose_data = transformer.randomref_embedding_pose(
                     random_ref_dwpose.to(device)#.permute(0,3,1,2)
                     ).unsqueeze(2).to(model["dtype"]) # [1, 20, 104, 60]
-                image_cond += random_ref_dwpose_data.squeeze(0)
                 
             unianim_data = {
                 "dwpose": dwpose_data,
-                "random_ref": random_ref_dwpose_data
+                "random_ref": random_ref_dwpose_data.squeeze(0) if random_ref_dwpose_data is not None else None,
+                "strength": unianimate_poses["strength"],
+                "start_percent": unianimate_poses["start_percent"],
+                "end_percent": unianimate_poses["end_percent"]
             }
             
         latent_video_length = noise.shape[1]

@@ -998,6 +998,10 @@ class WanModel(ModelMixin, ConfigMixin):
         _, F, H, W = x[0].shape
             
         if y is not None:
+            if hasattr(self, "randomref_embedding_pose") and unianim_data is not None:
+                if unianim_data['start_percent'] <= current_step_percentage <= unianim_data['end_percent']:
+                    random_ref_emb = unianim_data["random_ref"]
+                    y[0] = y[0] + random_ref_emb * unianim_data["strength"]
             x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
 
         # embeddings
@@ -1114,7 +1118,9 @@ class WanModel(ModelMixin, ConfigMixin):
                 original_x = x.clone().to(self.teacache_cache_device, non_blocking=self.use_non_blocking)
 
             if hasattr(self, "dwpose_embedding") and unianim_data is not None:
-                x += rearrange(unianim_data['dwpose'], 'b c f h w -> b (f h w) c').contiguous()
+                if unianim_data['start_percent'] <= current_step_percentage <= unianim_data['end_percent']:
+                    dwpose_emb = unianim_data['dwpose']
+                    x += dwpose_emb * unianim_data['strength']
 
             # arguments
             kwargs = dict(
