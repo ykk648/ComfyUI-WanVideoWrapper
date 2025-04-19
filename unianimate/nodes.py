@@ -707,6 +707,7 @@ class WanVideoUniAnimateDWPoseDetector:
                 "draw_feet": ("BOOLEAN", {"default": True, "tooltip": "Draw feet keypoints"}),
                 "draw_hands": ("BOOLEAN", {"default": True, "tooltip": "Draw hand keypoints"}),
                 "hand_keypoint_size": ("INT", {"default": 4, "min": 0, "max": 100, "step": 1, "tooltip": "Hand keypoint size"}),
+                "colorspace": (["RGB", "BGR"], {"tooltip": "Color space for the output image"}),
             },
             "optional": {
                 "reference_pose_image": ("IMAGE", {"tooltip": "Reference pose image"}),
@@ -719,7 +720,7 @@ class WanVideoUniAnimateDWPoseDetector:
     CATEGORY = "WanVideoWrapper"
 
     def process(self, pose_images, score_threshold, stick_width, reference_pose_image=None, draw_body=True, body_keypoint_size=4, 
-                draw_feet=True, draw_hands=True, hand_keypoint_size=4):
+                draw_feet=True, draw_hands=True, hand_keypoint_size=4, colorspace="RGB"):
 
         device = mm.get_torch_device()
         
@@ -771,6 +772,9 @@ class WanVideoUniAnimateDWPoseDetector:
             reference_pose = reference_pose.unsqueeze(0) / 255.0
         else:
             reference_pose = torch.zeros(1, 64, 64, 3, device=torch.device("cpu"))
+
+        if colorspace == "BGR":
+            poses=torch.flip(poses, dims=[-1])
 
         return (poses, reference_pose, )
 
