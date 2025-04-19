@@ -1001,7 +1001,8 @@ class WanModel(ModelMixin, ConfigMixin):
             if hasattr(self, "randomref_embedding_pose") and unianim_data is not None:
                 if unianim_data['start_percent'] <= current_step_percentage <= unianim_data['end_percent']:
                     random_ref_emb = unianim_data["random_ref"]
-                    y[0] = y[0] + random_ref_emb * unianim_data["strength"]
+                    if random_ref_emb is not None:
+                        y[0] = y[0] + random_ref_emb * unianim_data["strength"]
             x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
 
         # embeddings

@@ -2400,10 +2400,11 @@ class WanVideoSampler:
             
             random_ref_dwpose_data = None
             if image_cond is not None:
-                random_ref_dwpose = unianimate_poses["ref"]
-                random_ref_dwpose_data = transformer.randomref_embedding_pose(
-                    random_ref_dwpose.to(device)#.permute(0,3,1,2)
-                    ).unsqueeze(2).to(model["dtype"]) # [1, 20, 104, 60]
+                random_ref_dwpose = unianimate_poses.get("ref", None)
+                if random_ref_dwpose is not None:
+                    random_ref_dwpose_data = transformer.randomref_embedding_pose(
+                        random_ref_dwpose.to(device)
+                        ).unsqueeze(2).to(model["dtype"]) # [1, 20, 104, 60]
                 
             unianim_data = {
                 "dwpose": dwpose_data,

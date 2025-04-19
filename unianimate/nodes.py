@@ -763,10 +763,12 @@ class WanVideoUniAnimatePoseInput:
     def INPUT_TYPES(s):
         return {"required": {
             "pose_images": ("IMAGE", {"tooltip": "Pose images"}),
-            "reference_pose_image": ("IMAGE", {"tooltip": "Reference pose image"}),
             "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Strength of the pose control"}),
             "start_percent": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Start percentage for the pose control"}),
             "end_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "End percentage for the pose control"}),
+            },
+            "optional": {
+                "reference_pose_image": ("IMAGE", {"tooltip": "Reference pose image"}),
             },
         }
 
@@ -775,10 +777,13 @@ class WanVideoUniAnimatePoseInput:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, pose_images, reference_pose_image, strength, start_percent, end_percent):
+    def process(self, pose_images, strength, start_percent, end_percent, reference_pose_image=None):
 
         pose = pose_images.permute(3, 0, 1, 2).unsqueeze(0).contiguous()
-        ref = reference_pose_image.permute(0, 3, 1, 2).contiguous()
+
+        ref = None
+        if reference_pose_image is not None:
+            ref = reference_pose_image.permute(0, 3, 1, 2).contiguous()
 
         unianim_poses = {
             "pose": pose,
