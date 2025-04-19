@@ -2396,7 +2396,7 @@ class WanVideoSampler:
                 pad_len = latent_video_length - dwpose_data.shape[2]
                 pad = dwpose_data[:,:,:1].repeat(1,1,pad_len,1,1)
                 dwpose_data = torch.cat([dwpose_data, pad], dim=2)
-            dwpose_data = rearrange(dwpose_data, 'b c f h w -> b (f h w) c').contiguous()
+            dwpose_data_flat = rearrange(dwpose_data, 'b c f h w -> b (f h w) c').contiguous()
             
             random_ref_dwpose_data = None
             if image_cond is not None:
@@ -2407,7 +2407,7 @@ class WanVideoSampler:
                         ).unsqueeze(2).to(model["dtype"]) # [1, 20, 104, 60]
                 
             unianim_data = {
-                "dwpose": dwpose_data,
+                "dwpose": dwpose_data_flat,
                 "random_ref": random_ref_dwpose_data.squeeze(0) if random_ref_dwpose_data is not None else None,
                 "strength": unianimate_poses["strength"],
                 "start_percent": unianimate_poses["start_percent"],
@@ -2691,9 +2691,9 @@ class WanVideoSampler:
                     'current_step': idx,
                     'y': [image_cond_input] if image_cond_input is not None else None,
                     'control_lora_enabled': control_lora_enabled,
-                    'vace_data': vace_data if vace_data is not None else None,
+                    'vace_data': vace_data,
                     'camera_embed': camera_embed,
-                    'unianim_data': unianim_data if unianimate_poses is not None else None,
+                    'unianim_data': unianim_data,
                 }
 
                 batch_size = 1
@@ -3018,9 +3018,10 @@ class WanVideoSampler:
 
                     partial_unianim_data = None
                     if unianim_data is not None:
-                        partial_dwpose = unianim_data["dwpose"][:, c, :, :]
+                        partial_dwpose = dwpose_data[:, c, :, :]
+                        partial_dwpose_flat=rearrange(partial_dwpose, 'b c f h w -> b (f h w) c')
                         partial_unianim_data = {
-                            "dwpose": partial_dwpose,
+                            "dwpose": partial_dwpose_flat,
                             "random_ref": unianim_data["random_ref"],
                             "strength": unianimate_poses["strength"],
                             "start_percent": unianimate_poses["start_percent"],
