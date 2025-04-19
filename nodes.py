@@ -3018,7 +3018,7 @@ class WanVideoSampler:
 
                     partial_unianim_data = None
                     if unianim_data is not None:
-                        partial_dwpose = dwpose_data[:, c, :, :]
+                        partial_dwpose = dwpose_data[:, :, c, :, :]
                         partial_dwpose_flat=rearrange(partial_dwpose, 'b c f h w -> b (f h w) c')
                         partial_unianim_data = {
                             "dwpose": partial_dwpose_flat,
