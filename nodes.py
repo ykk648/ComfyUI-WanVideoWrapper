@@ -2643,7 +2643,8 @@ class WanVideoSampler:
                 fresca_freq_cutoff = experimental_args.get("fresca_freq_cutoff", 20)
 
         #region model pred
-        def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, control_latents=None, vace_data=None, teacache_state=None):
+        def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, 
+                             control_latents=None, vace_data=None, unianim_data=None, teacache_state=None):
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
 
                 if use_cfg_zero_star and (idx <= zero_star_steps) and use_zero_init:
@@ -3015,11 +3016,22 @@ class WanVideoSampler:
                         partial_vace_context = [partial_vace_context]
                     partial_latent_model_input = latent_model_input[:, c, :, :]
 
+                    partial_unianim_data = None
+                    if unianim_data is not None:
+                        partial_dwpose = unianim_data["dwpose"][:, c, :, :]
+                        partial_unianim_data = {
+                            "dwpose": partial_dwpose,
+                            "random_ref": unianim_data["random_ref"],
+                            "strength": unianimate_poses["strength"],
+                            "start_percent": unianimate_poses["start_percent"],
+                            "end_percent": unianimate_poses["end_percent"]
+                        }
+
                     noise_pred_context, new_teacache = predict_with_cfg(
                         partial_latent_model_input, 
                         cfg[idx], positive, 
                         text_embeds["negative_prompt_embeds"], 
-                        timestep, idx, partial_img_emb, clip_fea, partial_control_latents, partial_vace_context,
+                        timestep, idx, partial_img_emb, clip_fea, partial_control_latents, partial_vace_context, partial_unianim_data,
                         current_teacache)
 
                     # if callback is not None:
@@ -3042,7 +3054,7 @@ class WanVideoSampler:
                     cfg[idx], 
                     text_embeds["prompt_embeds"], 
                     text_embeds["negative_prompt_embeds"], 
-                    timestep, idx, image_cond, clip_fea, control_latents, vace_data,
+                    timestep, idx, image_cond, clip_fea, control_latents, vace_data, unianim_data,
                     teacache_state=self.teacache_state)
 
             if latent_shift_loop:
