@@ -14,6 +14,7 @@ from .wanvideo.utils.fm_solvers import (FlowDPMSolverMultistepScheduler,
                                get_sampling_sigmas, retrieve_timesteps)
 from .wanvideo.utils.fm_solvers_unipc import FlowUniPCMultistepScheduler
 from diffusers.schedulers import FlowMatchEulerDiscreteScheduler, DEISMultistepScheduler
+from .wanvideo.utils.scheduling_flow_match_lcm import FlowMatchLCMScheduler
 
 from .enhance_a_video.globals import enable_enhance, disable_enhance, set_enhance_weight, set_num_frames
 from .taehv import TAEHV
@@ -2171,7 +2172,7 @@ class WanVideoSampler:
                 "shift": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 1000.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "force_offload": ("BOOLEAN", {"default": True, "tooltip": "Moves the model to the offload device after sampling"}),
-                "scheduler": (["unipc", "unipc/beta", "dpm++", "dpm++/beta","dpm++_sde", "dpm++_sde/beta", "euler", "euler/beta", "deis"],
+                "scheduler": (["unipc", "unipc/beta", "dpm++", "dpm++/beta","dpm++_sde", "dpm++_sde/beta", "euler", "euler/beta", "deis", "lcm", "lcm/beta"],
                     {
                         "default": 'unipc'
                     }),
@@ -2248,6 +2249,9 @@ class WanVideoSampler:
             sample_scheduler = DEISMultistepScheduler(use_flow_sigmas=True, prediction_type="flow_prediction", flow_shift=shift)
             sample_scheduler.set_timesteps(steps, device=device)
             sample_scheduler.sigmas[-1] = 1e-6
+        elif 'lcm' in scheduler:
+            sample_scheduler = FlowMatchLCMScheduler(shift=shift, use_beta_sigmas=(scheduler == 'lcm/beta'))
+            sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None) 
         
         if timesteps is None:
             timesteps = sample_scheduler.timesteps
@@ -2373,6 +2377,8 @@ class WanVideoSampler:
                     )
                     masked_video_latents_input = torch.zeros_like(noise)
                     image_cond = torch.cat([mask_latents, masked_video_latents_input], dim=0).to(device)
+
+        latent_video_length = noise.shape[1]
         
         if unianimate_poses is not None:
             transformer.dwpose_embedding.to(device)
@@ -2381,6 +2387,15 @@ class WanVideoSampler:
             dwpose_data = transformer.dwpose_embedding(
                 (torch.cat([dwpose_data[:,:,:1].repeat(1,1,3,1,1), dwpose_data], dim=2)
                     ).to(device)).to(model["dtype"])
+            log.info(f"UniAnimate pose embed shape: {dwpose_data.shape}")
+            if dwpose_data.shape[2] > latent_video_length:
+                log.warning(f"UniAnimate pose embed length {dwpose_data.shape[2]} is longer than the video length {latent_video_length}, truncating")
+                dwpose_data = dwpose_data[:,:, :latent_video_length]
+            elif dwpose_data.shape[2] < latent_video_length:
+                log.warning(f"UniAnimate pose embed length {dwpose_data.shape[2]} is shorter than the video length {latent_video_length}, padding with last pose")
+                pad_len = latent_video_length - dwpose_data.shape[2]
+                pad = dwpose_data[:,:,:1].repeat(1,1,pad_len,1,1)
+                dwpose_data = torch.cat([dwpose_data, pad], dim=2)
             dwpose_data = rearrange(dwpose_data, 'b c f h w -> b (f h w) c').contiguous()
             
             random_ref_dwpose_data = None
@@ -2398,7 +2413,7 @@ class WanVideoSampler:
                 "end_percent": unianimate_poses["end_percent"]
             }
             
-        latent_video_length = noise.shape[1]
+        
 
         is_looped = False
         if context_options is not None:
