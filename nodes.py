@@ -2709,6 +2709,13 @@ class WanVideoSampler:
                     )
                     noise_pred_cond = noise_pred_cond[0].to(intermediate_device)
                     if math.isclose(cfg_scale, 1.0):
+                        if use_fresca:
+                            noise_pred_cond = fourier_filter(
+                                noise_pred_cond,
+                                scale_low=fresca_scale_low,
+                                scale_high=fresca_scale_high,
+                                freq_cutoff=fresca_freq_cutoff,
+                            )
                         return noise_pred_cond, [teacache_state_cond]
                     #uncond
                     noise_pred_uncond, teacache_state_uncond = transformer(
