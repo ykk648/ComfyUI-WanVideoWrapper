@@ -2263,7 +2263,7 @@ class WanVideoSampler:
         seed_g = torch.Generator(device=torch.device("cpu"))
         seed_g.manual_seed(seed)
        
-        control_latents, clip_fea, clip_fea_neg, end_image, recammaster, camera_embed = None, None, None, None, None, None
+        control_latents, clip_fea, clip_fea_neg, end_image, recammaster, camera_embed, unianim_data = None, None, None, None, None, None, None
         vace_data, vace_context, vace_scale = None, None, None
         fun_or_fl2v_model, has_ref, drop_last = False, False, False
 
