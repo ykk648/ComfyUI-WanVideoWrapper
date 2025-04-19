@@ -109,7 +109,7 @@ def draw_bodypose(canvas, candidate, subset):
     return canvas
 
 
-def draw_body_and_foot(canvas, candidate, subset, stick_width=4, draw_body=True, draw_feet=True, draw_body_keypoints=True):
+def draw_body_and_foot(canvas, candidate, subset, stick_width=4, draw_body=True, draw_feet=True, body_keypoint_size=4):
     H, W, C = canvas.shape
     candidate = np.array(candidate)
     subset = np.array(subset)
@@ -144,7 +144,7 @@ def draw_body_and_foot(canvas, candidate, subset, stick_width=4, draw_body=True,
 
     canvas = (canvas * 0.6).astype(np.uint8)
 
-    if draw_body_keypoints:
+    if body_keypoint_size > 0:
         for i in range(len(limbSeq)+1):
             for n in range(len(subset)):
                 index = int(subset[n][i])
@@ -153,12 +153,12 @@ def draw_body_and_foot(canvas, candidate, subset, stick_width=4, draw_body=True,
                 x, y = candidate[index][0:2]
                 x = int(x * W)
                 y = int(y * H)
-                cv2.circle(canvas, (int(x), int(y)), 4, colors[i], thickness=-1)
+                cv2.circle(canvas, (int(x), int(y)), body_keypoint_size, colors[i], thickness=-1)
 
     return canvas
 
 
-def draw_handpose(canvas, all_hand_peaks, draw_hands=True, draw_hand_keypoints=True):
+def draw_handpose(canvas, all_hand_peaks, draw_hands=True, hand_keypoint_size=4):
     H, W, C = canvas.shape
 
     edges = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [0, 9], [9, 10], \
@@ -178,13 +178,13 @@ def draw_handpose(canvas, all_hand_peaks, draw_hands=True, draw_hand_keypoints=T
                 if x1 > eps and y1 > eps and x2 > eps and y2 > eps:
                     cv2.line(canvas, (x1, y1), (x2, y2), matplotlib.colors.hsv_to_rgb([ie / float(len(edges)), 1.0, 1.0]) * 255, thickness=2)
 
-        if draw_hand_keypoints:
+        if hand_keypoint_size > 0:
             for i, keypoint in enumerate(peaks):
                 x, y = keypoint
                 x = int(x * W)
                 y = int(y * H)
                 if x > eps and y > eps:
-                    cv2.circle(canvas, (x, y), 4, (0, 0, 255), thickness=-1)
+                    cv2.circle(canvas, (x, y), hand_keypoint_size, (0, 0, 255), thickness=-1)
     return canvas
 
 
