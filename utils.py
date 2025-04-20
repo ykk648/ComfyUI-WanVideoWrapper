@@ -63,11 +63,16 @@ def apply_lora(model, device_to, transformer_load_device, params_to_keep=None, d
                     if name.startswith("diffusion_model."):
                         name_no_prefix = name[len("diffusion_model."):]
                     key = "{}.{}".format(name_no_prefix, param)
-                    set_module_tensor_to_device(model.model.diffusion_model, key, device=transformer_load_device, dtype=dtype_to_use, value=state_dict[key])
+                    try:
+                        set_module_tensor_to_device(model.model.diffusion_model, key, device=transformer_load_device, dtype=dtype_to_use, value=state_dict[key])
+                    except:
+                        continue
                 model.patch_weight_to_device("{}.{}".format(name, param), device_to=device_to)
                 if low_mem_load:
-                    set_module_tensor_to_device(model.model.diffusion_model, key, device=transformer_load_device, dtype=dtype_to_use, value=model.model.diffusion_model.state_dict()[key])
-    
+                    try:
+                        set_module_tensor_to_device(model.model.diffusion_model, key, device=transformer_load_device, dtype=dtype_to_use, value=model.model.diffusion_model.state_dict()[key])
+                    except:
+                        continue
             m.comfy_patched_weights = True
       
         model.current_weight_patches_uuid = model.patches_uuid
@@ -77,7 +82,10 @@ def apply_lora(model, device_to, transformer_load_device, params_to_keep=None, d
                     dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
                     if "modulation" in name:
                         dtype_to_use = torch.float32
-                    set_module_tensor_to_device(model.model.diffusion_model, name, device=transformer_load_device, dtype=dtype_to_use, value=state_dict[name])
+                    try:
+                        set_module_tensor_to_device(model.model.diffusion_model, name, device=transformer_load_device, dtype=dtype_to_use, value=state_dict[name])
+                    except:
+                        continue
         return model
 
 
