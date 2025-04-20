@@ -218,7 +218,7 @@ def pose_extract(pose_images, ref_image, dwpose_model, height, width, score_thre
         try:
             pose = dwpose_model(img, score_threshold=score_threshold)
         except:
-            pose = torch.zeros_like(img)
+            pose = np.zeros_like(img)
         results_vis.append(pose)
         comfy_pbar.update(1)
     
