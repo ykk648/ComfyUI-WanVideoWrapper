@@ -203,7 +203,7 @@ def draw_pose(pose, H, W, stick_width=4,draw_body=True, draw_hands=True, draw_fe
 
 def pose_extract(pose_images, ref_image, dwpose_model, height, width, score_threshold, stick_width,
                  draw_body=True, draw_hands=True, hand_keypoint_size=4, draw_feet=True,
-                 body_keypoint_size=4):
+                 body_keypoint_size=4, handle_not_detected="repeat"):
     
     results_vis = []
     comfy_pbar = ProgressBar(len(pose_images))
@@ -213,12 +213,17 @@ def pose_extract(pose_images, ref_image, dwpose_model, height, width, score_thre
             pose_ref = dwpose_model(ref_image.squeeze(0), score_threshold=score_threshold)
         except:
             raise ValueError("No pose detected in reference image")
-    
+    prev_pose = None
     for img in tqdm(pose_images, desc="Pose Extraction", unit="image", total=len(pose_images)):
         try:
             pose = dwpose_model(img, score_threshold=score_threshold)
+            if handle_not_detected == "repeat":
+                prev_pose = pose
         except:
-            pose = np.zeros_like(img)
+            if prev_pose is not None:
+                pose = prev_pose
+            else:
+                pose = np.zeros_like(img)
         results_vis.append(pose)
         comfy_pbar.update(1)
     
@@ -708,6 +713,7 @@ class WanVideoUniAnimateDWPoseDetector:
                 "draw_hands": ("BOOLEAN", {"default": True, "tooltip": "Draw hand keypoints"}),
                 "hand_keypoint_size": ("INT", {"default": 4, "min": 0, "max": 100, "step": 1, "tooltip": "Hand keypoint size"}),
                 "colorspace": (["RGB", "BGR"], {"tooltip": "Color space for the output image"}),
+                "handle_not_detected": (["empty", "repeat"], {"default": "empty", "tooltip": "How to handle undetected poses, empty inserts black and repeat inserts previous detection"}),
             },
             "optional": {
                 "reference_pose_image": ("IMAGE", {"tooltip": "Reference pose image"}),
@@ -720,7 +726,7 @@ class WanVideoUniAnimateDWPoseDetector:
     CATEGORY = "WanVideoWrapper"
 
     def process(self, pose_images, score_threshold, stick_width, reference_pose_image=None, draw_body=True, body_keypoint_size=4, 
-                draw_feet=True, draw_hands=True, hand_keypoint_size=4, colorspace="RGB"):
+                draw_feet=True, draw_hands=True, hand_keypoint_size=4, colorspace="RGB", handle_not_detected="empty"):
 
         device = mm.get_torch_device()
         
@@ -766,7 +772,7 @@ class WanVideoUniAnimateDWPoseDetector:
 
         poses, reference_pose = pose_extract(pose_np, ref_np, self.dwpose_detector, height, width, score_threshold, stick_width=stick_width,
                                              draw_body=draw_body, body_keypoint_size=body_keypoint_size, draw_feet=draw_feet, 
-                                             draw_hands=draw_hands, hand_keypoint_size=hand_keypoint_size)
+                                             draw_hands=draw_hands, hand_keypoint_size=hand_keypoint_size, handle_not_detected=handle_not_detected)
         poses = poses / 255.0
         if reference_pose_image is not None:
             reference_pose = reference_pose.unsqueeze(0) / 255.0
