@@ -293,7 +293,7 @@ class WanVideoDiffusionForcingSampler:
         if args.preview_method in [LatentPreviewMethod.Auto, LatentPreviewMethod.Latent2RGB]: #default for latent2rgb
             from latent_preview import prepare_callback
         else:
-            from .latent_preview import prepare_callback #custom for tiny VAE previews
+            from ..latent_preview import prepare_callback #custom for tiny VAE previews
         callback = prepare_callback(patcher, steps)
 
         #blockswap init        
