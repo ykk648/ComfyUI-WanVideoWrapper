@@ -233,6 +233,7 @@ class WanVideoDiffusionForcingSampler:
         
         fps_embeds = None
         if hasattr(transformer, "fps_embedding"):
+            fps = round(fps, 2)
             log.info(f"Model has fps embedding, using {fps} fps")
             fps_embeds = [fps]
             fps_embeds = [0 if i == 16 else 1 for i in fps_embeds]
@@ -371,7 +372,7 @@ class WanVideoDiffusionForcingSampler:
 
         #region model pred
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, 
-                             control_latents=None, vace_data=None, unianim_data=None, teacache_state=None):
+                             vace_data=None, unianim_data=None, teacache_state=None):
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
 
                 if use_cfg_zero_star and (idx <= zero_star_steps) and use_zero_init:
@@ -490,7 +491,7 @@ class WanVideoDiffusionForcingSampler:
                 cfg[i], 
                 text_embeds["prompt_embeds"], 
                 text_embeds["negative_prompt_embeds"], 
-                timestep, i, image_cond, clip_fea, vace_data,
+                timestep, i, image_cond, clip_fea, vace_data=vace_data,
                 teacache_state=self.teacache_state)
             
             for idx in range(valid_interval_start, valid_interval_end):
