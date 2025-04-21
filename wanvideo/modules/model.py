@@ -466,7 +466,16 @@ class WanAttentionBlock(nn.Module):
             grid_sizes(Tensor): Shape [B, 3], the second dimension contains (F, H, W)
             freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
         """
-        e = (self.modulation.to(e.device) + e).chunk(6, dim=1)
+        #e = (self.modulation.to(e.device) + e).chunk(6, dim=1)
+        
+        if e.dim() == 3:
+            modulation = self.modulation  # 1, 6, dim
+            e = (modulation.to(e.device) + e).chunk(6, dim=1)
+        elif e.dim() == 4:
+            modulation = self.modulation.unsqueeze(2)  # 1, 6, 1, dim
+            e = (modulation.to(e.device) + e).chunk(6, dim=1)
+            e = [ei.squeeze(1) for ei in e]
+
         input_x = self.norm1(x) * (1 + e[1]) + e[0]
 
         if camera_embed is not None:
@@ -656,10 +665,19 @@ class Head(nn.Module):
             x(Tensor): Shape [B, L1, C]
             e(Tensor): Shape [B, C]
         """
-        assert e.dtype == torch.float32
-        e = (self.modulation.to(e.device) + e.unsqueeze(1)).chunk(2, dim=1)
-        normed = self.norm(x)
-        x = self.head(normed * (1 + e[1]) + e[0])
+        
+        # e = (self.modulation.to(e.device) + e.unsqueeze(1)).chunk(2, dim=1)
+        # normed = self.norm(x)
+        # x = self.head(normed * (1 + e[1]) + e[0])
+
+        if e.dim() == 2:
+            modulation = self.modulation.to(e.device)  # 1, 2, dim
+            e = (modulation + e.unsqueeze(1)).chunk(2, dim=1)
+        elif e.dim() == 3:
+            modulation = self.modulation.to(e.device).unsqueeze(2)  # 1, 2, seq, dim
+            e = (modulation + e.unsqueeze(1)).chunk(2, dim=1)
+            e = [ei.squeeze(1) for ei in e]
+        x = self.head(self.norm(x) * (1 + e[1]) + e[0])
         return x
 
 
@@ -714,7 +732,8 @@ class WanModel(ModelMixin, ConfigMixin):
                  offload_device=torch.device('cpu'),
                  teacache_coefficients=[],
                  vace_layers=None,
-                 vace_in_dim=None
+                 vace_in_dim=None,
+                 inject_sample_info=False,
                  ):
         r"""
         Initialize the diffusion model backbone.
@@ -863,9 +882,12 @@ class WanModel(ModelMixin, ConfigMixin):
         # buffers (don't use register_buffer otherwise dtype will be changed in to())
         assert (dim % num_heads) == 0 and (dim // num_heads) % 2 == 0
         
-
         if model_type == 'i2v' or model_type == 'fl2v':
             self.img_emb = MLPProj(1280, dim, fl_pos_emb=model_type == 'fl2v')
+
+        if inject_sample_info:
+            self.fps_embedding = nn.Embedding(2, dim)
+            self.fps_projection = nn.Sequential(nn.Linear(dim, dim), nn.SiLU(), nn.Linear(dim, dim * 6))
 
     def block_swap(self, blocks_to_swap, offload_txt_emb=False, offload_img_emb=False, vace_blocks_to_swap=None):
         log.info(f"Swapping {blocks_to_swap + 1} transformer blocks")
@@ -965,9 +987,10 @@ class WanModel(ModelMixin, ConfigMixin):
         current_step=0,
         pred_id=None,
         control_lora_enabled=False,
-        vace_data = None,
-        camera_embed = None,
-        unianim_data = None
+        vace_data=None,
+        camera_embed=None,
+        unianim_data=None,
+        fps_embeds=None,
     ):
         r"""
         Forward pass through the diffusion model
@@ -1021,6 +1044,7 @@ class WanModel(ModelMixin, ConfigMixin):
 
         grid_sizes = torch.stack(
             [torch.tensor(u.shape[2:], dtype=torch.long) for u in x])
+
         x = [u.flatten(2).transpose(1, 2) for u in x]
         seq_lens = torch.tensor([u.size(1) for u in x], dtype=torch.long)
         assert seq_lens.max() <= seq_len
@@ -1046,9 +1070,37 @@ class WanModel(ModelMixin, ConfigMixin):
 
         # time embeddings
         with torch.autocast(device_type='cuda', dtype=torch.float32):
+            # e = self.time_embedding(
+            #     sinusoidal_embedding_1d(self.freq_dim, t).float())
+            # e0 = self.time_projection(e).unflatten(1, (6, self.dim))
+            # assert e.dtype == torch.float32 and e0.dtype == torch.float32
+            if t.dim() == 2:
+                b, f = t.shape
+                _flag_df = True
+            else:
+                _flag_df = False
+
             e = self.time_embedding(
-                sinusoidal_embedding_1d(self.freq_dim, t).float())
-            e0 = self.time_projection(e).unflatten(1, (6, self.dim))
+                sinusoidal_embedding_1d(self.freq_dim, t.flatten()).to(self.patch_embedding.weight.dtype)
+            )  # b, dim
+            e0 = self.time_projection(e).unflatten(1, (6, self.dim))  # b, 6, dim
+
+            if fps_embeds is not None:
+                fps_embeds = torch.tensor(fps_embeds, dtype=torch.long, device=device)
+
+                fps_emb = self.fps_embedding(fps_embeds).float()
+                if _flag_df:
+                    e0 = e0 + self.fps_projection(fps_emb).unflatten(1, (6, self.dim)).repeat(t.shape[1], 1, 1)
+                else:
+                    e0 = e0 + self.fps_projection(fps_emb).unflatten(1, (6, self.dim))
+
+            if _flag_df:
+                e = e.view(b, f, 1, 1, self.dim)
+                e0 = e0.view(b, f, 1, 1, 6, self.dim)
+                e = e.repeat(1, 1, grid_sizes[0][1], grid_sizes[0][2], 1).flatten(1, 3)
+                e0 = e0.repeat(1, 1, grid_sizes[0][1], grid_sizes[0][2], 1, 1).flatten(1, 3)
+                e0 = e0.transpose(1, 2).contiguous()
+
             assert e.dtype == torch.float32 and e0.dtype == torch.float32
 
         # context

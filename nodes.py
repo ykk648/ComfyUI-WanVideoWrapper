@@ -619,7 +619,8 @@ class WanVideoModelLoader:
             "offload_device": offload_device,
             "teacache_coefficients": teacache_coefficients_map[model_variant],
             "vace_layers": vace_layers,
-            "vace_in_dim": vace_in_dim
+            "vace_in_dim": vace_in_dim,
+            "inject_sample_info": True if "fps_embedding.weight" in sd else False,
         }        
 
         with init_empty_weights():
@@ -2142,7 +2143,7 @@ class WanVideoExperimentalArgs:
         return {"required": {
                 "video_attention_split_steps": ("STRING", {"default": "", "tooltip": "Steps to split self attention when using multiple prompts"}),
                 "cfg_zero_star": ("BOOLEAN", {"default": False, "tooltip": "https://github.com/WeichenFan/CFG-Zero-star"}),
-                "use_zero_init": ("BOOLEAN", {"default": False}),
+                "use_zero_init": ("BOOLEAN", {"default": True}),
                 "zero_star_steps": ("INT", {"default": 0, "min": 0, "tooltip": "Steps to split self attention when using multiple prompts"}),
                 "use_fresca": ("BOOLEAN", {"default": False, "tooltip": "https://github.com/WikiChao/FreSca"}),
                 "fresca_scale_low": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.01}),
