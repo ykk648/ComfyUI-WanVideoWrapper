@@ -1131,7 +1131,7 @@ class WanModel(ModelMixin, ConfigMixin):
         if self.enable_teacache and self.teacache_start_step <= current_step <= self.teacache_end_step:
             if pred_id is None:
                 pred_id = self.teacache_state.new_prediction(cache_device=self.teacache_cache_device)
-                #log.info(current_step)
+                log.info(current_step)
                 #log.info(f"TeaCache: Initializing TeaCache variables for model pred: {pred_id}")
                 should_calc = True                
             else:

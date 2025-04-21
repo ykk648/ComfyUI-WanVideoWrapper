@@ -118,6 +118,7 @@ class WanVideoDiffusionForcingSampler:
                 "samples": ("LATENT", {"tooltip": "init Latents to use for video2video process"} ),
                 "prefix_samples": ("LATENT", {"tooltip": "prefix latents"} ),
                 "denoise_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "teacache_args": ("TEACACHEARGS", ),
                 "slg_args": ("SLGARGS", ),
                 "rope_function": (["default", "comfy"], {"default": "comfy", "tooltip": "Comfy's RoPE implementation doesn't use complex numbers and can thus be compiled, that should be a lot faster when using torch.compile"}),
                 "experimental_args": ("EXPERIMENTALARGS", ),
@@ -130,7 +131,7 @@ class WanVideoDiffusionForcingSampler:
     CATEGORY = "WanVideoWrapper"
 
     def process(self, model, text_embeds, image_embeds, shift, fps, steps, addnoise_condition, cfg, seed, scheduler, 
-        force_offload=True, samples=None, prefix_samples=None, denoise_strength=1.0, slg_args=None, rope_function="default", experimental_args=None):
+        force_offload=True, samples=None, prefix_samples=None, denoise_strength=1.0, slg_args=None, rope_function="default", teacache_args=None, flowedit_args=None, batched_cfg=False, experimental_args=None):
         #assert not (context_options and teacache_args), "Context options cannot currently be used together with teacache."
         patcher = model
         model = model.model
@@ -326,6 +327,19 @@ class WanVideoDiffusionForcingSampler:
         elif model["manual_offloading"]:
             transformer.to(device)
 
+        # Initialize TeaCache if enabled
+        if teacache_args is not None:
+            transformer.enable_teacache = True
+            transformer.rel_l1_thresh = teacache_args["rel_l1_thresh"]
+            transformer.teacache_start_step = teacache_args["start_step"]
+            transformer.teacache_cache_device = teacache_args["cache_device"]
+            transformer.teacache_end_step = len(init_timesteps)-1 if teacache_args["end_step"] == -1 else teacache_args["end_step"]
+            transformer.teacache_use_coefficients = teacache_args["use_coefficients"]
+            transformer.teacache_mode = teacache_args["mode"]
+            transformer.teacache_state.clear_all()
+        else:
+            transformer.enable_teacache = False
+
         if slg_args is not None:
             transformer.slg_blocks = slg_args["blocks"]
             transformer.slg_start_percent = slg_args["start_percent"]
@@ -470,7 +484,7 @@ class WanVideoDiffusionForcingSampler:
                 timestep[:, valid_interval_start:prefix_video_latent_length] = timestep_for_noised_condition
 
 
-            print("timestep", timestep)
+            #print("timestep", timestep)
             noise_pred, self.teacache_state = predict_with_cfg(
                 latent_model_input, 
                 cfg[i], 
@@ -496,6 +510,18 @@ class WanVideoDiffusionForcingSampler:
                 callback(i, callback_latent, None, steps)
             else:
                 pbar.update(1)
+
+        if teacache_args is not None:
+            states = transformer.teacache_state.states
+            state_names = {
+                0: "conditional",
+                1: "unconditional"
+            }
+            for pred_id, state in states.items():
+                name = state_names.get(pred_id, f"prediction_{pred_id}")
+                if 'skipped_steps' in state:
+                    log.info(f"TeaCache skipped: {len(state['skipped_steps'])} {name} steps: {state['skipped_steps']}")
+            transformer.teacache_state.clear_all()
 
         if force_offload:
             if model["manual_offloading"]:
