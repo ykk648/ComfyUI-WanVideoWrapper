@@ -270,6 +270,7 @@ class WanVideoDiffusionForcingSampler:
             sample_schedulers.append(sample_scheduler)
         sample_schedulers_counter = [0] * latent_video_length
 
+        unianim_data = None
         if unianimate_poses is not None:
             transformer.dwpose_embedding.to(device)
             transformer.randomref_embedding_pose.to(device)
