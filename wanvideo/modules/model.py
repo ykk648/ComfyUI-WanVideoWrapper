@@ -958,7 +958,7 @@ class WanModel(ModelMixin, ConfigMixin):
         kwargs
     ):
         # embeddings
-        c = [self.vace_patch_embedding(u.unsqueeze(0)) for u in vace_context]
+        c = [self.vace_patch_embedding(u.unsqueeze(0).float()).to(x.dtype) for u in vace_context]
         c = [u.flatten(2).transpose(1, 2) for u in c]
         c = torch.cat([
             torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))],
@@ -1218,11 +1218,11 @@ class WanModel(ModelMixin, ConfigMixin):
                         if (data["start"] <= current_step_percentage <= data["end"]) or \
                             (data["end"] > 0 and current_step == 0 and current_step_percentage >= data["start"]):
 
-                            vace_hints = self.forward_vace(x.to(torch.float32), data["context"], data["seq_len"], kwargs)
+                            vace_hints = self.forward_vace(x, data["context"], data["seq_len"], kwargs)
                             vace_hint_list.append(vace_hints)
                             vace_scale_list.append(data["scale"])
                 else:
-                    vace_hints = self.forward_vace(x.to(torch.float32), vace_data, seq_len, kwargs)
+                    vace_hints = self.forward_vace(x, vace_data, seq_len, kwargs)
                     vace_hint_list.append(vace_hints)
                     vace_scale_list.append(1.0)
                 
