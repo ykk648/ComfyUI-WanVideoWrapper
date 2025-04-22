@@ -75,7 +75,7 @@ def enable_vram_management_recursively(model: torch.nn.Module, module_map: dict,
     for name, module in model.named_children():
         for source_module, target_module in module_map.items():
             if isinstance(module, source_module):
-                if "rope_embedder" in name or "patch_embedding" in name:
+                if "rope_embedder" in name or "patch_embedding" in name or "emb_pos" in name:
                     continue
 
                 num_param = sum(p.numel() for p in module.parameters())

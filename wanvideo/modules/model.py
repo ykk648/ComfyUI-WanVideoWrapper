@@ -695,7 +695,7 @@ class MLPProj(torch.nn.Module):
 
     def forward(self, image_embeds):
         if hasattr(self, 'emb_pos'):
-            image_embeds = image_embeds + self.emb_pos
+            image_embeds = image_embeds + self.emb_pos.to(image_embeds.device)
         clip_extra_context_tokens = self.proj(image_embeds)
         return clip_extra_context_tokens
 
