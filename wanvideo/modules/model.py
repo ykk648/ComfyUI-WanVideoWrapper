@@ -134,10 +134,10 @@ class WanRMSNorm(nn.Module):
         Args:
             x(Tensor): Shape [B, L, C]
         """
-        return self._norm(x.float()).type_as(x) * self.weight
+        return self._norm(x)* self.weight
 
     def _norm(self, x):
-        return x * torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
+        return x * torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps).to(x.dtype)
 
 
 class WanLayerNorm(nn.LayerNorm):
@@ -150,7 +150,7 @@ class WanLayerNorm(nn.LayerNorm):
         Args:
             x(Tensor): Shape [B, L, C]
         """
-        return super().forward(x.float()).type_as(x)
+        return super().forward(x)
 
 
 class WanSelfAttention(nn.Module):
@@ -442,6 +442,20 @@ class WanAttentionBlock(nn.Module):
         # modulation
         self.modulation = nn.Parameter(torch.randn(1, 6, dim) / dim**0.5)
 
+    @torch.compiler.disable()
+    def get_mod(self, e):
+        if e.dim() == 3:
+            modulation = self.modulation  # 1, 6, dim
+            e = (modulation.to(e.device) + e).chunk(6, dim=1)
+        elif e.dim() == 4:
+            modulation = self.modulation.unsqueeze(2)  # 1, 6, 1, dim
+            e = (modulation.to(e.device) + e).chunk(6, dim=1)
+            e = [ei.squeeze(1) for ei in e]
+        return e
+    
+    def modulate(self, x, e):
+        return x * (1 + e[1]) + e[0]
+
     def forward(
         self,
         x,
@@ -467,16 +481,9 @@ class WanAttentionBlock(nn.Module):
             freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
         """
         #e = (self.modulation.to(e.device) + e).chunk(6, dim=1)
-        
-        if e.dim() == 3:
-            modulation = self.modulation  # 1, 6, dim
-            e = (modulation.to(e.device) + e).chunk(6, dim=1)
-        elif e.dim() == 4:
-            modulation = self.modulation.unsqueeze(2)  # 1, 6, 1, dim
-            e = (modulation.to(e.device) + e).chunk(6, dim=1)
-            e = [ei.squeeze(1) for ei in e]
+        e = self.get_mod(e)
 
-        input_x = self.norm1(x) * (1 + e[1]) + e[0]
+        input_x = self.modulate(self.norm1(x), e)
 
         if camera_embed is not None:
             # encode ReCamMaster camera
@@ -506,20 +513,23 @@ class WanAttentionBlock(nn.Module):
         if camera_embed is not None:
             y = self.projector(y)
 
-        x = x.to(torch.float32) + (y.to(torch.float32) * e[2].to(torch.float32))
+        del input_x
+
+        x = x + (y * e[2])
+        del y
 
         # cross-attention & ffn function
         if (context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1)) and x.shape[0] == 1:
             x = self.split_cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes)
         else:
             x = self.cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes)
-
+        del e
         return x
-    
+    @torch.compiler.disable()
     def cross_attn_ffn(self, x, context, context_lens, e, clip_embed=None, grid_sizes=None):
             x = x + self.cross_attn(self.norm3(x), context, context_lens, clip_embed=clip_embed)
-            y = self.ffn(self.norm2(x).float() * (1 + e[4]) + e[3])
-            x = x.to(torch.float32) + (y.to(torch.float32) * e[5])
+            y = self.ffn(self.norm2(x) * (1 + e[4]) + e[3])
+            x = x + (y * e[5])
             return x
     
     @torch.compiler.disable()
@@ -574,9 +584,9 @@ class WanAttentionBlock(nn.Module):
         
         # Continue with FFN
         x = x + x_combined
-        y = self.ffn(self.norm2(x).float() * (1 + e[4]) + e[3])
-        x = x.to(torch.float32) + (y.to(torch.float32) * e[5].to(torch.float32))
-        return x            
+        y = self.ffn(self.norm2(x) * (1 + e[4]) + e[3])
+        x = x + (y * e[5])
+        return x
 
 class VaceWanAttentionBlock(WanAttentionBlock):
     def __init__(
@@ -659,6 +669,16 @@ class Head(nn.Module):
         # modulation
         self.modulation = nn.Parameter(torch.randn(1, 2, dim) / dim**0.5)
 
+    def get_mod(self, e):
+        if e.dim() == 2:
+            modulation = self.modulation.to(e.device)  # 1, 2, dim
+            e = (modulation + e.unsqueeze(1)).chunk(2, dim=1)
+        elif e.dim() == 3:
+            modulation = self.modulation.to(e.device).unsqueeze(2)  # 1, 2, seq, dim
+            e = (modulation + e.unsqueeze(1)).chunk(2, dim=1)
+            e = [ei.squeeze(1) for ei in e]
+        return e
+
     def forward(self, x, e):
         r"""
         Args:
@@ -670,13 +690,7 @@ class Head(nn.Module):
         # normed = self.norm(x)
         # x = self.head(normed * (1 + e[1]) + e[0])
 
-        if e.dim() == 2:
-            modulation = self.modulation.to(e.device)  # 1, 2, dim
-            e = (modulation + e.unsqueeze(1)).chunk(2, dim=1)
-        elif e.dim() == 3:
-            modulation = self.modulation.to(e.device).unsqueeze(2)  # 1, 2, seq, dim
-            e = (modulation + e.unsqueeze(1)).chunk(2, dim=1)
-            e = [ei.squeeze(1) for ei in e]
+        e = self.get_mod(e)
         x = self.head(self.norm(x) * (1 + e[1]) + e[0])
         return x
 
@@ -1032,13 +1046,13 @@ class WanModel(ModelMixin, ConfigMixin):
         if control_lora_enabled:
             self.expanded_patch_embedding.to(device)
             x = [
-            self.expanded_patch_embedding(u.unsqueeze(0))
+            self.expanded_patch_embedding(u.unsqueeze(0).to(torch.float32)).to(x[0].dtype)
             for u in x
             ]
         else:
             self.original_patch_embedding.to(self.main_device)
             x = [
-            self.original_patch_embedding(u.unsqueeze(0))
+            self.original_patch_embedding(u.unsqueeze(0).to(torch.float32)).to(x[0].dtype)
             for u in x
             ]
 
@@ -1069,39 +1083,43 @@ class WanModel(ModelMixin, ConfigMixin):
             rope_func = "default"
 
         # time embeddings
-        with torch.autocast(device_type='cuda', dtype=torch.float32):
-            # e = self.time_embedding(
-            #     sinusoidal_embedding_1d(self.freq_dim, t).float())
-            # e0 = self.time_projection(e).unflatten(1, (6, self.dim))
-            # assert e.dtype == torch.float32 and e0.dtype == torch.float32
-            if t.dim() == 2:
-                b, f = t.shape
-                _flag_df = True
-            else:
-                _flag_df = False
+        
+        # e = self.time_embedding(
+        #     sinusoidal_embedding_1d(self.freq_dim, t).float())
+        # e0 = self.time_projection(e).unflatten(1, (6, self.dim))
+        # assert e.dtype == torch.float32 and e0.dtype == torch.float32
+        if t.dim() == 2:
+            b, f = t.shape
+            _flag_df = True
+        else:
+            _flag_df = False
 
-            e = self.time_embedding(
-                sinusoidal_embedding_1d(self.freq_dim, t.flatten()).to(self.patch_embedding.weight.dtype)
-            )  # b, dim
-            e0 = self.time_projection(e).unflatten(1, (6, self.dim))  # b, 6, dim
+        e = self.time_embedding(
+            sinusoidal_embedding_1d(self.freq_dim, t.flatten()).to(x.dtype)
+        )  # b, dim
+        e0 = self.time_projection(e).unflatten(1, (6, self.dim))  # b, 6, dim
 
-            if fps_embeds is not None:
-                fps_embeds = torch.tensor(fps_embeds, dtype=torch.long, device=device)
+        if fps_embeds is not None:
+            fps_embeds = torch.tensor(fps_embeds, dtype=torch.long, device=device)
 
-                fps_emb = self.fps_embedding(fps_embeds).float()
-                if _flag_df:
-                    e0 = e0 + self.fps_projection(fps_emb).unflatten(1, (6, self.dim)).repeat(t.shape[1], 1, 1)
-                else:
-                    e0 = e0 + self.fps_projection(fps_emb).unflatten(1, (6, self.dim))
-
+            fps_emb = self.fps_embedding(fps_embeds).float()
             if _flag_df:
-                e = e.view(b, f, 1, 1, self.dim)
-                e0 = e0.view(b, f, 1, 1, 6, self.dim)
-                e = e.repeat(1, 1, grid_sizes[0][1], grid_sizes[0][2], 1).flatten(1, 3)
-                e0 = e0.repeat(1, 1, grid_sizes[0][1], grid_sizes[0][2], 1, 1).flatten(1, 3)
-                e0 = e0.transpose(1, 2).contiguous()
+                e0 = e0 + self.fps_projection(fps_emb).unflatten(1, (6, self.dim)).repeat(t.shape[1], 1, 1)
+            else:
+                e0 = e0 + self.fps_projection(fps_emb).unflatten(1, (6, self.dim))
 
-            assert e.dtype == torch.float32 and e0.dtype == torch.float32
+        if _flag_df:
+            e = e.view(b, f, 1, 1, self.dim).expand(b, f, grid_sizes[0][1], grid_sizes[0][2], self.dim)
+            e0 = e0.view(b, f, 1, 1, 6, self.dim).expand(b, f, grid_sizes[0][1], grid_sizes[0][2], 6, self.dim)
+            
+            e = e.flatten(1, 3)
+            e0 = e0.flatten(1, 3)
+            
+            e0 = e0.transpose(1, 2)
+            if not e0.is_contiguous():
+                e0 = e0.contiguous()
+            
+            e = e.to(self.offload_device, non_blocking=self.use_non_blocking)
 
         # context
         context_lens = None
@@ -1112,7 +1130,7 @@ class WanModel(ModelMixin, ConfigMixin):
                 torch.cat(
                     [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
                 for u in context
-            ]))
+            ]).to(x.dtype))
         if self.offload_txt_emb:
             self.text_embedding.to(self.offload_device, non_blocking=self.use_non_blocking)
 
@@ -1147,6 +1165,7 @@ class WanModel(ModelMixin, ConfigMixin):
                 else:
                     temb_relative_l1 = relative_l1_distance(previous_modulated_input, e0)
                     accumulated_rel_l1_distance = accumulated_rel_l1_distance.to(e0.device) + temb_relative_l1
+                del temb
 
                 #print("accumulated_rel_l1_distance", accumulated_rel_l1_distance)
 
@@ -1155,8 +1174,10 @@ class WanModel(ModelMixin, ConfigMixin):
                 else:
                     should_calc = True
                     accumulated_rel_l1_distance = torch.tensor(0.0, dtype=torch.float32, device=device)
+                accumulated_rel_l1_distance = accumulated_rel_l1_distance.to(self.teacache_cache_device, non_blocking=self.use_non_blocking)
 
             previous_modulated_input = e.clone() if (self.teacache_use_coefficients and self.teacache_mode == 'e') else e0.clone()
+            previous_modulated_input = previous_modulated_input.to(self.teacache_cache_device, non_blocking=self.use_non_blocking)
             if not should_calc:
                 x = x.to(previous_residual.dtype) + previous_residual.to(x.device)
                 #log.info(f"TeaCache: Skipping uncond step {current_step+1}")
@@ -1174,7 +1195,6 @@ class WanModel(ModelMixin, ConfigMixin):
                 if unianim_data['start_percent'] <= current_step_percentage <= unianim_data['end_percent']:
                     dwpose_emb = unianim_data['dwpose']
                     x += dwpose_emb * unianim_data['strength']
-
             # arguments
             kwargs = dict(
                 e=e0,
@@ -1216,7 +1236,7 @@ class WanModel(ModelMixin, ConfigMixin):
                             continue
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.main_device)
-                x = block(x.to(torch.float32), **kwargs)
+                x = block(x, **kwargs)
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.offload_device, non_blocking=self.use_non_blocking)
 
@@ -1224,10 +1244,10 @@ class WanModel(ModelMixin, ConfigMixin):
                 self.teacache_state.update(
                     pred_id,
                     previous_residual=(x.to(original_x.device) - original_x),
-                    accumulated_rel_l1_distance=accumulated_rel_l1_distance.to(self.teacache_cache_device, non_blocking=self.use_non_blocking),
-                    previous_modulated_input=previous_modulated_input.to(self.teacache_cache_device, non_blocking=self.use_non_blocking)
+                    accumulated_rel_l1_distance=accumulated_rel_l1_distance,
+                    previous_modulated_input=previous_modulated_input
                 )
-        x = self.head(x, e)
+        x = self.head(x, e.to(x.device))
         x = self.unpatchify(x, grid_sizes) # type: ignore[arg-type]
         x = [u.float() for u in x]
         return (x, pred_id) if pred_id is not None else (x, None)
@@ -1260,7 +1280,6 @@ class WanModel(ModelMixin, ConfigMixin):
 class TeaCacheState:
     def __init__(self, cache_device='cpu'):
         self.cache_device = cache_device
-        log.info(f"TeaCache: Using cache device: {self.cache_device}")
         self.states = {}
         self._next_pred_id = 0
     
@@ -1304,3 +1323,7 @@ def relative_l1_distance(last_tensor, current_tensor):
     norm = torch.abs(last_tensor).mean()
     relative_l1_distance = l1_distance / norm
     return relative_l1_distance.to(torch.float32).to(current_tensor.device)
+
+def get_tensor_memory(tensor):
+    memory_bytes = tensor.element_size() * tensor.nelement()
+    return f"{memory_bytes / (1024 * 1024):.2f} MB"

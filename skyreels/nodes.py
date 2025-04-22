@@ -139,7 +139,7 @@ class WanVideoDiffusionForcingSampler:
         patcher = model
         model = model.model
         transformer = model.diffusion_model
-
+        dtype = model["dtype"]
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
         
@@ -371,6 +371,7 @@ class WanVideoDiffusionForcingSampler:
             transformer.rel_l1_thresh = teacache_args["rel_l1_thresh"]
             transformer.teacache_start_step = teacache_args["start_step"]
             transformer.teacache_cache_device = teacache_args["cache_device"]
+            log.info(f"TeaCache: Using cache device: {transformer.teacache_state.cache_device}")
             transformer.teacache_end_step = len(init_timesteps)-1 if teacache_args["end_step"] == -1 else teacache_args["end_step"]
             transformer.teacache_use_coefficients = teacache_args["use_coefficients"]
             transformer.teacache_mode = teacache_args["mode"]
@@ -410,7 +411,7 @@ class WanVideoDiffusionForcingSampler:
         #region model pred
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, 
                              vace_data=None, unianim_data=None, teacache_state=None):
-            with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
+            with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=("fp8" in model["quantization"])):
 
                 if use_cfg_zero_star and (idx <= zero_star_steps) and use_zero_init:
                     return latent_model_input*0, None
@@ -525,7 +526,7 @@ class WanVideoDiffusionForcingSampler:
 
             #print("timestep", timestep)
             noise_pred, self.teacache_state = predict_with_cfg(
-                latent_model_input, 
+                latent_model_input.to(dtype), 
                 cfg[i], 
                 text_embeds["prompt_embeds"], 
                 text_embeds["negative_prompt_embeds"], 

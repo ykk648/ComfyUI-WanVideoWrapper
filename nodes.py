@@ -663,9 +663,11 @@ class WanVideoModelLoader:
                        total=param_count,
                        leave=True):
                     dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
-                    if "modulation" in name or "time_" in name:
+                    if "patch_embedding" in name:
                         dtype_to_use = torch.float32
                     set_module_tensor_to_device(transformer, name, device=transformer_load_device, dtype=dtype_to_use, value=sd[name])
+            for name, param in transformer.named_parameters():
+                print(name, param.device, param.dtype)
             comfy_model.diffusion_model = transformer
             comfy_model.load_device = transformer_load_device
             
@@ -864,7 +866,7 @@ class WanVideoModelLoader:
         patcher.model["base_path"] = model_path
         patcher.model["model_name"] = model
         patcher.model["manual_offloading"] = manual_offloading
-        patcher.model["quantization"] = "disabled"
+        patcher.model["quantization"] = quantization
         patcher.model["auto_cpu_offload"] = True if vram_management_args is not None else False
         patcher.model["control_lora"] = control_lora
 
@@ -1750,6 +1752,40 @@ class WanVideoEmptyEmbeds:
     
         return (embeds,)
     
+# region phantom
+class WanVideoPhantomEmbeds:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "num_frames": ("INT", {"default": 81, "min": 1, "max": 10000, "step": 4, "tooltip": "Number of frames to encode"}),
+            "phantom_latents": ("LATENT", {"tooltip": "reference latents for the phantom model"}),
+            "phantom_cfg_scale": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 10.0, "step": 0.01, "tooltip": "CFG scale for the extra phantom cond pass"}),
+            },
+        }
+
+    RETURN_TYPES = ("WANVIDIMAGE_EMBEDS", )
+    RETURN_NAMES = ("image_embeds",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+
+    def process(self, num_frames, phantom_latents, phantom_cfg_scale):
+        vae_stride = (4, 8, 8)
+        samples = phantom_latents["samples"].squeeze(0)
+        C, T, H, W = samples.shape
+
+        target_shape = (16, (num_frames - 1) // vae_stride[0] + 1 + T,
+                        H * 8 // vae_stride[1],
+                        W * 8 // vae_stride[2])
+        
+        embeds = {
+            "target_shape": target_shape,
+            "num_frames": num_frames,
+            "phantom_latents": samples,
+            "phantom_cfg_scale": phantom_cfg_scale,
+        }
+    
+        return (embeds,)
+    
 class WanVideoControlEmbeds:
     @classmethod
     def INPUT_TYPES(s):
@@ -2213,7 +2249,7 @@ class WanVideoSampler:
         patcher = model
         model = model.model
         transformer = model.diffusion_model
-
+        dtype = model["dtype"]
         control_lora = model["control_lora"]
 
         device = mm.get_torch_device()
@@ -2270,6 +2306,7 @@ class WanVideoSampler:
         control_latents, clip_fea, clip_fea_neg, end_image, recammaster, camera_embed, unianim_data = None, None, None, None, None, None, None
         vace_data, vace_context, vace_scale = None, None, None
         fun_or_fl2v_model, has_ref, drop_last = False, False, False
+        phantom_latents = None
 
         image_cond = image_embeds.get("image_embeds", None)
        
@@ -2381,6 +2418,11 @@ class WanVideoSampler:
                     )
                     masked_video_latents_input = torch.zeros_like(noise)
                     image_cond = torch.cat([mask_latents, masked_video_latents_input], dim=0).to(device)
+
+            phantom_latents = image_embeds.get("phantom_latents", None)
+            phantom_cfg_scale = image_embeds.get("phantom_cfg_scale", None)
+            if phantom_latents is not None:
+                phantom_latents = phantom_latents.to(device)
 
         latent_video_length = noise.shape[1]
         
@@ -2577,6 +2619,7 @@ class WanVideoSampler:
             transformer.rel_l1_thresh = teacache_args["rel_l1_thresh"]
             transformer.teacache_start_step = teacache_args["start_step"]
             transformer.teacache_cache_device = teacache_args["cache_device"]
+            log.info(f"TeaCache: Using cache device: {transformer.teacache_state.cache_device}")
             transformer.teacache_end_step = len(timesteps)-1 if teacache_args["end_step"] == -1 else teacache_args["end_step"]
             transformer.teacache_use_coefficients = teacache_args["use_coefficients"]
             transformer.teacache_mode = teacache_args["mode"]
@@ -2593,6 +2636,8 @@ class WanVideoSampler:
             transformer.slg_blocks = None
 
         self.teacache_state = [None, None]
+        if phantom_latents is not None:
+            self.teacache_state = [None, None, None]
         self.teacache_state_source = [None, None]
         self.teacache_states_context = []
 
@@ -2649,7 +2694,7 @@ class WanVideoSampler:
         #region model pred
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, 
                              control_latents=None, vace_data=None, unianim_data=None, teacache_state=None):
-            with torch.autocast(device_type=mm.get_autocast_device(device), dtype=model["dtype"], enabled=True):
+            with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=("fp8" in model["quantization"])):
 
                 if use_cfg_zero_star and (idx <= zero_star_steps) and use_zero_init:
                     return latent_model_input*0, None
@@ -2684,9 +2729,16 @@ class WanVideoSampler:
                 else:
                     image_cond_input = image_cond
 
+                z = z.to(dtype)
+                z_pos = z_neg = z
+
                 if recammaster is not None:
                     z = torch.cat([z, recam_latents.to(z)], dim=1)
-    
+                if phantom_latents is not None:                    
+                    z_pos = torch.cat([z_pos[:,:-phantom_latents.shape[1]], phantom_latents.to(z)], dim=1)
+                    z_phantom_img = torch.cat([z_pos[:,:-phantom_latents.shape[1]], phantom_latents.to(z)], dim=1)
+                    z_neg = torch.cat([z_pos[:,:-phantom_latents.shape[1]], torch.zeros_like(phantom_latents).to(z)], dim=1)
+                 
                 base_params = {
                     'seq_len': seq_len,
                     'device': device,
@@ -2707,7 +2759,7 @@ class WanVideoSampler:
                 if not batched_cfg:
                     #cond
                     noise_pred_cond, teacache_state_cond = transformer(
-                        [z], context=positive_embeds, y=[image_cond_input] if image_cond_input is not None else None,
+                        [z_pos], context=positive_embeds, y=[image_cond_input] if image_cond_input is not None else None,
                         clip_fea=clip_fea, is_uncond=False, current_step_percentage=current_step_percentage,
                         pred_id=teacache_state[0] if teacache_state else None,
                         **base_params
@@ -2724,13 +2776,26 @@ class WanVideoSampler:
                         return noise_pred_cond, [teacache_state_cond]
                     #uncond
                     noise_pred_uncond, teacache_state_uncond = transformer(
-                        [z], context=negative_embeds, clip_fea=clip_fea_neg if clip_fea_neg is not None else clip_fea,
+                        [z_neg], context=negative_embeds, clip_fea=clip_fea_neg if clip_fea_neg is not None else clip_fea,
                         y=[image_cond_input] if image_cond_input is not None else None, 
                         is_uncond=True, current_step_percentage=current_step_percentage,
                         pred_id=teacache_state[1] if teacache_state else None,
                         **base_params
                     )
                     noise_pred_uncond = noise_pred_uncond[0].to(intermediate_device)
+                    #phantom
+                    if phantom_latents is not None:
+                        noise_pred_phantom, teacache_state_phantom = transformer(
+                        [z_phantom_img], context=negative_embeds, clip_fea=clip_fea_neg if clip_fea_neg is not None else clip_fea,
+                        y=[image_cond_input] if image_cond_input is not None else None, 
+                        is_uncond=True, current_step_percentage=current_step_percentage,
+                        pred_id=teacache_state[2] if teacache_state else None,
+                        **base_params
+                    )
+                        noise_pred_phantom = noise_pred_phantom[0].to(intermediate_device)
+                        
+                        noise_pred = noise_pred_uncond + phantom_cfg_scale * (noise_pred_phantom - noise_pred_uncond) + cfg_scale * (noise_pred_cond - noise_pred_phantom)
+                        return noise_pred, [teacache_state_cond, teacache_state_uncond, teacache_state_phantom]
                 #batched
                 else:
                     teacache_state_uncond = None
@@ -3103,6 +3168,9 @@ class WanVideoSampler:
                     callback(idx, callback_latent, None, steps)
                 else:
                     pbar.update(1)
+
+        if phantom_latents is not None:
+            x0 = x0[:,:-phantom_latents.shape[1]]
                 
         if teacache_args is not None:
             states = transformer.teacache_state.states
@@ -3362,6 +3430,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoVACEEncode": WanVideoVACEEncode,
     "WanVideoVACEStartToEndFrame": WanVideoVACEStartToEndFrame,
     "WanVideoVACEModelSelect": WanVideoVACEModelSelect,
+    "WanVideoPhantomEmbeds": WanVideoPhantomEmbeds,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -3397,4 +3466,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoVACEEncode": "WanVideo VACE Encode",
     "WanVideoVACEStartToEndFrame": "WanVideo VACE Start To End Frame",
     "WanVideoVACEModelSelect": "WanVideo VACE Model Select",
+    "WanVideoPhantomEmbeds": "WanVideo Phantom Embeds",
     }
