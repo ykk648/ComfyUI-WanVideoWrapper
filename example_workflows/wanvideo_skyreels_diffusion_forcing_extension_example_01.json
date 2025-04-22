@@ -1,8 +1,8 @@
 {
   "id": "206247b6-9fec-4ed2-8927-e4f388c674d4",
   "revision": 0,
-  "last_node_id": 188,
-  "last_link_id": 298,
+  "last_node_id": 193,
+  "last_link_id": 300,
   "nodes": [
     {
       "id": 42,
@@ -147,7 +147,7 @@
         242
       ],
       "flags": {},
-      "order": 74,
+      "order": 77,
       "mode": 0,
       "inputs": [
         {
@@ -207,7 +207,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 65,
+      "order": 67,
       "mode": 0,
       "inputs": [
         {
@@ -232,46 +232,6 @@
       ],
       "color": "#223",
       "bgcolor": "#335"
-    },
-    {
-      "id": 112,
-      "type": "SetNode",
-      "pos": [
-        19.543920516967773,
-        -189.84896850585938
-      ],
-      "size": [
-        210,
-        60
-      ],
-      "flags": {
-        "collapsed": true
-      },
-      "order": 83,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "WANVIDEOTEXTEMBEDS",
-          "type": "WANVIDEOTEXTEMBEDS",
-          "link": 191
-        }
-      ],
-      "outputs": [
-        {
-          "name": "*",
-          "type": "*",
-          "links": null
-        }
-      ],
-      "title": "Set_WanTextEmbeds",
-      "properties": {
-        "previousName": "WanTextEmbeds"
-      },
-      "widgets_values": [
-        "WanTextEmbeds"
-      ],
-      "color": "#432",
-      "bgcolor": "#653"
     },
     {
       "id": 111,
@@ -389,7 +349,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 52,
+      "order": 54,
       "mode": 0,
       "inputs": [
         {
@@ -495,7 +455,7 @@
         106
       ],
       "flags": {},
-      "order": 54,
+      "order": 56,
       "mode": 0,
       "inputs": [
         {
@@ -553,7 +513,7 @@
         242
       ],
       "flags": {},
-      "order": 89,
+      "order": 93,
       "mode": 0,
       "inputs": [
         {
@@ -645,7 +605,7 @@
         174
       ],
       "flags": {},
-      "order": 91,
+      "order": 95,
       "mode": 0,
       "inputs": [
         {
@@ -731,7 +691,7 @@
         102
       ],
       "flags": {},
-      "order": 87,
+      "order": 91,
       "mode": 0,
       "inputs": [
         {
@@ -793,7 +753,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 86,
+      "order": 90,
       "mode": 0,
       "inputs": [
         {
@@ -938,7 +898,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 92,
+      "order": 96,
       "mode": 0,
       "inputs": [
         {
@@ -1087,7 +1047,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 56,
+      "order": 58,
       "mode": 0,
       "inputs": [
         {
@@ -1125,7 +1085,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 57,
+      "order": 59,
       "mode": 0,
       "inputs": [
         {
@@ -1302,7 +1262,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 58,
+      "order": 60,
       "mode": 0,
       "inputs": [
         {
@@ -1466,7 +1426,7 @@
         860.4000244140625
       ],
       "flags": {},
-      "order": 81,
+      "order": 85,
       "mode": 0,
       "inputs": [
         {
@@ -1513,6 +1473,12 @@
           "shape": 7,
           "type": "EXPERIMENTALARGS",
           "link": 236
+        },
+        {
+          "name": "unianimate_poses",
+          "shape": 7,
+          "type": "UNIANIMATE_POSE",
+          "link": null
         }
       ],
       "outputs": [
@@ -1540,8 +1506,7 @@
         true,
         "unipc",
         1,
-        "comfy",
-        ""
+        "comfy"
       ]
     },
     {
@@ -1616,29 +1581,6 @@
       "bgcolor": "#335"
     },
     {
-      "id": 146,
-      "type": "MarkdownNote",
-      "pos": [
-        -1247.487548828125,
-        -776.1607055664062
-      ],
-      "size": [
-        380.04638671875,
-        166.29330444335938
-      ],
-      "flags": {},
-      "order": 28,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [],
-      "properties": {},
-      "widgets_values": [
-        "Model links:\n\n14B:\n\n[Skyreels/Wan2_1-SkyReels-V2-I2V-14B-540P_fp16.safetensors](https://huggingface.co/Kijai/WanVideo_comfy/blob/main/Skyreels/Wan2_1-SkyReels-V2-I2V-14B-540P_fp16.safetensors)\n\n1.3B:\n\n[Wan2_1-SkyReels-V2-DF-1_3B-540P_fp32.safetensors](https://huggingface.co/Kijai/WanVideo_comfy/blob/main/Skyreels/Wan2_1-SkyReels-V2-DF-1_3B-540P_fp32.safetensors)"
-      ],
-      "color": "#432",
-      "bgcolor": "#653"
-    },
-    {
       "id": 150,
       "type": "GetNode",
       "pos": [
@@ -1652,7 +1594,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 29,
+      "order": 28,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1684,7 +1626,7 @@
         106
       ],
       "flags": {},
-      "order": 59,
+      "order": 61,
       "mode": 0,
       "inputs": [
         {
@@ -1744,7 +1686,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 30,
+      "order": 29,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1776,7 +1718,7 @@
         174
       ],
       "flags": {},
-      "order": 97,
+      "order": 101,
       "mode": 0,
       "inputs": [
         {
@@ -1829,7 +1771,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 31,
+      "order": 30,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1863,7 +1805,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 32,
+      "order": 31,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1897,7 +1839,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 33,
+      "order": 32,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1931,7 +1873,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 34,
+      "order": 33,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1963,7 +1905,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 35,
+      "order": 34,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1995,7 +1937,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 36,
+      "order": 35,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2025,7 +1967,7 @@
         860.4000244140625
       ],
       "flags": {},
-      "order": 96,
+      "order": 100,
       "mode": 0,
       "inputs": [
         {
@@ -2072,6 +2014,12 @@
           "shape": 7,
           "type": "EXPERIMENTALARGS",
           "link": 262
+        },
+        {
+          "name": "unianimate_poses",
+          "shape": 7,
+          "type": "UNIANIMATE_POSE",
+          "link": null
         }
       ],
       "outputs": [
@@ -2099,8 +2047,7 @@
         true,
         "unipc",
         1,
-        "comfy",
-        ""
+        "comfy"
       ]
     },
     {
@@ -2115,7 +2062,7 @@
         242
       ],
       "flags": {},
-      "order": 95,
+      "order": 99,
       "mode": 0,
       "inputs": [
         {
@@ -2173,7 +2120,7 @@
         102
       ],
       "flags": {},
-      "order": 94,
+      "order": 98,
       "mode": 0,
       "inputs": [
         {
@@ -2217,15 +2164,15 @@
       "id": 46,
       "type": "WanVideoTextEmbedBridge",
       "pos": [
-        -116.09392547607422,
-        -284.9229736328125
+        -480,
+        -340
       ],
       "size": [
         315,
         46
       ],
       "flags": {},
-      "order": 80,
+      "order": 84,
       "mode": 0,
       "inputs": [
         {
@@ -2258,95 +2205,11 @@
       "bgcolor": "#653"
     },
     {
-      "id": 50,
-      "type": "CLIPTextEncode",
-      "pos": [
-        -680,
-        -190
-      ],
-      "size": [
-        400,
-        200
-      ],
-      "flags": {},
-      "order": 73,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "clip",
-          "type": "CLIP",
-          "link": 270
-        }
-      ],
-      "outputs": [
-        {
-          "name": "CONDITIONING",
-          "type": "CONDITIONING",
-          "slot_index": 0,
-          "links": [
-            55
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.26",
-        "Node name for S&R": "CLIPTextEncode"
-      },
-      "widgets_values": [
-        "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走"
-      ],
-      "color": "#322",
-      "bgcolor": "#533"
-    },
-    {
-      "id": 49,
-      "type": "CLIPTextEncode",
-      "pos": [
-        -680,
-        -440
-      ],
-      "size": [
-        400,
-        200
-      ],
-      "flags": {},
-      "order": 72,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "clip",
-          "type": "CLIP",
-          "link": 269
-        }
-      ],
-      "outputs": [
-        {
-          "name": "CONDITIONING",
-          "type": "CONDITIONING",
-          "slot_index": 0,
-          "links": [
-            54
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.26",
-        "Node name for S&R": "CLIPTextEncode"
-      },
-      "widgets_values": [
-        "old man gets up and walks into the sea"
-      ],
-      "color": "#232",
-      "bgcolor": "#353"
-    },
-    {
       "id": 169,
       "type": "SetNode",
       "pos": [
-        -887.9825439453125,
-        -273.44573974609375
+        -1250,
+        -320
       ],
       "size": [
         210,
@@ -2355,7 +2218,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 64,
+      "order": 66,
       "mode": 0,
       "inputs": [
         {
@@ -2396,7 +2259,7 @@
         60
       ],
       "flags": {},
-      "order": 37,
+      "order": 36,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2429,7 +2292,7 @@
         200
       ],
       "flags": {},
-      "order": 61,
+      "order": 63,
       "mode": 0,
       "inputs": [
         {
@@ -2473,7 +2336,7 @@
       "flags": {
         "collapsed": false
       },
-      "order": 55,
+      "order": 57,
       "mode": 0,
       "inputs": [
         {
@@ -2532,7 +2395,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 38,
+      "order": 37,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2566,7 +2429,7 @@
       "flags": {
         "collapsed": false
       },
-      "order": 68,
+      "order": 71,
       "mode": 0,
       "inputs": [
         {
@@ -2625,7 +2488,7 @@
       "flags": {
         "collapsed": false
       },
-      "order": 77,
+      "order": 81,
       "mode": 0,
       "inputs": [
         {
@@ -2687,7 +2550,7 @@
       "flags": {
         "collapsed": false
       },
-      "order": 70,
+      "order": 73,
       "mode": 0,
       "inputs": [
         {
@@ -2744,7 +2607,7 @@
         122
       ],
       "flags": {},
-      "order": 82,
+      "order": 86,
       "mode": 0,
       "inputs": [
         {
@@ -2795,7 +2658,7 @@
       "flags": {
         "collapsed": false
       },
-      "order": 78,
+      "order": 82,
       "mode": 0,
       "inputs": [
         {
@@ -2855,7 +2718,7 @@
         860.4000244140625
       ],
       "flags": {},
-      "order": 90,
+      "order": 94,
       "mode": 0,
       "inputs": [
         {
@@ -2902,6 +2765,12 @@
           "shape": 7,
           "type": "EXPERIMENTALARGS",
           "link": 198
+        },
+        {
+          "name": "unianimate_poses",
+          "shape": 7,
+          "type": "UNIANIMATE_POSE",
+          "link": null
         }
       ],
       "outputs": [
@@ -2929,8 +2798,7 @@
         true,
         "unipc",
         1,
-        "comfy",
-        ""
+        "comfy"
       ]
     },
     {
@@ -2945,7 +2813,7 @@
         334
       ],
       "flags": {},
-      "order": 93,
+      "order": 97,
       "mode": 0,
       "inputs": [
         {
@@ -3022,7 +2890,7 @@
         334
       ],
       "flags": {},
-      "order": 100,
+      "order": 104,
       "mode": 0,
       "inputs": [
         {
@@ -3101,7 +2969,7 @@
       "flags": {
         "collapsed": false
       },
-      "order": 62,
+      "order": 64,
       "mode": 0,
       "inputs": [
         {
@@ -3143,7 +3011,8 @@
         "cnr_id": "comfyui-kjnodes",
         "ver": "366b866f8ebf501e84f316ab313d489e3f5cd94d",
         "Node name for S&R": "GetImageSizeAndCount"
-      }
+      },
+      "widgets_values": []
     },
     {
       "id": 176,
@@ -3159,7 +3028,7 @@
       "flags": {
         "collapsed": false
       },
-      "order": 71,
+      "order": 74,
       "mode": 0,
       "inputs": [
         {
@@ -3218,7 +3087,7 @@
       "flags": {
         "collapsed": false
       },
-      "order": 63,
+      "order": 65,
       "mode": 0,
       "inputs": [
         {
@@ -3260,7 +3129,8 @@
         "cnr_id": "comfyui-kjnodes",
         "ver": "366b866f8ebf501e84f316ab313d489e3f5cd94d",
         "Node name for S&R": "GetImageSizeAndCount"
-      }
+      },
+      "widgets_values": []
     },
     {
       "id": 161,
@@ -3271,12 +3141,12 @@
       ],
       "size": [
         210,
-        50
+        58
       ],
       "flags": {
         "collapsed": false
       },
-      "order": 98,
+      "order": 102,
       "mode": 0,
       "inputs": [
         {
@@ -3287,8 +3157,8 @@
       ],
       "outputs": [
         {
-          "name": "*",
-          "type": "*",
+          "name": "IMAGE",
+          "type": "IMAGE",
           "links": [
             253,
             254
@@ -3319,7 +3189,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 39,
+      "order": 38,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -3353,7 +3223,7 @@
       "flags": {
         "collapsed": false
       },
-      "order": 79,
+      "order": 83,
       "mode": 0,
       "inputs": [
         {
@@ -3411,7 +3281,7 @@
         334
       ],
       "flags": {},
-      "order": 85,
+      "order": 89,
       "mode": 0,
       "inputs": [
         {
@@ -3488,7 +3358,7 @@
         174
       ],
       "flags": {},
-      "order": 84,
+      "order": 88,
       "mode": 0,
       "inputs": [
         {
@@ -3539,7 +3409,7 @@
         334
       ],
       "flags": {},
-      "order": 88,
+      "order": 92,
       "mode": 0,
       "inputs": [
         {
@@ -3616,7 +3486,7 @@
         203.9819793701172
       ],
       "flags": {},
-      "order": 40,
+      "order": 39,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -3656,7 +3526,7 @@
         139.27662658691406
       ],
       "flags": {},
-      "order": 41,
+      "order": 40,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -3681,7 +3551,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 76,
+      "order": 79,
       "mode": 0,
       "inputs": [
         {
@@ -3721,7 +3591,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 75,
+      "order": 78,
       "mode": 0,
       "inputs": [
         {
@@ -3759,7 +3629,7 @@
         200
       ],
       "flags": {},
-      "order": 60,
+      "order": 62,
       "mode": 0,
       "inputs": [
         {
@@ -3803,7 +3673,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 42,
+      "order": 41,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -3835,7 +3705,7 @@
         46
       ],
       "flags": {},
-      "order": 69,
+      "order": 72,
       "mode": 0,
       "inputs": [
         {
@@ -3861,6 +3731,7 @@
         "ver": "d9b1f4d1a5aea91d101ae97a54714a5861af3f50",
         "Node name for S&R": "WanVideoTextEmbedBridge"
       },
+      "widgets_values": [],
       "color": "#432",
       "bgcolor": "#653"
     },
@@ -3876,7 +3747,7 @@
         95.97175598144531
       ],
       "flags": {},
-      "order": 43,
+      "order": 42,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -3891,15 +3762,15 @@
       "id": 48,
       "type": "CLIPLoader",
       "pos": [
-        -1265.217529296875,
-        -301.593505859375
+        -1620,
+        -350
       ],
       "size": [
         315,
         106
       ],
       "flags": {},
-      "order": 44,
+      "order": 43,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -3937,7 +3808,7 @@
         234
       ],
       "flags": {},
-      "order": 45,
+      "order": 44,
       "mode": 0,
       "inputs": [
         {
@@ -4010,7 +3881,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 46,
+      "order": 45,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -4042,7 +3913,7 @@
         106
       ],
       "flags": {},
-      "order": 53,
+      "order": 55,
       "mode": 0,
       "inputs": [
         {
@@ -4100,7 +3971,7 @@
         102
       ],
       "flags": {},
-      "order": 99,
+      "order": 103,
       "mode": 0,
       "inputs": [
         {
@@ -4150,7 +4021,7 @@
         88
       ],
       "flags": {},
-      "order": 47,
+      "order": 46,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -4173,7 +4044,7 @@
         451.9747314453125
       ],
       "flags": {},
-      "order": 48,
+      "order": 47,
       "mode": 0,
       "inputs": [
         {
@@ -4244,45 +4115,6 @@
       }
     },
     {
-      "id": 187,
-      "type": "LoadImage",
-      "pos": [
-        -666.8671875,
-        79.47540283203125
-      ],
-      "size": [
-        315,
-        314
-      ],
-      "flags": {},
-      "order": 49,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            298
-          ]
-        },
-        {
-          "name": "MASK",
-          "type": "MASK",
-          "links": null
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.29",
-        "Node name for S&R": "LoadImage"
-      },
-      "widgets_values": [
-        "oldman.jpg",
-        "image"
-      ]
-    },
-    {
       "id": 66,
       "type": "ImageResizeKJ",
       "pos": [
@@ -4294,7 +4126,7 @@
         266
       ],
       "flags": {},
-      "order": 66,
+      "order": 69,
       "mode": 0,
       "inputs": [
         {
@@ -4370,7 +4202,7 @@
         85.25131225585938
       ],
       "flags": {},
-      "order": 50,
+      "order": 48,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -4407,7 +4239,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 67,
+      "order": 68,
       "mode": 0,
       "inputs": [
         {
@@ -4447,13 +4279,342 @@
         88
       ],
       "flags": {},
-      "order": 51,
+      "order": 49,
       "mode": 0,
       "inputs": [],
       "outputs": [],
       "properties": {},
       "widgets_values": [
         "Number of frames to continue from for the next extension"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 49,
+      "type": "CLIPTextEncode",
+      "pos": [
+        -1040,
+        -490
+      ],
+      "size": [
+        400,
+        200
+      ],
+      "flags": {},
+      "order": 75,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 269
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            54
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26",
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "old man gets up and walks into the sea"
+      ],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 191,
+      "type": "Reroute",
+      "pos": [
+        -183.97975158691406,
+        -224.42831420898438
+      ],
+      "size": [
+        75,
+        26
+      ],
+      "flags": {},
+      "order": 80,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "",
+          "type": "*",
+          "link": 300
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "WANVIDEOTEXTEMBEDS",
+          "links": null
+        }
+      ],
+      "properties": {
+        "showOutputText": false,
+        "horizontal": false
+      }
+    },
+    {
+      "id": 112,
+      "type": "SetNode",
+      "pos": [
+        -31.001317977905273,
+        -255.31500244140625
+      ],
+      "size": [
+        210,
+        60
+      ],
+      "flags": {
+        "collapsed": true
+      },
+      "order": 87,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "WANVIDEOTEXTEMBEDS",
+          "type": "WANVIDEOTEXTEMBEDS",
+          "link": 191
+        }
+      ],
+      "outputs": [
+        {
+          "name": "*",
+          "type": "*",
+          "links": null
+        }
+      ],
+      "title": "Set_WanTextEmbeds",
+      "properties": {
+        "previousName": "WanTextEmbeds"
+      },
+      "widgets_values": [
+        "WanTextEmbeds"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 187,
+      "type": "LoadImage",
+      "pos": [
+        -578.5817260742188,
+        88.48405456542969
+      ],
+      "size": [
+        315,
+        314
+      ],
+      "flags": {},
+      "order": 50,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            298
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.29",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "oldman.jpg",
+        "image"
+      ]
+    },
+    {
+      "id": 50,
+      "type": "CLIPTextEncode",
+      "pos": [
+        -1040,
+        -240
+      ],
+      "size": [
+        400,
+        200
+      ],
+      "flags": {},
+      "order": 76,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 270
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            55
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26",
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走"
+      ],
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 146,
+      "type": "MarkdownNote",
+      "pos": [
+        -1247.487548828125,
+        -776.1607055664062
+      ],
+      "size": [
+        380.04638671875,
+        166.29330444335938
+      ],
+      "flags": {},
+      "order": 51,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "Model links:\n\n14B:\n\n[Skyreels/Wan2_1-SkyReels-V2-I2V-14B-540P_fp16.safetensors](https://huggingface.co/Kijai/WanVideo_comfy/blob/main/Skyreels/Wan2_1-SkyReels-V2-I2V-14B-540P_fp16.safetensors)\n\n1.3B:\n\n[Wan2_1-SkyReels-V2-DF-1_3B-540P_fp32.safetensors](https://huggingface.co/Kijai/WanVideo_comfy/blob/main/Skyreels/Wan2_1-SkyReels-V2-DF-1_3B-540P_fp32.safetensors)"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 193,
+      "type": "MarkdownNote",
+      "pos": [
+        -1623.8868408203125,
+        -180.66749572753906
+      ],
+      "size": [
+        484.7488708496094,
+        209.54696655273438
+      ],
+      "flags": {},
+      "order": 52,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "You can use the original or comfy native text encoding, the models are NOT interchangeable! When using fp8, the native scaled one is recommended.\n\nModel links:\n\nNative:\n\n[https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/tree/main/split_files/text_encoders](https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/tree/main/split_files/text_encoders)\n\nOriginal:\n\n[https://huggingface.co/Kijai/WanVideo_comfy/blob/main/umt5-xxl-enc-bf16.safetensors](https://huggingface.co/Kijai/WanVideo_comfy/blob/main/umt5-xxl-enc-bf16.safetensors)\n\n[https://huggingface.co/Kijai/WanVideo_comfy/blob/main/umt5-xxl-enc-fp8_e4m3fn.safetensors](https://huggingface.co/Kijai/WanVideo_comfy/blob/main/umt5-xxl-enc-fp8_e4m3fn.safetensors)"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 190,
+      "type": "WanVideoTextEncode",
+      "pos": [
+        -1130.1104736328125,
+        93.61582946777344
+      ],
+      "size": [
+        435.73699951171875,
+        258.0726318359375
+      ],
+      "flags": {},
+      "order": 70,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "t5",
+          "type": "WANTEXTENCODER",
+          "link": 299
+        },
+        {
+          "name": "model_to_offload",
+          "shape": 7,
+          "type": "WANVIDEOMODEL",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text_embeds",
+          "type": "WANVIDEOTEXTEMBEDS",
+          "links": [
+            300
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-WanVideoWrapper",
+        "ver": "6ba7bc811e53eb95892211645b0e37f348a89225",
+        "Node name for S&R": "WanVideoTextEncode"
+      },
+      "widgets_values": [
+        "old man gets up and walks into the sea",
+        "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+        true
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 189,
+      "type": "LoadWanVideoT5TextEncoder",
+      "pos": [
+        -1593.60205078125,
+        102.82024383544922
+      ],
+      "size": [
+        349.077392578125,
+        130
+      ],
+      "flags": {},
+      "order": 53,
+      "mode": 4,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "wan_t5_model",
+          "type": "WANTEXTENCODER",
+          "links": [
+            299
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-WanVideoWrapper",
+        "ver": "6ba7bc811e53eb95892211645b0e37f348a89225",
+        "Node name for S&R": "LoadWanVideoT5TextEncoder"
+      },
+      "widgets_values": [
+        "umt5-xxl-enc-bf16.safetensors",
+        "bf16",
+        "offload_device",
+        "disabled"
       ],
       "color": "#432",
       "bgcolor": "#653"
@@ -5147,6 +5308,22 @@
       66,
       0,
       "IMAGE"
+    ],
+    [
+      299,
+      189,
+      0,
+      190,
+      0,
+      "WANTEXTENCODER"
+    ],
+    [
+      300,
+      190,
+      0,
+      191,
+      0,
+      "*"
     ]
   ],
   "groups": [
@@ -5219,10 +5396,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.6727499949326102,
+      "scale": 0.8954302432552391,
       "offset": [
-        1564.5152300039176,
-        1527.8919669752054
+        1861.2611359824755,
+        638.7859487906012
       ]
     },
     "frontendVersion": "1.17.3",
