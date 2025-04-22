@@ -2758,7 +2758,7 @@
       ],
       "size": [
         465.5147705078125,
-        793.5147705078125
+        334
       ],
       "flags": {},
       "order": 100,
@@ -2835,7 +2835,7 @@
       ],
       "size": [
         465.5147705078125,
-        793.5147705078125
+        334
       ],
       "flags": {},
       "order": 107,
@@ -4441,29 +4441,6 @@
       "bgcolor": "#533"
     },
     {
-      "id": 146,
-      "type": "MarkdownNote",
-      "pos": [
-        -1247.487548828125,
-        -776.1607055664062
-      ],
-      "size": [
-        380.04638671875,
-        166.29330444335938
-      ],
-      "flags": {},
-      "order": 51,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [],
-      "properties": {},
-      "widgets_values": [
-        "Model links:\n\n14B:\n\n[Skyreels/Wan2_1-SkyReels-V2-I2V-14B-540P_fp16.safetensors](https://huggingface.co/Kijai/WanVideo_comfy/blob/main/Skyreels/Wan2_1-SkyReels-V2-I2V-14B-540P_fp16.safetensors)\n\n1.3B:\n\n[Wan2_1-SkyReels-V2-DF-1_3B-540P_fp32.safetensors](https://huggingface.co/Kijai/WanVideo_comfy/blob/main/Skyreels/Wan2_1-SkyReels-V2-DF-1_3B-540P_fp32.safetensors)"
-      ],
-      "color": "#432",
-      "bgcolor": "#653"
-    },
-    {
       "id": 193,
       "type": "MarkdownNote",
       "pos": [
@@ -4475,7 +4452,7 @@
         209.54696655273438
       ],
       "flags": {},
-      "order": 52,
+      "order": 51,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -4547,7 +4524,7 @@
         130
       ],
       "flags": {},
-      "order": 53,
+      "order": 52,
       "mode": 4,
       "inputs": [],
       "outputs": [
@@ -4587,7 +4564,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 54,
+      "order": 53,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -4681,7 +4658,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 55,
+      "order": 54,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -4715,7 +4692,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 56,
+      "order": 55,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -4734,6 +4711,29 @@
       ],
       "color": "#1b4669",
       "bgcolor": "#29699c"
+    },
+    {
+      "id": 146,
+      "type": "MarkdownNote",
+      "pos": [
+        -1247.487548828125,
+        -776.1607055664062
+      ],
+      "size": [
+        380.04638671875,
+        166.29330444335938
+      ],
+      "flags": {},
+      "order": 56,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "Model links:\n\n14B:\n\n[Wan2_1-SkyReels-V2-DF-14B-540P_fp16.safetensors](https://huggingface.co/Kijai/WanVideo_comfy/blob/main/Skyreels/Wan2_1-SkyReels-V2-DF-14B-540P_fp16.safetensors)\n\n[Wan2_1-SkyReels-V2-DF-14B-540P_fp8_e4m3fn.safetensors](https://huggingface.co/Kijai/WanVideo_comfy/blob/main/Skyreels/Wan2_1-SkyReels-V2-DF-14B-540P_fp8_e4m3fn.safetensors)\n\n1.3B:\n\n[Wan2_1-SkyReels-V2-DF-1_3B-540P_fp32.safetensors](https://huggingface.co/Kijai/WanVideo_comfy/blob/main/Skyreels/Wan2_1-SkyReels-V2-DF-1_3B-540P_fp32.safetensors)"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
     }
   ],
   "links": [
@@ -5528,10 +5528,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.6115909044841468,
+      "scale": 1.191817653772724,
       "offset": [
-        -770.3834626338804,
-        2047.3101069200343
+        1695.7620823297345,
+        1138.5391291690546
       ]
     },
     "frontendVersion": "1.17.3",
