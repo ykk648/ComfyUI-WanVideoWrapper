@@ -2770,6 +2770,8 @@ class WanVideoSampler:
                     z_phantom_img = torch.cat([z[:,:-phantom_latents.shape[1]], phantom_latents.to(z)], dim=1)
                     z_neg = torch.cat([z[:,:-phantom_latents.shape[1]], torch.zeros_like(phantom_latents).to(z)], dim=1)
                     use_phantom = True
+                    if len(teacache_state) != 3:
+                        teacache_state.append(None)
                 else:
                     z_pos = z_neg = z
                  
