@@ -1161,7 +1161,9 @@ class WanModel(ModelMixin, ConfigMixin):
                 if self.teacache_use_coefficients:
                     rescale_func = np.poly1d(self.teacache_coefficients[self.teacache_mode])
                     temb = e if self.teacache_mode == 'e' else e0
-                    accumulated_rel_l1_distance += rescale_func(((temb-previous_modulated_input).abs().mean() / previous_modulated_input.abs().mean()).cpu().item())
+                    accumulated_rel_l1_distance += rescale_func((
+                        (temb.to(device) - previous_modulated_input).abs().mean() / previous_modulated_input.abs().mean()
+                        ).cpu().item())
                 else:
                     temb_relative_l1 = relative_l1_distance(previous_modulated_input, e0)
                     accumulated_rel_l1_distance = accumulated_rel_l1_distance.to(e0.device) + temb_relative_l1
