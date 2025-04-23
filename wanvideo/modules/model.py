@@ -1102,7 +1102,7 @@ class WanModel(ModelMixin, ConfigMixin):
         if fps_embeds is not None:
             fps_embeds = torch.tensor(fps_embeds, dtype=torch.long, device=device)
 
-            fps_emb = self.fps_embedding(fps_embeds).float()
+            fps_emb = self.fps_embedding(fps_embeds).to(e0.dtype)
             if _flag_df:
                 e0 = e0 + self.fps_projection(fps_emb).unflatten(1, (6, self.dim)).repeat(t.shape[1], 1, 1)
             else:
