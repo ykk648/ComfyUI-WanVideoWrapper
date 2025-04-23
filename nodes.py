@@ -1766,7 +1766,7 @@ class WanVideoPhantomEmbeds:
                 "phantom_latent_2": ("LATENT", {"tooltip": "reference latents for the phantom model"}),
                 "phantom_latent_3": ("LATENT", {"tooltip": "reference latents for the phantom model"}),
                 "phantom_latent_4": ("LATENT", {"tooltip": "reference latents for the phantom model"}),
-                #"vace_embeds": ("WANVIDIMAGE_EMBEDS", {"tooltip": "VACE embeds"}),
+                "vace_embeds": ("WANVIDIMAGE_EMBEDS", {"tooltip": "VACE embeds"}),
             }
         }
 
@@ -2763,16 +2763,17 @@ class WanVideoSampler:
                 if recammaster is not None:
                     z = torch.cat([z, recam_latents.to(z)], dim=1)
                 use_phantom = False
-                if phantom_latents is not None and \
-                    (phantom_start_percent <= current_step_percentage <= phantom_end_percent) or \
-                    (phantom_end_percent > 0 and idx == 0 and current_step_percentage >= phantom_start_percent):                   
-                    z_pos = torch.cat([z[:,:-phantom_latents.shape[1]], phantom_latents.to(z)], dim=1)
-                    z_phantom_img = torch.cat([z[:,:-phantom_latents.shape[1]], phantom_latents.to(z)], dim=1)
-                    z_neg = torch.cat([z[:,:-phantom_latents.shape[1]], torch.zeros_like(phantom_latents).to(z)], dim=1)
-                    use_phantom = True
-                    if len(teacache_state) != 3:
-                        teacache_state.append(None)
-                else:
+                if phantom_latents is not None:
+                    if (phantom_start_percent <= current_step_percentage <= phantom_end_percent) or \
+                        (phantom_end_percent > 0 and idx == 0 and current_step_percentage >= phantom_start_percent):
+
+                        z_pos = torch.cat([z[:,:-phantom_latents.shape[1]], phantom_latents.to(z)], dim=1)
+                        z_phantom_img = torch.cat([z[:,:-phantom_latents.shape[1]], phantom_latents.to(z)], dim=1)
+                        z_neg = torch.cat([z[:,:-phantom_latents.shape[1]], torch.zeros_like(phantom_latents).to(z)], dim=1)
+                        use_phantom = True
+                        if len(teacache_state) != 3:
+                            teacache_state.append(None)
+                if not use_phantom:
                     z_pos = z_neg = z
                  
                 base_params = {
@@ -2782,7 +2783,6 @@ class WanVideoSampler:
                     't': timestep,
                     'current_step': idx,
                     'control_lora_enabled': control_lora_enabled,
-                    'vace_data': vace_data,
                     'camera_embed': camera_embed,
                     'unianim_data': unianim_data,
                 }
@@ -2798,6 +2798,7 @@ class WanVideoSampler:
                         [z_pos], context=positive_embeds, y=[image_cond_input] if image_cond_input is not None else None,
                         clip_fea=clip_fea, is_uncond=False, current_step_percentage=current_step_percentage,
                         pred_id=teacache_state[0] if teacache_state else None,
+                        vace_data=vace_data,
                         **base_params
                     )
                     noise_pred_cond = noise_pred_cond[0].to(intermediate_device)
@@ -2816,6 +2817,7 @@ class WanVideoSampler:
                         y=[image_cond_input] if image_cond_input is not None else None, 
                         is_uncond=True, current_step_percentage=current_step_percentage,
                         pred_id=teacache_state[1] if teacache_state else None,
+                        vace_data=vace_data,
                         **base_params
                     )
                     noise_pred_uncond = noise_pred_uncond[0].to(intermediate_device)
@@ -2826,6 +2828,7 @@ class WanVideoSampler:
                         y=[image_cond_input] if image_cond_input is not None else None, 
                         is_uncond=True, current_step_percentage=current_step_percentage,
                         pred_id=teacache_state[2] if teacache_state else None,
+                        vace_data=None,
                         **base_params
                     )
                         noise_pred_phantom = noise_pred_phantom[0].to(intermediate_device)
