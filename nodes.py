@@ -623,6 +623,8 @@ class WanVideoModelLoader:
             "inject_sample_info": True if "fps_embedding.weight" in sd else False,
             "add_ref_conv": True if "ref_conv.weight" in sd else False,
             "in_dim_ref_conv": sd["ref_conv.weight"].shape[1] if "ref_conv.weight" in sd else None,
+            "add_control_adapter": True if "control_adapter.conv.weight" in sd else False,
+            "in_dim_control_adapter": sd["control_adapter.conv.weight"].shape[1] if "control_adapter.conv.weight" in sd else None,
         }        
 
         with init_empty_weights():
@@ -737,7 +739,7 @@ class WanVideoModelLoader:
                 if quantization == "fp8_e4m3fn_fast_no_ffn":
                     params_to_keep.update({"ffn"})
                 print(params_to_keep)
-                convert_fp8_linear(patcher.model.diffusion_model, base_dtype, params_to_keep=params_to_keep, sd=sd)
+                convert_fp8_linear(patcher.model.diffusion_model, base_dtype, params_to_keep=params_to_keep)
 
             del sd
 

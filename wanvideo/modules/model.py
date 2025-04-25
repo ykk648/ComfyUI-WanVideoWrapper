@@ -750,6 +750,8 @@ class WanModel(ModelMixin, ConfigMixin):
                  inject_sample_info=False,
                  add_ref_conv=False,
                  in_dim_ref_conv=16,
+                 add_control_adapter=False,
+                 in_dim_control_adapter=24,
                  ):
         r"""
         Initialize the diffusion model backbone.
@@ -910,6 +912,12 @@ class WanModel(ModelMixin, ConfigMixin):
             self.ref_conv = nn.Conv2d(in_dim_ref_conv, dim, kernel_size=patch_size[1:], stride=patch_size[1:])
         else:
             self.ref_conv = None
+
+        if add_control_adapter:
+            from .wan_camera_adapter import SimpleAdapter
+            self.control_adapter = SimpleAdapter(in_dim_control_adapter, dim, kernel_size=patch_size[1:], stride=patch_size[1:])
+        else:
+            self.control_adapter = None
 
     def block_swap(self, blocks_to_swap, offload_txt_emb=False, offload_img_emb=False, vace_blocks_to_swap=None):
         log.info(f"Swapping {blocks_to_swap + 1} transformer blocks")
