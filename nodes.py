@@ -652,7 +652,7 @@ class WanVideoModelLoader:
                 dtype = torch.float8_e5m2
             else:
                 dtype = base_dtype
-            params_to_keep = {"norm", "head", "bias", "time_in", "vector_in", "patch_embedding", "time_", "img_emb", "modulation"}
+            params_to_keep = {"norm", "head", "bias", "time_in", "vector_in", "patch_embedding", "time_", "img_emb", "modulation", "text_embedding"}
             #if lora is not None:
             #    transformer_load_device = device
             if not lora_low_mem_load:
@@ -708,7 +708,7 @@ class WanVideoModelLoader:
                             transformer.patch_embedding.kernel_size,
                             transformer.patch_embedding.stride,
                             transformer.patch_embedding.padding,
-                        ).to(device=device, dtype=torch.bfloat16)
+                        ).to(device=device, dtype=torch.float32)
                         
                         new_in.weight.zero_()
                         new_in.bias.zero_()
@@ -2355,7 +2355,11 @@ class WanVideoSampler:
             image_cond = image_embeds.get("image_embeds", None)
             print("image_cond", image_cond.shape)
             clip_fea = image_embeds.get("clip_context", None)
+            if clip_fea is not None:
+                clip_fea = clip_fea.to(dtype)
             clip_fea_neg = image_embeds.get("negative_clip_context", None)
+            if clip_fea_neg is not None:
+                clip_fea_neg = clip_fea_neg.to(dtype)
 
             control_embeds = image_embeds.get("control_embeds", None)
             if control_embeds is not None:
@@ -2675,6 +2679,8 @@ class WanVideoSampler:
             source_image_embeds = flowedit_args.get("source_image_embeds", image_embeds)
             source_image_cond = source_image_embeds.get("image_embeds", None)
             source_clip_fea = source_image_embeds.get("clip_fea", clip_fea)
+            if source_image_cond is not None:
+                source_image_cond = source_image_cond.to(dtype)
             skip_steps = flowedit_args["skip_steps"]
             drift_steps = flowedit_args["drift_steps"]
             source_cfg = flowedit_args["source_cfg"]
@@ -2723,6 +2729,7 @@ class WanVideoSampler:
         #region model pred
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, 
                              control_latents=None, vace_data=None, unianim_data=None, teacache_state=None):
+            z = z.to(dtype)
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=("fp8" in model["quantization"])):
 
                 if use_cfg_zero_star and (idx <= zero_star_steps) and use_zero_init:
@@ -2738,9 +2745,9 @@ class WanVideoSampler:
                     else:
                         if (control_start_percent <= current_step_percentage <= control_end_percent) or \
                             (control_end_percent > 0 and idx == 0 and current_step_percentage >= control_start_percent):
-                            image_cond_input = torch.cat([control_latents, image_cond])
+                            image_cond_input = torch.cat([control_latents.to(z), image_cond.to(z)])
                         else:
-                            image_cond_input = torch.cat([torch.zeros_like(image_cond), image_cond])
+                            image_cond_input = torch.cat([torch.zeros_like(image_cond, dtype=dtype), image_cond.to(z)])
 
                     if control_lora:
                         if not control_start_percent <= current_step_percentage <= control_end_percent:
@@ -2750,15 +2757,13 @@ class WanVideoSampler:
                                 patcher.unpatch_model(device)
                                 patcher.model.is_patched = False
                         else:
-                            image_cond_input = control_latents.to(device)
+                            image_cond_input = control_latents.to(z)
                             if not patcher.model.is_patched:
                                 log.info("Loading LoRA...")
                                 patcher = apply_lora(patcher, device, device, low_mem_load=False)
                                 patcher.model.is_patched = True
                 else:
-                    image_cond_input = image_cond
-
-                z = z.to(dtype)
+                    image_cond_input = image_cond.to(z) if image_cond is not None else None
 
                 if recammaster is not None:
                     z = torch.cat([z, recam_latents.to(z)], dim=1)

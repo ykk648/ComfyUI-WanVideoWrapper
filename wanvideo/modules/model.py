@@ -1317,7 +1317,7 @@ class TeaCacheState:
             del self.states[pred_id]
     
     def clear_all(self):
-        self.states.clear()
+        self.states = {}
         self._next_pred_id = 0
 
 def relative_l1_distance(last_tensor, current_tensor):

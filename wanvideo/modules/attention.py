@@ -196,9 +196,9 @@ def attention(
     elif attention_mode == 'sageattn':
         attn_mask = None
 
-        q = q.transpose(1, 2)#.to(dtype)
-        k = k.transpose(1, 2)#.to(dtype)
-        v = v.transpose(1, 2)#.to(dtype)
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
 
         out = sageattn_func(
             q, k, v, attn_mask=attn_mask, is_causal=causal, dropout_p=dropout_p)

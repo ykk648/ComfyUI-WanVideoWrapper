@@ -7,8 +7,8 @@ def fp8_linear_forward(cls, original_dtype, input):
     weight_dtype = cls.weight.dtype
     if weight_dtype in [torch.float8_e4m3fn, torch.float8_e5m2]:
         if len(input.shape) == 3:
-            target_dtype = torch.float8_e5m2 if weight_dtype == torch.float8_e4m3fn else torch.float8_e4m3fn
-            inn = input.reshape(-1, input.shape[2]).to(target_dtype)
+            #target_dtype = torch.float8_e5m2 if weight_dtype == torch.float8_e4m3fn else torch.float8_e4m3fn
+            inn = input.reshape(-1, input.shape[2]).to(weight_dtype)
             w = cls.weight.t()
 
             scale = torch.ones((1), device=input.device, dtype=torch.float32)
