@@ -748,6 +748,8 @@ class WanModel(ModelMixin, ConfigMixin):
                  vace_layers=None,
                  vace_in_dim=None,
                  inject_sample_info=False,
+                 add_ref_conv=False,
+                 in_dim_ref_conv=16,
                  ):
         r"""
         Initialize the diffusion model backbone.
@@ -899,9 +901,15 @@ class WanModel(ModelMixin, ConfigMixin):
         if model_type == 'i2v' or model_type == 'fl2v':
             self.img_emb = MLPProj(1280, dim, fl_pos_emb=model_type == 'fl2v')
 
+        #skyreels v2
         if inject_sample_info:
             self.fps_embedding = nn.Embedding(2, dim)
             self.fps_projection = nn.Sequential(nn.Linear(dim, dim), nn.SiLU(), nn.Linear(dim, dim * 6))
+        #fun 1.1
+        if add_ref_conv:
+            self.ref_conv = nn.Conv2d(in_dim_ref_conv, dim, kernel_size=patch_size[1:], stride=patch_size[1:])
+        else:
+            self.ref_conv = None
 
     def block_swap(self, blocks_to_swap, offload_txt_emb=False, offload_img_emb=False, vace_blocks_to_swap=None):
         log.info(f"Swapping {blocks_to_swap + 1} transformer blocks")
@@ -1005,6 +1013,7 @@ class WanModel(ModelMixin, ConfigMixin):
         camera_embed=None,
         unianim_data=None,
         fps_embeds=None,
+        fun_ref = None
     ):
         r"""
         Forward pass through the diffusion model
@@ -1060,6 +1069,14 @@ class WanModel(ModelMixin, ConfigMixin):
             [torch.tensor(u.shape[2:], dtype=torch.long) for u in x])
 
         x = [u.flatten(2).transpose(1, 2) for u in x]
+
+        if self.ref_conv is not None and fun_ref is not None:
+            fun_ref = self.ref_conv(fun_ref).flatten(2).transpose(1, 2)
+            grid_sizes = torch.stack([torch.tensor([u[0] + 1, u[1], u[2]]) for u in grid_sizes]).to(grid_sizes.device)
+            seq_len += fun_ref.size(1)
+            F += 1
+            x = [torch.concat([_fun_ref.unsqueeze(0), u], dim=1) for _fun_ref, u in zip(fun_ref, x)]
+
         seq_lens = torch.tensor([u.size(1) for u in x], dtype=torch.long)
         assert seq_lens.max() <= seq_len
         x = torch.cat([
@@ -1249,6 +1266,12 @@ class WanModel(ModelMixin, ConfigMixin):
                     accumulated_rel_l1_distance=accumulated_rel_l1_distance,
                     previous_modulated_input=previous_modulated_input
                 )
+
+        if self.ref_conv is not None and fun_ref is not None:
+            full_ref_length = fun_ref.size(1)
+            x = x[:, full_ref_length:]
+            grid_sizes = torch.stack([torch.tensor([u[0] - 1, u[1], u[2]]) for u in grid_sizes]).to(grid_sizes.device)
+
         x = self.head(x, e.to(x.device))
         x = self.unpatchify(x, grid_sizes) # type: ignore[arg-type]
         x = [u.float() for u in x]
