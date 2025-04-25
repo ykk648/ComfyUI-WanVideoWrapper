@@ -2761,7 +2761,7 @@ class WanVideoSampler:
                         if fun_ref_image is not None:
                             fun_ref_input = fun_ref_image.to(z)
                         else:
-                            fun_ref_input = torch.zeros_like(z, dtype=z.dtype)[:, 0].unsqueeze(1)
+                            #fun_ref_input = torch.zeros_like(z, dtype=z.dtype)[:, 0].unsqueeze(1)
                             fun_ref_input = None
 
                     if control_lora:

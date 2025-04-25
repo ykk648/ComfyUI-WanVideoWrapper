@@ -12,6 +12,8 @@ from ..wanvideo.utils.scheduling_flow_match_lcm import FlowMatchLCMScheduler
 from ..nodes import optimized_scale
 from einops import rearrange
 
+from ..enhance_a_video.globals import disable_enhance
+
 import comfy.model_management as mm
 from comfy.utils import load_torch_file, ProgressBar, common_upscale
 from comfy.clip_vision import clip_preprocess, ClipVisionModel
@@ -305,6 +307,7 @@ class WanVideoDiffusionForcingSampler:
                 "end_percent": unianimate_poses["end_percent"]
             }
         
+        disable_enhance() #not sure if this can work, disabling for now to avoid errors if it's enabled by another sampler
 
         freqs = None
         transformer.rope_embedder.k = None
