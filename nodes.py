@@ -2518,6 +2518,7 @@ class WanVideoSampler:
                 "end_percent": unianimate_poses["end_percent"]
             }
 
+        audio_proj = None
         if fantasytalking_embeds is not None:
             audio_proj = fantasytalking_embeds["audio_proj"].to(device)
             audio_context_lens = fantasytalking_embeds["audio_context_lens"]
@@ -2759,7 +2760,7 @@ class WanVideoSampler:
 
         #region model pred
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, 
-                             control_latents=None, vace_data=None, unianim_data=None, teacache_state=None):
+                             control_latents=None, vace_data=None, unianim_data=None, audio_proj=None, teacache_state=None):
             z = z.to(dtype)
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=("fp8" in model["quantization"])):
 
@@ -3191,6 +3192,10 @@ class WanVideoSampler:
                         if has_ref:
                             partial_vace_context[:, 0, :, :] = vace_data[0]["context"][0][:, 0, :, :]
                         partial_vace_context = [partial_vace_context]
+
+                    if fantasytalking_embeds is not None:
+                        partial_audio_proj = audio_proj[:, c]
+
                     partial_latent_model_input = latent_model_input[:, c, :, :]
 
                     partial_unianim_data = None
@@ -3209,7 +3214,7 @@ class WanVideoSampler:
                         partial_latent_model_input, 
                         cfg[idx], positive, 
                         text_embeds["negative_prompt_embeds"], 
-                        timestep, idx, partial_img_emb, clip_fea, partial_control_latents, partial_vace_context, partial_unianim_data,
+                        timestep, idx, partial_img_emb, clip_fea, partial_control_latents, partial_vace_context, partial_unianim_data,partial_audio_proj,
                         current_teacache)
 
                     # if callback is not None:

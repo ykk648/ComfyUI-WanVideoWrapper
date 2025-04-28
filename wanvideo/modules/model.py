@@ -341,6 +341,25 @@ class WanT2VCrossAttention(WanSelfAttention):
 
         # output
         x = x.flatten(2)
+        
+        # FantasyTalking audio attention
+        if audio_proj is not None:
+            if len(audio_proj.shape) == 4:
+                audio_q = q.view(b * num_latent_frames, -1, n, d)  # [b, 21, l1, n, d]
+                ip_key = self.k_proj(audio_proj).view(b * num_latent_frames, -1, n, d)
+                ip_value = self.v_proj(audio_proj).view(b * num_latent_frames, -1, n, d)
+                audio_x = attention(
+                    audio_q, ip_key, ip_value, k_lens=audio_context_lens, attention_mode=self.attention_mode
+                )
+                audio_x = audio_x.view(b, q.size(1), n, d)
+                audio_x = audio_x.flatten(2)
+            elif len(audio_proj.shape) == 3:
+                ip_key = self.k_proj(audio_proj).view(b, -1, n, d)
+                ip_value = self.v_proj(audio_proj).view(b, -1, n, d)
+                audio_x = attention(q, ip_key, ip_value, k_lens=audio_context_lens, attention_mode=self.attention_mode)
+                audio_x = audio_x.flatten(2)
+            
+            x = x + audio_x * audio_scale
         x = self.o(x)
         return x
 
