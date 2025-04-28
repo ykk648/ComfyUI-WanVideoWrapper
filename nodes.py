@@ -2893,7 +2893,7 @@ class WanVideoSampler:
                             noise_pred_no_audio, teacache_state_audio = transformer(
                                 [z_pos], context=positive_embeds, y=[image_cond_input] if image_cond_input is not None else None,
                                 clip_fea=clip_fea, is_uncond=False, current_step_percentage=current_step_percentage,
-                                pred_id=teacache_state[0] if teacache_state else None,
+                                pred_id=teacache_state[2] if teacache_state else None,
                                 vace_data=vace_data,
                                 **base_params
                             )
