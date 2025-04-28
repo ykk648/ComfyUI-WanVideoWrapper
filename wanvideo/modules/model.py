@@ -341,7 +341,7 @@ class WanT2VCrossAttention(WanSelfAttention):
 
         # output
         x = x.flatten(2)
-        
+
         # FantasyTalking audio attention
         if audio_proj is not None:
             if len(audio_proj.shape) == 4:
@@ -388,25 +388,24 @@ class WanI2VCrossAttention(WanSelfAttention):
             context(Tensor): Shape [B, L2, C]
             context_lens(Tensor): Shape [B]
         """
-        #context_img = context[:, :clip_embed.shape[1]]
-        #context = context[:, clip_embed.shape[1]:]
         b, n, d = x.size(0), self.num_heads, self.head_dim
 
         # compute query, key, value
         q = self.norm_q(self.q(x)).view(b, -1, n, d)
         k = self.norm_k(self.k(context)).view(b, -1, n, d)
         v = self.v(context).view(b, -1, n, d)
+           
+        # text attention
+        x = attention(q, k, v, k_lens=context_lens, attention_mode=self.attention_mode)
+        x = x.flatten(2)
+
+        #img attention
         if clip_embed is not None:
             k_img = self.norm_k_img(self.k_img(clip_embed)).view(b, -1, n, d)
             v_img = self.v_img(clip_embed).view(b, -1, n, d)
             img_x = attention(q, k_img, v_img, k_lens=None, attention_mode=self.attention_mode)
-        # compute attention
-        x = attention(q, k, v, k_lens=context_lens, attention_mode=self.attention_mode)
-
-        # output
-        x = x.flatten(2)
-        if clip_embed is not None:
             img_x = img_x.flatten(2)
+
             x = x + img_x
 
         # FantasyTalking audio attention
