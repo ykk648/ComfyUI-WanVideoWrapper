@@ -58,7 +58,7 @@ def apply_lora(model, device_to, transformer_load_device, params_to_keep=None, d
                 name = name.replace("._orig_mod.", ".") # torch compiled modules have this prefix
                 if low_mem_load:
                     dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
-                    if "modulation" in name:
+                    if "patch_embedding" in name:
                         dtype_to_use = torch.float32
                     if name.startswith("diffusion_model."):
                         name_no_prefix = name[len("diffusion_model."):]
@@ -80,7 +80,7 @@ def apply_lora(model, device_to, transformer_load_device, params_to_keep=None, d
             for name, param in model.model.diffusion_model.named_parameters():
                 if param.device != transformer_load_device:
                     dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
-                    if "modulation" in name:
+                    if "patch_embedding" in name:
                         dtype_to_use = torch.float32
                     try:
                         set_module_tensor_to_device(model.model.diffusion_model, name, device=transformer_load_device, dtype=dtype_to_use, value=state_dict[name])
