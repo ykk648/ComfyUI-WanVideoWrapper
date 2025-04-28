@@ -3237,7 +3237,7 @@ class WanVideoSampler:
                     cfg[idx], 
                     text_embeds["prompt_embeds"], 
                     text_embeds["negative_prompt_embeds"], 
-                    timestep, idx, image_cond, clip_fea, control_latents, vace_data, unianim_data,
+                    timestep, idx, image_cond, clip_fea, control_latents, vace_data, unianim_data, audio_proj,
                     teacache_state=self.teacache_state)
 
             if latent_shift_loop:
