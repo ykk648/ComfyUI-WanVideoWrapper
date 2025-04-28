@@ -2898,8 +2898,11 @@ class WanVideoSampler:
                                 **base_params
                             )
                             noise_pred_no_audio = noise_pred_no_audio[0].to(intermediate_device)
-                            noise_pred = noise_pred_uncond + cfg_scale * (noise_pred_no_audio - noise_pred_uncond)
-                            + audio_cfg_scale * (noise_pred_cond - noise_pred_no_audio)
+                            noise_pred = (
+                                noise_pred_uncond
+                                + cfg_scale * (noise_pred_no_audio - noise_pred_uncond)
+                                + audio_cfg_scale * (noise_pred_cond - noise_pred_no_audio)
+                                )
                             return noise_pred, [teacache_state_cond, teacache_state_uncond, teacache_state_audio]
 
                 #batched
