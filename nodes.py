@@ -2178,6 +2178,56 @@ class WanVideoContextOptions:
 
         return (context_options,)
     
+class CreateCFGScheduleFloatList:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "steps": ("INT", {"default": 30, "min": 2, "max": 1000, "step": 1, "tooltip": "Number of steps to schedule cfg for"} ),
+            "cfg_scale_start": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 30.0, "step": 0.01, "round": 0.01, "tooltip": "CFG scale to use for the steps"}),
+            "cfg_scale_end": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 30.0, "step": 0.01, "round": 0.01, "tooltip": "CFG scale to use for the steps"}),
+            "interpolation": (["linear", "ease_in", "ease_out"], {"default": "linear", "tooltip": "Interpolation method to use for the cfg scale"}),
+            "start_percent": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.01,"tooltip": "Start percent of the steps to apply cfg"}),
+            "end_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.01,"tooltip": "End percent of the steps to apply cfg"}),
+            }
+        }
+
+    RETURN_TYPES = ("FLOAT", )
+    RETURN_NAMES = ("float_list",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Helper node to generate a list of floats that can be used to schedule cfg scale for the steps, outside the set range cfg is set to 1.0"
+
+    def process(self, steps, cfg_scale_start, cfg_scale_end, interpolation, start_percent, end_percent):
+        
+        # Create a list of floats for the cfg schedule
+        cfg_list = [1.0] * steps
+        start_idx = min(int(steps * start_percent), steps - 1)
+        end_idx = min(int(steps * end_percent), steps - 1)
+        
+        for i in range(start_idx, end_idx + 1):
+            if i >= steps:
+                break
+                
+            if end_idx == start_idx:
+                t = 0
+            else:
+                t = (i - start_idx) / (end_idx - start_idx)
+            
+            if interpolation == "linear":
+                factor = t
+            elif interpolation == "ease_in":
+                factor = t * t
+            elif interpolation == "ease_out":
+                factor = t * (2 - t)
+            
+            cfg_list[i] = round(cfg_scale_start + factor * (cfg_scale_end - cfg_scale_start), 2)
+        
+        # If start_percent > 0, always include the first step
+        if start_percent > 0:
+            cfg_list[0] = 1.0
+
+        return (cfg_list,)
+    
 class WanVideoFlowEdit:
     @classmethod
     def INPUT_TYPES(s):
@@ -2228,7 +2278,7 @@ class WanVideoExperimentalArgs:
         return {"required": {
                 "video_attention_split_steps": ("STRING", {"default": "", "tooltip": "Steps to split self attention when using multiple prompts"}),
                 "cfg_zero_star": ("BOOLEAN", {"default": False, "tooltip": "https://github.com/WeichenFan/CFG-Zero-star"}),
-                "use_zero_init": ("BOOLEAN", {"default": True}),
+                "use_zero_init": ("BOOLEAN", {"default": False}),
                 "zero_star_steps": ("INT", {"default": 0, "min": 0, "tooltip": "Steps to split self attention when using multiple prompts"}),
                 "use_fresca": ("BOOLEAN", {"default": False, "tooltip": "https://github.com/WikiChao/FreSca"}),
                 "fresca_scale_low": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.01}),
@@ -2524,6 +2574,8 @@ class WanVideoSampler:
             audio_context_lens = fantasytalking_embeds["audio_context_lens"]
             audio_scale = fantasytalking_embeds["audio_scale"]
             audio_cfg_scale = fantasytalking_embeds["audio_cfg_scale"]
+            if not isinstance(audio_cfg_scale, list):
+                audio_cfg_scale = [audio_cfg_scale] * (steps +1)
             log.info(f"Audio proj shape: {audio_proj.shape}, audio context lens: {audio_context_lens}")
 
         is_looped = False
@@ -2859,7 +2911,7 @@ class WanVideoSampler:
                         return noise_pred_cond, [teacache_state_cond]
                     #uncond
                     if fantasytalking_embeds is not None:
-                        if not math.isclose(audio_cfg_scale, 1.0):
+                        if not math.isclose(audio_cfg_scale[idx], 1.0):
                             base_params['audio_proj'] = None
                     noise_pred_uncond, teacache_state_uncond = transformer(
                         [z_neg], context=negative_embeds, clip_fea=clip_fea_neg if clip_fea_neg is not None else clip_fea,
@@ -2886,7 +2938,7 @@ class WanVideoSampler:
                         return noise_pred, [teacache_state_cond, teacache_state_uncond, teacache_state_phantom]
                     #fantasytalking
                     if fantasytalking_embeds is not None:
-                        if not math.isclose(audio_cfg_scale, 1.0):
+                        if not math.isclose(audio_cfg_scale[idx], 1.0):
                             if len(teacache_state) != 3:
                                 teacache_state.append(None)
                             base_params['audio_proj'] = None
@@ -2901,7 +2953,7 @@ class WanVideoSampler:
                             noise_pred = (
                                 noise_pred_uncond
                                 + cfg_scale * (noise_pred_no_audio - noise_pred_uncond)
-                                + audio_cfg_scale * (noise_pred_cond - noise_pred_no_audio)
+                                + audio_cfg_scale[idx] * (noise_pred_cond - noise_pred_no_audio)
                                 )
                             return noise_pred, [teacache_state_cond, teacache_state_uncond, teacache_state_audio]
 
@@ -3545,6 +3597,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoVACEStartToEndFrame": WanVideoVACEStartToEndFrame,
     "WanVideoVACEModelSelect": WanVideoVACEModelSelect,
     "WanVideoPhantomEmbeds": WanVideoPhantomEmbeds,
+    "CreateCFGScheduleFloatList": CreateCFGScheduleFloatList
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -3581,4 +3634,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoVACEStartToEndFrame": "WanVideo VACE Start To End Frame",
     "WanVideoVACEModelSelect": "WanVideo VACE Model Select",
     "WanVideoPhantomEmbeds": "WanVideo Phantom Embeds",
+    "CreateCFGScheduleFloatList": "WanVideo CFG Schedule Float List"
     }
