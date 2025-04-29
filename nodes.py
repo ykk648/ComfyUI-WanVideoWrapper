@@ -2865,7 +2865,7 @@ class WanVideoSampler:
                         z_phantom_img = torch.cat([z[:,:-phantom_latents.shape[1]], phantom_latents.to(z)], dim=1)
                         z_neg = torch.cat([z[:,:-phantom_latents.shape[1]], torch.zeros_like(phantom_latents).to(z)], dim=1)
                         use_phantom = True
-                        if len(teacache_state) != 3:
+                        if teacache_state is not None and len(teacache_state) != 3:
                             teacache_state.append(None)
                 if not use_phantom:
                     z_pos = z_neg = z
@@ -2939,7 +2939,7 @@ class WanVideoSampler:
                     #fantasytalking
                     if fantasytalking_embeds is not None:
                         if not math.isclose(audio_cfg_scale[idx], 1.0):
-                            if len(teacache_state) != 3:
+                            if teacache_state is not None and len(teacache_state) != 3:
                                 teacache_state.append(None)
                             base_params['audio_proj'] = None
                             noise_pred_no_audio, teacache_state_audio = transformer(
