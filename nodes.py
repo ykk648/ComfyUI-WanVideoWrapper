@@ -3196,6 +3196,7 @@ class WanVideoSampler:
                             partial_vace_context[:, 0, :, :] = vace_data[0]["context"][0][:, 0, :, :]
                         partial_vace_context = [partial_vace_context]
 
+                    partial_audio_proj = None
                     if fantasytalking_embeds is not None:
                         partial_audio_proj = audio_proj[:, c]
 
