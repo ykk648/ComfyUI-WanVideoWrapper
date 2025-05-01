@@ -2823,7 +2823,7 @@ class WanVideoSampler:
 
         #region model pred
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, 
-                             control_latents=None, vace_data=None, unianim_data=None, audio_proj=None, teacache_state=None):
+                             control_latents=None, vace_data=None, unianim_data=None, audio_proj=None, control_camera_latents=None, teacache_state=None):
             z = z.to(dtype)
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=("fp8" in model["quantization"])):
 
@@ -3232,6 +3232,10 @@ class WanVideoSampler:
                         if control_latents is not None:
                             partial_control_latents = control_latents[:, c]
                     
+                    partial_control_camera_latents = None
+                    if control_camera_latents is not None:
+                        partial_control_camera_latents = control_camera_latents[:, :, c]
+                    
                     partial_vace_context = None
                     if vace_data is not None:
                         partial_vace_context = vace_data[0]["context"][0][:, c]
@@ -3261,7 +3265,7 @@ class WanVideoSampler:
                         partial_latent_model_input, 
                         cfg[idx], positive, 
                         text_embeds["negative_prompt_embeds"], 
-                        timestep, idx, partial_img_emb, clip_fea, partial_control_latents, partial_vace_context, partial_unianim_data,partial_audio_proj,
+                        timestep, idx, partial_img_emb, clip_fea, partial_control_latents, partial_vace_context, partial_unianim_data,partial_audio_proj,partial_control_camera_latents,
                         current_teacache)
 
                     if teacache_args is not None:
@@ -3278,7 +3282,7 @@ class WanVideoSampler:
                     cfg[idx], 
                     text_embeds["prompt_embeds"], 
                     text_embeds["negative_prompt_embeds"], 
-                    timestep, idx, image_cond, clip_fea, control_latents, vace_data, unianim_data, audio_proj,
+                    timestep, idx, image_cond, clip_fea, control_latents, vace_data, unianim_data, audio_proj, control_camera_latents,
                     teacache_state=self.teacache_state)
 
             if latent_shift_loop:
