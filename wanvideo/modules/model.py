@@ -1243,10 +1243,11 @@ class WanModel(ModelMixin, ConfigMixin):
                     accumulated_rel_l1_distance += rescale_func((
                         (temb.to(device) - previous_modulated_input).abs().mean() / previous_modulated_input.abs().mean()
                         ).cpu().item())
+                    del temb
                 else:
                     temb_relative_l1 = relative_l1_distance(previous_modulated_input, e0)
                     accumulated_rel_l1_distance = accumulated_rel_l1_distance.to(e0.device) + temb_relative_l1
-                del temb
+                    del temb_relative_l1
 
                 #print("accumulated_rel_l1_distance", accumulated_rel_l1_distance)
 
