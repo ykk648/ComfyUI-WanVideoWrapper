@@ -3238,10 +3238,21 @@ class WanVideoSampler:
                     
                     partial_vace_context = None
                     if vace_data is not None:
-                        partial_vace_context = vace_data[0]["context"][0][:, c]
-                        if has_ref:
-                            partial_vace_context[:, 0] = vace_data[0]["context"][0][:, 0]
-                        partial_vace_context = [partial_vace_context]
+                        window_vace_data = []
+                        for vace_entry in vace_data:
+                            partial_context = vace_entry["context"][0][:, c]
+                            if has_ref:
+                                partial_context[:, 0] = vace_entry["context"][0][:, 0]
+                            
+                            window_vace_data.append({
+                                "context": [partial_context], 
+                                "scale": vace_entry["scale"],
+                                "start": vace_entry["start"], 
+                                "end": vace_entry["end"],
+                                "seq_len": vace_entry["seq_len"]
+                            })
+                        
+                        partial_vace_context = window_vace_data
 
                     partial_audio_proj = None
                     if fantasytalking_embeds is not None:
