@@ -13,6 +13,7 @@ from .wanvideo.modules.t5 import T5EncoderModel
 from .wanvideo.utils.fm_solvers import (FlowDPMSolverMultistepScheduler,
                                get_sampling_sigmas, retrieve_timesteps)
 from .wanvideo.utils.fm_solvers_unipc import FlowUniPCMultistepScheduler
+from .wanvideo.utils.basic_flowmatch import FlowMatchScheduler
 from diffusers.schedulers import FlowMatchEulerDiscreteScheduler, DEISMultistepScheduler
 from .wanvideo.utils.scheduling_flow_match_lcm import FlowMatchLCMScheduler
 
@@ -474,6 +475,7 @@ class WanVideoModelLoader:
                     "flash_attn_2",
                     "flash_attn_3",
                     "sageattn",
+                    "flex_attention",
                     #"spargeattn", needs tuning
                     #"spargeattn_tune",
                     ], {"default": "sdpa"}),
@@ -2309,7 +2311,7 @@ class WanVideoSampler:
                 "shift": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 1000.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "force_offload": ("BOOLEAN", {"default": True, "tooltip": "Moves the model to the offload device after sampling"}),
-                "scheduler": (["unipc", "unipc/beta", "dpm++", "dpm++/beta","dpm++_sde", "dpm++_sde/beta", "euler", "euler/beta", "deis", "lcm", "lcm/beta"],
+                "scheduler": (["unipc", "unipc/beta", "dpm++", "dpm++/beta","dpm++_sde", "dpm++_sde/beta", "euler", "euler/beta", "deis", "lcm", "lcm/beta", "flowmatch_causvid"],
                     {
                         "default": 'unipc'
                     }),
@@ -2390,10 +2392,14 @@ class WanVideoSampler:
             sample_scheduler.sigmas[-1] = 1e-6
         elif 'lcm' in scheduler:
             sample_scheduler = FlowMatchLCMScheduler(shift=shift, use_beta_sigmas=(scheduler == 'lcm/beta'))
-            sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None) 
+            sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
+        elif 'flowmatch_causvid' in scheduler:
+            sample_scheduler = FlowMatchScheduler(num_inference_steps=steps, shift=shift, sigma_min=0, extra_one_step=True)
+            sample_scheduler.timesteps = torch.tensor([1000, 934, 862, 756, 603, 410, 250, 140, 74, 0])[:steps].to(device)
         
         if timesteps is None:
             timesteps = sample_scheduler.timesteps
+            print("timesteps: ", timesteps)
         
         if denoise_strength < 1.0:
             steps = int(steps * denoise_strength)
@@ -3297,13 +3303,13 @@ class WanVideoSampler:
                 step_args = {
                     "generator": seed_g,
                 }
-                if isinstance(sample_scheduler, DEISMultistepScheduler):
+                if isinstance(sample_scheduler, DEISMultistepScheduler) or isinstance(sample_scheduler, FlowMatchScheduler):
                     step_args.pop("generator", None)
                 temp_x0 = sample_scheduler.step(
                     noise_pred[:, :orig_noise_len].unsqueeze(0) if recammaster is not None else noise_pred.unsqueeze(0),
                     t,
                     latent[:, :orig_noise_len].unsqueeze(0) if recammaster is not None else latent.unsqueeze(0),
-                    return_dict=False,
+                    #return_dict=False,
                     **step_args)[0]
                 latent = temp_x0.squeeze(0)
 
@@ -3312,7 +3318,7 @@ class WanVideoSampler:
                     if recammaster is not None:
                         callback_latent = (latent_model_input[:, :orig_noise_len] - noise_pred[:, :orig_noise_len].to(t.device) * t / 1000).detach().permute(1,0,2,3)
                     else:
-                        callback_latent = (latent_model_input - noise_pred.to(t.device) * t / 1000).detach().permute(1,0,2,3)
+                        callback_latent = (latent_model_input.cpu() - noise_pred.cpu() * t.cpu() / 1000).detach().permute(1,0,2,3)
                     callback(idx, callback_latent, None, steps)
                 else:
                     pbar.update(1)
