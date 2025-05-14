@@ -3316,16 +3316,16 @@ class WanVideoSampler:
                 x0 = latent.to(device)
                 if callback is not None:
                     if recammaster is not None:
-                        callback_latent = (latent_model_input[:, :orig_noise_len] - noise_pred[:, :orig_noise_len].to(t.device) * t / 1000).detach().permute(1,0,2,3)
+                        callback_latent = (latent_model_input[:, :orig_noise_len].to(device) - noise_pred[:, :orig_noise_len].to(device) * t.to(device) / 1000).detach().permute(1,0,2,3)
                     else:
-                        callback_latent = (latent_model_input.cpu() - noise_pred.cpu() * t.cpu() / 1000).detach().permute(1,0,2,3)
+                        callback_latent = (latent_model_input.to(device) - noise_pred.to(device) * t.to(device) / 1000).detach().permute(1,0,2,3)
                     callback(idx, callback_latent, None, steps)
                 else:
                     pbar.update(1)
                 del latent_model_input, timestep
             else:
                 if callback is not None:
-                    callback_latent = (zt_tgt - vt_tgt.to(t.device) * t / 1000).detach().permute(1,0,2,3)
+                    callback_latent = (zt_tgt.to(device) - vt_tgt.to(device) * t.to(device) / 1000).detach().permute(1,0,2,3)
                     callback(idx, callback_latent, None, steps)
                 else:
                     pbar.update(1)
