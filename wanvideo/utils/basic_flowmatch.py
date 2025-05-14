@@ -46,7 +46,6 @@ class FlowMatchScheduler():
         self.timesteps = self.timesteps.to(model_output.device)
         timestep_id = torch.argmin(
             (self.timesteps - timestep).abs(), dim=0)
-        print("timestep_id: ", timestep_id)
         sigma = self.sigmas[timestep_id].reshape(-1, 1, 1, 1)
         if to_final or (timestep_id + 1 >= len(self.timesteps)).any():
             sigma_ = 1 if (
