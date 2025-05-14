@@ -14,6 +14,7 @@ try:
     create_block_mask = torch.compile(create_block_mask)
     flex_attention = torch.compile(flex_attention)
 except:
+    BlockMask = create_block_mask = flex_attention = None
     pass
 
 from .attention import attention
