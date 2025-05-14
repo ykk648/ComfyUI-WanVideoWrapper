@@ -2395,7 +2395,7 @@ class WanVideoSampler:
             sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
         elif 'flowmatch_causvid' in scheduler:
             sample_scheduler = FlowMatchScheduler(num_inference_steps=steps, shift=shift, sigma_min=0, extra_one_step=True)
-            sample_scheduler.timesteps = torch.tensor([1000, 934, 862, 756, 603, 410, 250, 140, 74, 0])[:steps].to(device)
+            sample_scheduler.timesteps = torch.tensor([999, 934, 862, 756, 603, 410, 250, 140, 74])[:steps].to(device)
         
         if timesteps is None:
             timesteps = sample_scheduler.timesteps
