@@ -2343,7 +2343,12 @@ class WanVideoSampler:
             sample_scheduler = FlowMatchLCMScheduler(shift=shift, use_beta_sigmas=(scheduler == 'lcm/beta'))
             sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
         elif 'flowmatch_causvid' in scheduler:
-            denoising_list = [999, 934, 862, 756, 603, 410, 250, 140, 74]
+            if transformer.dim == 5120:
+                denoising_list = [999, 934, 862, 756, 603, 410, 250, 140, 74]
+            else:
+                if steps != 3:
+                    raise ValueError("CausVid 1.3B schedule is only for 3 steps")
+                denoising_list = [1000, 757, 522]
             sample_scheduler = FlowMatchScheduler(num_inference_steps=steps, shift=shift, sigma_min=0, extra_one_step=True)
             sample_scheduler.timesteps = torch.tensor(denoising_list)[:steps].to(device)
             sample_scheduler.sigmas = torch.cat([sample_scheduler.timesteps / 1000, torch.tensor([0.0], device=device)])
