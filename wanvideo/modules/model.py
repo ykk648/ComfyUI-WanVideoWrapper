@@ -1016,7 +1016,7 @@ class WanModel(ModelMixin, ConfigMixin):
     def _prepare_blockwise_causal_attn_mask(
         device: torch.device | str, num_frames: int = 21,
         frame_seqlen: int = 1560, num_frame_per_block=1
-    ) -> BlockMask:
+    ):
         """
         we will divide the token sequence into the following format
         [1 latent frame] [1 latent frame] ... [1 latent frame]
@@ -1354,10 +1354,10 @@ class WanModel(ModelMixin, ConfigMixin):
                 else:
                     should_calc = True
                     accumulated_rel_l1_distance = torch.tensor(0.0, dtype=torch.float32, device=device)
-                accumulated_rel_l1_distance = accumulated_rel_l1_distance.to(self.teacache_cache_device, non_blocking=self.use_non_blocking)
+                accumulated_rel_l1_distance = accumulated_rel_l1_distance.to(self.teacache_cache_device)
 
-            previous_modulated_input = e.clone() if (self.teacache_use_coefficients and self.teacache_mode == 'e') else e0.clone()
-            previous_modulated_input = previous_modulated_input.to(self.teacache_cache_device, non_blocking=self.use_non_blocking)
+            previous_modulated_input = e.to(self.teacache_cache_device).clone() if (self.teacache_use_coefficients and self.teacache_mode == 'e') else e0.to(self.teacache_cache_device).clone()
+           
             if not should_calc:
                 x = x.to(previous_residual.dtype) + previous_residual.to(x.device)
                 #log.info(f"TeaCache: Skipping uncond step {current_step+1}")
@@ -1369,7 +1369,7 @@ class WanModel(ModelMixin, ConfigMixin):
 
         if not self.enable_teacache or (self.enable_teacache and should_calc):
             if self.enable_teacache:
-                original_x = x.clone().to(self.teacache_cache_device, non_blocking=self.use_non_blocking)
+                original_x = x.to(self.teacache_cache_device).clone()
 
             if hasattr(self, "dwpose_embedding") and unianim_data is not None:
                 if unianim_data['start_percent'] <= current_step_percentage <= unianim_data['end_percent']:
