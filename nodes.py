@@ -1956,6 +1956,8 @@ class WanVideoVACEEncode:
         }
 
         if prev_vace_embeds is not None:
+            if "additional_vace_inputs" in prev_vace_embeds and prev_vace_embeds["additional_vace_inputs"]:
+                vace_input["additional_vace_inputs"] = prev_vace_embeds["additional_vace_inputs"].copy()
             vace_input["additional_vace_inputs"].append(prev_vace_embeds)
     
         return (vace_input,)
