@@ -2419,6 +2419,8 @@ class WanVideoSampler:
             has_ref = image_embeds.get("has_ref", False)
             vace_context = image_embeds.get("vace_context", None)
             vace_scale = image_embeds.get("vace_scale", None)
+            if not isinstance(vace_scale, list):
+                vace_scale = [vace_scale] * (steps+1)
             vace_start_percent = image_embeds.get("vace_start_percent", 0.0)
             vace_end_percent = image_embeds.get("vace_end_percent", 1.0)
             vace_seqlen = image_embeds.get("vace_seq_len", None)
@@ -2437,9 +2439,12 @@ class WanVideoSampler:
                     for i in range(len(vace_additional_embeds)):
                         if vace_additional_embeds[i].get("has_ref", False):
                             has_ref = True
+                        vace_scale = vace_additional_embeds[i]["vace_scale"]
+                        if not isinstance(vace_scale, list):
+                            vace_scale = [vace_scale] * (steps+1)
                         vace_data.append({
                             "context": vace_additional_embeds[i]["vace_context"],
-                            "scale": vace_additional_embeds[i]["vace_scale"],
+                            "scale": vace_scale,
                             "start": vace_additional_embeds[i]["vace_start_percent"],
                             "end": vace_additional_embeds[i]["vace_end_percent"],
                             "seq_len": vace_additional_embeds[i]["vace_seq_len"]

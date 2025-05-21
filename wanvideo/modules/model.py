@@ -1405,7 +1405,7 @@ class WanModel(ModelMixin, ConfigMixin):
 
                             vace_hints = self.forward_vace(x, data["context"], data["seq_len"], kwargs)
                             vace_hint_list.append(vace_hints)
-                            vace_scale_list.append(data["scale"])
+                            vace_scale_list.append(data["scale"][current_step])
                 else:
                     vace_hints = self.forward_vace(x, vace_data, seq_len, kwargs)
                     vace_hint_list.append(vace_hints)
