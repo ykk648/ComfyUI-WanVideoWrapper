@@ -13,6 +13,7 @@ from .wanvideo.modules.t5 import T5EncoderModel
 from .wanvideo.utils.fm_solvers import (FlowDPMSolverMultistepScheduler,
                                get_sampling_sigmas, retrieve_timesteps)
 from .wanvideo.utils.fm_solvers_unipc import FlowUniPCMultistepScheduler
+from .wanvideo.utils.basic_flowmatch import FlowMatchScheduler
 from diffusers.schedulers import FlowMatchEulerDiscreteScheduler, DEISMultistepScheduler
 from .wanvideo.utils.scheduling_flow_match_lcm import FlowMatchLCMScheduler
 
@@ -413,7 +414,6 @@ class WanVideoVACEModelSelect:
         return {
             "required": {
                 "vace_model": (folder_paths.get_filename_list("diffusion_models"), {"tooltip": "These models are loaded from the 'ComfyUI/models/diffusion_models' VACE model to use when not using model that has it included"}),
-                "vace_blocks": ("STRING", {"default": "0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28", "multiline": True, "tooltip": "Blocks to apply VACE to, default is for 1.3B model"}),
             },
         }
 
@@ -423,10 +423,9 @@ class WanVideoVACEModelSelect:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "VACE model to use when not using model that has it included, loaded from 'ComfyUI/models/diffusion_models'"
 
-    def getvacepath(self, vace_model, vace_blocks):
+    def getvacepath(self, vace_model):
         vace_model = {
             "path": folder_paths.get_full_path("diffusion_models", vace_model),
-            "blocks": [int(x.strip()) for x in vace_blocks.split(",")],
         }
         return (vace_model,)
 
@@ -465,7 +464,7 @@ class WanVideoModelLoader:
                 "model": (folder_paths.get_filename_list("diffusion_models"), {"tooltip": "These models are loaded from the 'ComfyUI/models/diffusion_models' -folder",}),
 
             "base_precision": (["fp32", "bf16", "fp16", "fp16_fast"], {"default": "bf16"}),
-            "quantization": (['disabled', 'fp8_e4m3fn', 'fp8_e4m3fn_fast', 'fp8_e5m2', 'fp8_e4m3fn_fast_no_ffn', 'torchao_fp8dq', "torchao_fp8dqrow", "torchao_int8dq", "torchao_fp6", "torchao_int4", "torchao_int8"], {"default": 'disabled', "tooltip": "optional quantization method"}),
+            "quantization": (['disabled', 'fp8_e4m3fn', 'fp8_e4m3fn_fast', 'fp8_e5m2', 'fp8_e4m3fn_fast_no_ffn'], {"default": 'disabled', "tooltip": "optional quantization method"}),
             "load_device": (["main_device", "offload_device"], {"default": "main_device", "tooltip": "Initial device to load the model to, NOT recommended with the larger models unless you have 48GB+ VRAM"}),
             },
             "optional": {
@@ -474,6 +473,7 @@ class WanVideoModelLoader:
                     "flash_attn_2",
                     "flash_attn_3",
                     "sageattn",
+                    "flex_attention",
                     #"spargeattn", needs tuning
                     #"spargeattn_tune",
                     ], {"default": "sdpa"}),
@@ -534,6 +534,9 @@ class WanVideoModelLoader:
         model_path = folder_paths.get_full_path_or_raise("diffusion_models", model)
       
         sd = load_torch_file(model_path, device=transformer_load_device, safe_load=True)
+        
+        if "vace_blocks.0.after_proj.weight" in sd and not "patch_embedding.weight" in sd:
+            raise ValueError("You are attempting to load a VACE module as a WanVideo model, instead you should use the vace_model input and matching T2V base model")
 
         if vace_model is not None:
             vace_sd = load_torch_file(vace_model["path"], device=transformer_load_device, safe_load=True)
@@ -568,8 +571,8 @@ class WanVideoModelLoader:
         vace_layers, vace_in_dim = None, None
         if "vace_blocks.0.after_proj.weight" in sd:
             model_type = "t2v"
-            if vace_model is not None:
-                vace_layers = vace_model["blocks"]
+            if dim == 5120:
+                vace_layers = [0, 5, 10, 15, 20, 25, 30, 35]
             else:
                 vace_layers = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28]
             vace_in_dim = 96
@@ -661,142 +664,150 @@ class WanVideoModelLoader:
             model_type=comfy.model_base.ModelType.FLOW,
             device=device,
         )
-          
+        
+        if quantization == "disabled":
+            for k, v in sd.items():
+                if isinstance(v, torch.Tensor):
+                    if v.dtype == torch.float8_e4m3fn:
+                        quantization = "fp8_e4m3fn"
+                        break
+                    elif v.dtype == torch.float8_e5m2:
+                        quantization = "fp8_e5m2"
+                        break
 
-        if not "torchao" in quantization:
-            if "fp8_e4m3fn" in quantization:
-                dtype = torch.float8_e4m3fn
-            elif quantization == "fp8_e5m2":
-                dtype = torch.float8_e5m2
-            else:
-                dtype = base_dtype
-            params_to_keep = {"norm", "head", "bias", "time_in", "vector_in", "patch_embedding", "time_", "img_emb", "modulation", "text_embedding", "adapter"}
-            #if lora is not None:
-            #    transformer_load_device = device
-            if not lora_low_mem_load:
-                log.info("Using accelerate to load and assign model weights to device...")
-                param_count = sum(1 for _ in transformer.named_parameters())
-                for name, param in tqdm(transformer.named_parameters(), 
-                       desc=f"Loading transformer parameters to {transformer_load_device}", 
-                       total=param_count,
-                       leave=True):
-                    dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
-                    if "patch_embedding" in name:
-                        dtype_to_use = torch.float32
-                    set_module_tensor_to_device(transformer, name, device=transformer_load_device, dtype=dtype_to_use, value=sd[name])
-            comfy_model.diffusion_model = transformer
-            comfy_model.load_device = transformer_load_device
-            
-            patcher = comfy.model_patcher.ModelPatcher(comfy_model, device, offload_device)
-            patcher.model.is_patched = False
+        if "fp8_e4m3fn" in quantization:
+            dtype = torch.float8_e4m3fn
+        elif quantization == "fp8_e5m2":
+            dtype = torch.float8_e5m2
+        else:
+            dtype = base_dtype
+        params_to_keep = {"norm", "head", "bias", "time_in", "vector_in", "patch_embedding", "time_", "img_emb", "modulation", "text_embedding", "adapter"}
+        #if lora is not None:
+        #    transformer_load_device = device
+        if not lora_low_mem_load:
+            log.info("Using accelerate to load and assign model weights to device...")
+            param_count = sum(1 for _ in transformer.named_parameters())
+            for name, param in tqdm(transformer.named_parameters(), 
+                    desc=f"Loading transformer parameters to {transformer_load_device}", 
+                    total=param_count,
+                    leave=True):
+                dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
+                if "patch_embedding" in name:
+                    dtype_to_use = torch.float32
+                set_module_tensor_to_device(transformer, name, device=transformer_load_device, dtype=dtype_to_use, value=sd[name])
+        comfy_model.diffusion_model = transformer
+        comfy_model.load_device = transformer_load_device
+        
+        patcher = comfy.model_patcher.ModelPatcher(comfy_model, device, offload_device)
+        patcher.model.is_patched = False
 
-            control_lora = False
-            
-            if lora is not None:
-                for l in lora:
-                    log.info(f"Loading LoRA: {l['name']} with strength: {l['strength']}")
-                    lora_path = l["path"]
-                    lora_strength = l["strength"]
-                    lora_sd = load_torch_file(lora_path, safe_load=True)
-                    if "dwpose_embedding.0.weight" in lora_sd: #unianimate
-                        from .unianimate.nodes import update_transformer
-                        log.info("Unianimate LoRA detected, patching model...")
-                        transformer = update_transformer(transformer, lora_sd)
+        control_lora = False
+        
+        if lora is not None:
+            for l in lora:
+                log.info(f"Loading LoRA: {l['name']} with strength: {l['strength']}")
+                lora_path = l["path"]
+                lora_strength = l["strength"]
+                lora_sd = load_torch_file(lora_path, safe_load=True)
+                if "dwpose_embedding.0.weight" in lora_sd: #unianimate
+                    from .unianimate.nodes import update_transformer
+                    log.info("Unianimate LoRA detected, patching model...")
+                    transformer = update_transformer(transformer, lora_sd)
 
-                    lora_sd = standardize_lora_key_format(lora_sd)
-                    if l["blocks"]:
-                        lora_sd = filter_state_dict_by_blocks(lora_sd, l["blocks"])
+                lora_sd = standardize_lora_key_format(lora_sd)
+                if l["blocks"]:
+                    lora_sd = filter_state_dict_by_blocks(lora_sd, l["blocks"])
 
-                    #spacepxl's control LoRA patch
-                    # for key in lora_sd.keys():
-                    #     print(key)
-                    
-                    if "diffusion_model.patch_embedding.lora_A.weight" in lora_sd:
-                        log.info("Control-LoRA detected, patching model...")
-                        control_lora = True
-
-                        in_cls = transformer.patch_embedding.__class__ # nn.Conv3d
-                        old_in_dim = transformer.in_dim # 16
-                        new_in_dim = lora_sd["diffusion_model.patch_embedding.lora_A.weight"].shape[1]
-                        assert new_in_dim == 32
-                        
-                        new_in = in_cls(
-                            new_in_dim,
-                            transformer.patch_embedding.out_channels,
-                            transformer.patch_embedding.kernel_size,
-                            transformer.patch_embedding.stride,
-                            transformer.patch_embedding.padding,
-                        ).to(device=device, dtype=torch.float32)
-                        
-                        new_in.weight.zero_()
-                        new_in.bias.zero_()
-                        
-                        new_in.weight[:, :old_in_dim].copy_(transformer.patch_embedding.weight)
-                        new_in.bias.copy_(transformer.patch_embedding.bias)
-                        
-                        transformer.patch_embedding = new_in
-                        transformer.expanded_patch_embedding = new_in
-                        transformer.register_to_config(in_dim=new_in_dim)
-
-                    patcher, _ = load_lora_for_models(patcher, None, lora_sd, lora_strength, 0)
-                    
-                    del lora_sd
+                #spacepxl's control LoRA patch
+                # for key in lora_sd.keys():
+                #     print(key)
                 
-                patcher = apply_lora(patcher, device, transformer_load_device, params_to_keep=params_to_keep, dtype=dtype, base_dtype=base_dtype, state_dict=sd, low_mem_load=lora_low_mem_load)
-                #patcher.load(device, full_load=True)
-                patcher.model.is_patched = True
+                if "diffusion_model.patch_embedding.lora_A.weight" in lora_sd:
+                    log.info("Control-LoRA detected, patching model...")
+                    control_lora = True
 
+                    in_cls = transformer.patch_embedding.__class__ # nn.Conv3d
+                    old_in_dim = transformer.in_dim # 16
+                    new_in_dim = lora_sd["diffusion_model.patch_embedding.lora_A.weight"].shape[1]
+                    assert new_in_dim == 32
+                    
+                    new_in = in_cls(
+                        new_in_dim,
+                        transformer.patch_embedding.out_channels,
+                        transformer.patch_embedding.kernel_size,
+                        transformer.patch_embedding.stride,
+                        transformer.patch_embedding.padding,
+                    ).to(device=device, dtype=torch.float32)
+                    
+                    new_in.weight.zero_()
+                    new_in.bias.zero_()
+                    
+                    new_in.weight[:, :old_in_dim].copy_(transformer.patch_embedding.weight)
+                    new_in.bias.copy_(transformer.patch_embedding.bias)
+                    
+                    transformer.patch_embedding = new_in
+                    transformer.expanded_patch_embedding = new_in
+                    transformer.register_to_config(in_dim=new_in_dim)
+
+                patcher, _ = load_lora_for_models(patcher, None, lora_sd, lora_strength, 0)
+                
+                del lora_sd
             
-            
-            if "fast" in quantization:
-                from .fp8_optimization import convert_fp8_linear
-                if quantization == "fp8_e4m3fn_fast_no_ffn":
-                    params_to_keep.update({"ffn"})
-                print(params_to_keep)
-                convert_fp8_linear(patcher.model.diffusion_model, base_dtype, params_to_keep=params_to_keep)
+            patcher = apply_lora(patcher, device, transformer_load_device, params_to_keep=params_to_keep, dtype=dtype, base_dtype=base_dtype, state_dict=sd, low_mem_load=lora_low_mem_load)
+            #patcher.load(device, full_load=True)
+            patcher.model.is_patched = True
 
-            del sd
+        
+        
+        if "fast" in quantization:
+            from .fp8_optimization import convert_fp8_linear
+            if quantization == "fp8_e4m3fn_fast_no_ffn":
+                params_to_keep.update({"ffn"})
+            print(params_to_keep)
+            convert_fp8_linear(patcher.model.diffusion_model, base_dtype, params_to_keep=params_to_keep)
 
-            if vram_management_args is not None:
-                from .diffsynth.vram_management import enable_vram_management, AutoWrappedModule, AutoWrappedLinear
-                from .wanvideo.modules.model import WanLayerNorm, WanRMSNorm
+        del sd
 
-                total_params_in_model = sum(p.numel() for p in patcher.model.diffusion_model.parameters())
-                log.info(f"Total number of parameters in the loaded model: {total_params_in_model}")
+        if vram_management_args is not None:
+            from .diffsynth.vram_management import enable_vram_management, AutoWrappedModule, AutoWrappedLinear
+            from .wanvideo.modules.model import WanLayerNorm, WanRMSNorm
 
-                offload_percent = vram_management_args["offload_percent"]
-                offload_params = int(total_params_in_model * offload_percent)
-                params_to_keep = total_params_in_model - offload_params
-                log.info(f"Selected params to offload: {offload_params}")
-            
-                enable_vram_management(
-                    patcher.model.diffusion_model,
-                    module_map = {
-                        torch.nn.Linear: AutoWrappedLinear,
-                        torch.nn.Conv3d: AutoWrappedModule,
-                        torch.nn.LayerNorm: AutoWrappedModule,
-                        WanLayerNorm: AutoWrappedModule,
-                        WanRMSNorm: AutoWrappedModule,
-                    },
-                    module_config = dict(
-                        offload_dtype=dtype,
-                        offload_device=offload_device,
-                        onload_dtype=dtype,
-                        onload_device=device,
-                        computation_dtype=base_dtype,
-                        computation_device=device,
-                    ),
-                    max_num_param=params_to_keep,
-                    overflow_module_config = dict(
-                        offload_dtype=dtype,
-                        offload_device=offload_device,
-                        onload_dtype=dtype,
-                        onload_device=offload_device,
-                        computation_dtype=base_dtype,
-                        computation_device=device,
-                    ),
-                    compile_args = compile_args,
-                )
+            total_params_in_model = sum(p.numel() for p in patcher.model.diffusion_model.parameters())
+            log.info(f"Total number of parameters in the loaded model: {total_params_in_model}")
+
+            offload_percent = vram_management_args["offload_percent"]
+            offload_params = int(total_params_in_model * offload_percent)
+            params_to_keep = total_params_in_model - offload_params
+            log.info(f"Selected params to offload: {offload_params}")
+        
+            enable_vram_management(
+                patcher.model.diffusion_model,
+                module_map = {
+                    torch.nn.Linear: AutoWrappedLinear,
+                    torch.nn.Conv3d: AutoWrappedModule,
+                    torch.nn.LayerNorm: AutoWrappedModule,
+                    WanLayerNorm: AutoWrappedModule,
+                    WanRMSNorm: AutoWrappedModule,
+                },
+                module_config = dict(
+                    offload_dtype=dtype,
+                    offload_device=offload_device,
+                    onload_dtype=dtype,
+                    onload_device=device,
+                    computation_dtype=base_dtype,
+                    computation_device=device,
+                ),
+                max_num_param=params_to_keep,
+                overflow_module_config = dict(
+                    offload_dtype=dtype,
+                    offload_device=offload_device,
+                    onload_dtype=dtype,
+                    onload_device=offload_device,
+                    computation_dtype=base_dtype,
+                    computation_device=device,
+                ),
+                compile_args = compile_args,
+            )
 
             #compile
             if compile_args is not None and vram_management_args is None:
@@ -820,66 +831,6 @@ class WanVideoModelLoader:
                 patcher.model.diffusion_model.to(offload_device)
                 gc.collect()
                 mm.soft_empty_cache()
-
-        elif "torchao" in quantization:
-            try:
-                from torchao.quantization import (
-                quantize_,
-                fpx_weight_only,
-                float8_dynamic_activation_float8_weight,
-                int8_dynamic_activation_int8_weight,
-                int8_weight_only,
-                int4_weight_only
-            )
-            except:
-                raise ImportError("torchao is not installed")
-
-            # def filter_fn(module: nn.Module, fqn: str) -> bool:
-            #     target_submodules = {'attn1', 'ff'} # avoid norm layers, 1.5 at least won't work with quantized norm1 #todo: test other models
-            #     if any(sub in fqn for sub in target_submodules):
-            #         return isinstance(module, nn.Linear)
-            #     return False
-
-            if "fp6" in quantization:
-                quant_func = fpx_weight_only(3, 2)
-            elif "int4" in quantization:
-                quant_func = int4_weight_only()
-            elif "int8" in quantization:
-                quant_func = int8_weight_only()
-            elif "fp8dq" in quantization:
-                quant_func = float8_dynamic_activation_float8_weight()
-            elif 'fp8dqrow' in quantization:
-                from torchao.quantization.quant_api import PerRow
-                quant_func = float8_dynamic_activation_float8_weight(granularity=PerRow())
-            elif 'int8dq' in quantization:
-                quant_func = int8_dynamic_activation_int8_weight()
-
-            log.info(f"Quantizing model with {quant_func}")
-            comfy_model.diffusion_model = transformer
-            patcher = comfy.model_patcher.ModelPatcher(comfy_model, device, offload_device)
-
-            for i, block in enumerate(patcher.model.diffusion_model.blocks):
-                log.info(f"Quantizing block {i}")
-                for name, _ in block.named_parameters(prefix=f"blocks.{i}"):
-                    #print(f"Parameter name: {name}")
-                    set_module_tensor_to_device(patcher.model.diffusion_model, name, device=transformer_load_device, dtype=base_dtype, value=sd[name])
-                if compile_args is not None:
-                    patcher.model.diffusion_model.blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
-                quantize_(block, quant_func)
-                print(block)
-                #block.to(offload_device)
-            for name, param in patcher.model.diffusion_model.named_parameters():
-                if "blocks" not in name:
-                    set_module_tensor_to_device(patcher.model.diffusion_model, name, device=transformer_load_device, dtype=base_dtype, value=sd[name])
-
-            manual_offloading = False # to disable manual .to(device) calls
-            log.info(f"Quantized transformer blocks to {quantization}")
-            for name, param in patcher.model.diffusion_model.named_parameters():
-                print(name, param.dtype)
-                #param.data = param.data.to(self.vae_dtype).to(device)
-
-            del sd
-            mm.soft_empty_cache()
 
         patcher.model["dtype"] = base_dtype
         patcher.model["base_path"] = model_path
@@ -1603,6 +1554,8 @@ class WanVideoImageToVideoEncode:
                 "fun_or_fl2v_model": ("BOOLEAN", {"default": True, "tooltip": "Enable when using official FLF2V or Fun model"}),
                 "temporal_mask": ("MASK", {"tooltip": "mask"}),
                 "extra_latents": ("LATENT", {"tooltip": "Extra latents to add to the input front, used for Skyreels A2 reference images"}),
+                "tiled_vae": ("BOOLEAN", {"default": False, "tooltip": "Use tiled VAE encoding for reduced memory use"}),
+
             }
         }
 
@@ -1613,7 +1566,7 @@ class WanVideoImageToVideoEncode:
 
     def process(self, vae, width, height, num_frames, force_offload, noise_aug_strength, 
                 start_latent_strength, end_latent_strength, start_image=None, end_image=None, control_embeds=None, fun_or_fl2v_model=False, 
-                temporal_mask=None, extra_latents=None, clip_embeds=None):
+                temporal_mask=None, extra_latents=None, clip_embeds=None, tiled_vae=False):
 
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
@@ -1691,7 +1644,7 @@ class WanVideoImageToVideoEncode:
             temporal_mask = common_upscale(temporal_mask.unsqueeze(1), W, H, "nearest", "disabled").squeeze(1)
             concatenated = resized_start_image[:,:num_frames] * temporal_mask[:num_frames].unsqueeze(0)
 
-        y = vae.encode([concatenated.to(device=device, dtype=vae.dtype)], device, end_=(end_image is not None and not fun_or_fl2v_model))[0]
+        y = vae.encode([concatenated.to(device=device, dtype=vae.dtype)], device, end_=(end_image is not None and not fun_or_fl2v_model),tiled=tiled_vae)[0]
         has_ref = False
         if extra_latents is not None:
             samples = extra_latents["samples"].squeeze(0)
@@ -2003,6 +1956,8 @@ class WanVideoVACEEncode:
         }
 
         if prev_vace_embeds is not None:
+            if "additional_vace_inputs" in prev_vace_embeds and prev_vace_embeds["additional_vace_inputs"]:
+                vace_input["additional_vace_inputs"] = prev_vace_embeds["additional_vace_inputs"].copy()
             vace_input["additional_vace_inputs"].append(prev_vace_embeds)
     
         return (vace_input,)
@@ -2309,7 +2264,7 @@ class WanVideoSampler:
                 "shift": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 1000.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "force_offload": ("BOOLEAN", {"default": True, "tooltip": "Moves the model to the offload device after sampling"}),
-                "scheduler": (["unipc", "unipc/beta", "dpm++", "dpm++/beta","dpm++_sde", "dpm++_sde/beta", "euler", "euler/beta", "deis", "lcm", "lcm/beta"],
+                "scheduler": (["unipc", "unipc/beta", "dpm++", "dpm++/beta","dpm++_sde", "dpm++_sde/beta", "euler", "euler/beta", "deis", "lcm", "lcm/beta", "flowmatch_causvid"],
                     {
                         "default": 'unipc'
                     }),
@@ -2390,10 +2345,21 @@ class WanVideoSampler:
             sample_scheduler.sigmas[-1] = 1e-6
         elif 'lcm' in scheduler:
             sample_scheduler = FlowMatchLCMScheduler(shift=shift, use_beta_sigmas=(scheduler == 'lcm/beta'))
-            sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None) 
+            sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
+        elif 'flowmatch_causvid' in scheduler:
+            if transformer.dim == 5120:
+                denoising_list = [999, 934, 862, 756, 603, 410, 250, 140, 74]
+            else:
+                if steps != 3:
+                    raise ValueError("CausVid 1.3B schedule is only for 3 steps")
+                denoising_list = [1000, 757, 522]
+            sample_scheduler = FlowMatchScheduler(num_inference_steps=steps, shift=shift, sigma_min=0, extra_one_step=True)
+            sample_scheduler.timesteps = torch.tensor(denoising_list)[:steps].to(device)
+            sample_scheduler.sigmas = torch.cat([sample_scheduler.timesteps / 1000, torch.tensor([0.0], device=device)])
         
         if timesteps is None:
             timesteps = sample_scheduler.timesteps
+            print("timesteps: ", timesteps)
         
         if denoise_strength < 1.0:
             steps = int(steps * denoise_strength)
@@ -2455,6 +2421,8 @@ class WanVideoSampler:
             has_ref = image_embeds.get("has_ref", False)
             vace_context = image_embeds.get("vace_context", None)
             vace_scale = image_embeds.get("vace_scale", None)
+            if not isinstance(vace_scale, list):
+                vace_scale = [vace_scale] * (steps+1)
             vace_start_percent = image_embeds.get("vace_start_percent", 0.0)
             vace_end_percent = image_embeds.get("vace_end_percent", 1.0)
             vace_seqlen = image_embeds.get("vace_seq_len", None)
@@ -2473,9 +2441,12 @@ class WanVideoSampler:
                     for i in range(len(vace_additional_embeds)):
                         if vace_additional_embeds[i].get("has_ref", False):
                             has_ref = True
+                        vace_scale = vace_additional_embeds[i]["vace_scale"]
+                        if not isinstance(vace_scale, list):
+                            vace_scale = [vace_scale] * (steps+1)
                         vace_data.append({
                             "context": vace_additional_embeds[i]["vace_context"],
-                            "scale": vace_additional_embeds[i]["vace_scale"],
+                            "scale": vace_scale,
                             "start": vace_additional_embeds[i]["vace_start_percent"],
                             "end": vace_additional_embeds[i]["vace_end_percent"],
                             "seq_len": vace_additional_embeds[i]["vace_seq_len"]
@@ -2544,12 +2515,10 @@ class WanVideoSampler:
         latent_video_length = noise.shape[1]
         
         if unianimate_poses is not None:
-            transformer.dwpose_embedding.to(device)
-            transformer.randomref_embedding_pose.to(device)
-            dwpose_data = unianimate_poses["pose"]
-            dwpose_data = transformer.dwpose_embedding(
-                (torch.cat([dwpose_data[:,:,:1].repeat(1,1,3,1,1), dwpose_data], dim=2)
-                    ).to(device)).to(model["dtype"])
+            transformer.dwpose_embedding.to(device, model["dtype"])
+            dwpose_data = unianimate_poses["pose"].to(device, model["dtype"])
+            dwpose_data = torch.cat([dwpose_data[:,:,:1].repeat(1,1,3,1,1), dwpose_data], dim=2)
+            dwpose_data = transformer.dwpose_embedding(dwpose_data)
             log.info(f"UniAnimate pose embed shape: {dwpose_data.shape}")
             if dwpose_data.shape[2] > latent_video_length:
                 log.warning(f"UniAnimate pose embed length {dwpose_data.shape[2]} is longer than the video length {latent_video_length}, truncating")
@@ -2563,6 +2532,7 @@ class WanVideoSampler:
             
             random_ref_dwpose_data = None
             if image_cond is not None:
+                transformer.randomref_embedding_pose.to(device)
                 random_ref_dwpose = unianimate_poses.get("ref", None)
                 if random_ref_dwpose is not None:
                     random_ref_dwpose_data = transformer.randomref_embedding_pose(
@@ -3308,29 +3278,29 @@ class WanVideoSampler:
                 step_args = {
                     "generator": seed_g,
                 }
-                if isinstance(sample_scheduler, DEISMultistepScheduler):
+                if isinstance(sample_scheduler, DEISMultistepScheduler) or isinstance(sample_scheduler, FlowMatchScheduler):
                     step_args.pop("generator", None)
                 temp_x0 = sample_scheduler.step(
                     noise_pred[:, :orig_noise_len].unsqueeze(0) if recammaster is not None else noise_pred.unsqueeze(0),
                     t,
                     latent[:, :orig_noise_len].unsqueeze(0) if recammaster is not None else latent.unsqueeze(0),
-                    return_dict=False,
+                    #return_dict=False,
                     **step_args)[0]
                 latent = temp_x0.squeeze(0)
 
                 x0 = latent.to(device)
                 if callback is not None:
                     if recammaster is not None:
-                        callback_latent = (latent_model_input[:, :orig_noise_len] - noise_pred[:, :orig_noise_len].to(t.device) * t / 1000).detach().permute(1,0,2,3)
+                        callback_latent = (latent_model_input[:, :orig_noise_len].to(device) - noise_pred[:, :orig_noise_len].to(device) * t.to(device) / 1000).detach().permute(1,0,2,3)
                     else:
-                        callback_latent = (latent_model_input - noise_pred.to(t.device) * t / 1000).detach().permute(1,0,2,3)
+                        callback_latent = (latent_model_input.to(device) - noise_pred.to(device) * t.to(device) / 1000).detach().permute(1,0,2,3)
                     callback(idx, callback_latent, None, steps)
                 else:
                     pbar.update(1)
                 del latent_model_input, timestep
             else:
                 if callback is not None:
-                    callback_latent = (zt_tgt - vt_tgt.to(t.device) * t / 1000).detach().permute(1,0,2,3)
+                    callback_latent = (zt_tgt.to(device) - vt_tgt.to(device) * t.to(device) / 1000).detach().permute(1,0,2,3)
                     callback(idx, callback_latent, None, steps)
                 else:
                     pbar.update(1)
