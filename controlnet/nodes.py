@@ -27,6 +27,7 @@ class WanVideoControlnetLoader:
     RETURN_NAMES = ("controlnet", )
     FUNCTION = "loadmodel"
     CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Loads ControlNet model from 'https://huggingface.co/collections/TheDenk/wan21-controlnets-68302b430411dafc0d74d2fc'"
 
     def loadmodel(self, model, base_precision, load_device, quantization):
 
@@ -41,7 +42,8 @@ class WanVideoControlnetLoader:
       
         sd = load_torch_file(model_path, device=transformer_load_device, safe_load=True)
 
-        out_proj_dim = sd["patch_embedding.bias"].shape[0]
+        num_layers = 8 if "blocks.7.scale_shift_table" in sd else 6
+        out_proj_dim = 5120 if num_layers == 6 else 1536
 
         if not "control_encoder.0.0.weight" in sd:
             raise ValueError("Invalid ControlNet model")
@@ -57,7 +59,7 @@ class WanVideoControlnetLoader:
             "image_dim": None,
             "in_channels": 3,
             "num_attention_heads": 12,
-            "num_layers": 6 if out_proj_dim == 5120 else 8,
+            "num_layers": num_layers,
             "out_proj_dim": out_proj_dim,
             "patch_size": [
                 1,
