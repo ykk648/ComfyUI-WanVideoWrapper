@@ -1162,6 +1162,7 @@ class WanModel(ModelMixin, ConfigMixin):
         audio_context_lens=None,
         audio_scale=1.0,
         pcd_data=None,
+        controlnet=None,
         
     ):
         r"""
@@ -1424,14 +1425,13 @@ class WanModel(ModelMixin, ConfigMixin):
             #uni3c controlnet
             if pcd_data is not None:
                 self.controlnet.to(self.main_device)
-                controlnet_states = self.controlnet(
+                pdc_controlnet_states = self.controlnet(
                     render_latent=render_latent.to(self.main_device), 
                     render_mask=pcd_data["render_mask"], 
                     camera_embedding=pcd_data["camera_embedding"], 
                     temb=e.to(self.main_device),
                     device=self.offload_device)
                 self.controlnet.to(self.offload_device)
-                
 
             for b, block in enumerate(self.blocks):
                 if self.slg_blocks is not None:
@@ -1444,8 +1444,10 @@ class WanModel(ModelMixin, ConfigMixin):
 
                 #uni3c controlnet
                 if pcd_data is not None:
-                    if b < len(controlnet_states):
-                        x += controlnet_states[b].to(x.device)
+                    if b < len(pdc_controlnet_states):
+                        x += pdc_controlnet_states[b].to(x.device)
+                if (controlnet is not None) and (b % controlnet["controlnet_stride"] == 0) and (b // controlnet["controlnet_stride"] < len(controlnet["controlnet_states"])):
+                    x += controlnet["controlnet_states"][b // controlnet["controlnet_stride"]] * controlnet["controlnet_weight"]
 
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.offload_device, non_blocking=self.use_non_blocking)

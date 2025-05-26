@@ -2279,7 +2279,7 @@ class WanVideoSampler:
                 "context_options": ("WANVIDCONTEXT", ),
                 "teacache_args": ("TEACACHEARGS", ),
                 "flowedit_args": ("FLOWEDITARGS", ),
-                "batched_cfg": ("BOOLEAN", {"default": False, "tooltip": "Batc cond and uncond for faster sampling, possibly faster on some hardware, uses more memory"}),
+                "batched_cfg": ("BOOLEAN", {"default": False, "tooltip": "Batch cond and uncond for faster sampling, possibly faster on some hardware, uses more memory"}),
                 "slg_args": ("SLGARGS", ),
                 "rope_function": (["default", "comfy"], {"default": "comfy", "tooltip": "Comfy's RoPE implementation doesn't use complex numbers and can thus be compiled, that should be a lot faster when using torch.compile"}),
                 "loop_args": ("LOOPARGS", ),
@@ -2707,6 +2707,18 @@ class WanVideoSampler:
         elif model["manual_offloading"]:
             transformer.to(device)
 
+        #controlnet
+        controlnet_latents = controlnet = None
+        if transformer_options is not None:
+            controlnet = transformer_options.get("controlnet", None)
+            if controlnet is not None:
+                self.controlnet = controlnet["controlnet"]
+                controlnet_start = controlnet["controlnet_start"]
+                controlnet_end = controlnet["controlnet_end"]
+                controlnet_latents = controlnet["control_latents"]
+                controlnet["controlnet_weight"] = controlnet["controlnet_strength"]
+                controlnet["controlnet_stride"] = controlnet["control_stride"]
+
         #uni3c
         pcd_data = None
         if uni3c_embeds is not None:
@@ -2878,6 +2890,21 @@ class WanVideoSampler:
                             teacache_state.append(None)
                 if not use_phantom:
                     z_pos = z_neg = z
+
+                if controlnet_latents is not None:
+                    if (controlnet_start <= current_step_percentage < controlnet_end):
+                        controlnet_states = self.controlnet(
+                            hidden_states=latent_model_input.unsqueeze(0).to(self.controlnet.dtype),
+                            timestep=timestep,
+                            encoder_hidden_states=positive_embeds[0].unsqueeze(0).to(self.controlnet.dtype),
+                            attention_kwargs=None,
+                            controlnet_states=controlnet_latents.to(self.controlnet.dtype).to(self.controlnet.device),
+                            return_dict=False,
+                        )[0]
+                        if isinstance(controlnet_states, (tuple, list)):
+                            controlnet["controlnet_states"] = [x.to(latent_model_input) for x in controlnet_states]
+                        else:
+                            controlnet["controlnet_states"] = controlnet_states.to(latent_model_input)
                  
                 base_params = {
                     'seq_len': seq_len,
@@ -2893,7 +2920,8 @@ class WanVideoSampler:
                     'audio_proj': audio_proj if fantasytalking_embeds is not None else None,
                     'audio_context_lens': audio_context_lens if fantasytalking_embeds is not None else None,
                     'audio_scale': audio_scale if fantasytalking_embeds is not None else None,
-                    "pcd_data": pcd_data
+                    "pcd_data": pcd_data,
+                    "controlnet": controlnet
                 }
 
                 batch_size = 1
