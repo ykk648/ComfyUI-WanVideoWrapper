@@ -809,28 +809,28 @@ class WanVideoModelLoader:
                 compile_args = compile_args,
             )
 
-            #compile
-            if compile_args is not None and vram_management_args is None:
-                torch._dynamo.config.cache_size_limit = compile_args["dynamo_cache_size_limit"]
-                try:
-                    if hasattr(torch, '_dynamo') and hasattr(torch._dynamo, 'config'):
-                        torch._dynamo.config.recompile_limit = compile_args["dynamo_recompile_limit"]
-                except Exception as e:
-                    log.warning(f"Could not set recompile_limit: {e}")
-                if compile_args["compile_transformer_blocks_only"]:
-                    for i, block in enumerate(patcher.model.diffusion_model.blocks):
-                        patcher.model.diffusion_model.blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
-                    if vace_layers is not None:
-                        for i, block in enumerate(patcher.model.diffusion_model.vace_blocks):
-                            patcher.model.diffusion_model.vace_blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
-                else:
-                    patcher.model.diffusion_model = torch.compile(patcher.model.diffusion_model, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])        
-            
-            if load_device == "offload_device" and patcher.model.diffusion_model.device != offload_device:
-                log.info(f"Moving diffusion model from {patcher.model.diffusion_model.device} to {offload_device}")
-                patcher.model.diffusion_model.to(offload_device)
-                gc.collect()
-                mm.soft_empty_cache()
+        #compile
+        if compile_args is not None and vram_management_args is None:
+            torch._dynamo.config.cache_size_limit = compile_args["dynamo_cache_size_limit"]
+            try:
+                if hasattr(torch, '_dynamo') and hasattr(torch._dynamo, 'config'):
+                    torch._dynamo.config.recompile_limit = compile_args["dynamo_recompile_limit"]
+            except Exception as e:
+                log.warning(f"Could not set recompile_limit: {e}")
+            if compile_args["compile_transformer_blocks_only"]:
+                for i, block in enumerate(patcher.model.diffusion_model.blocks):
+                    patcher.model.diffusion_model.blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
+                if vace_layers is not None:
+                    for i, block in enumerate(patcher.model.diffusion_model.vace_blocks):
+                        patcher.model.diffusion_model.vace_blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
+            else:
+                patcher.model.diffusion_model = torch.compile(patcher.model.diffusion_model, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])        
+        
+        if load_device == "offload_device" and patcher.model.diffusion_model.device != offload_device:
+            log.info(f"Moving diffusion model from {patcher.model.diffusion_model.device} to {offload_device}")
+            patcher.model.diffusion_model.to(offload_device)
+            gc.collect()
+            mm.soft_empty_cache()
 
         patcher.model["dtype"] = base_dtype
         patcher.model["base_path"] = model_path
@@ -2335,8 +2335,8 @@ class WanVideoSampler:
             sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
             start_latent_list = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
             sample_scheduler.sigmas = sample_scheduler.sigmas[start_latent_list]
-            num_inference_steps = len(start_latent_list) - 1
-            sample_scheduler.timesteps = timesteps = sample_scheduler.timesteps[start_latent_list[:num_inference_steps]]
+            steps = len(start_latent_list) - 1
+            sample_scheduler.timesteps = timesteps = sample_scheduler.timesteps[start_latent_list[:steps]]
         elif 'dpm++' in scheduler:
             if 'sde' in scheduler:
                 algorithm_type = "sde-dpmsolver++"
@@ -2369,7 +2369,7 @@ class WanVideoSampler:
         
         if timesteps is None:
             timesteps = sample_scheduler.timesteps
-            print("timesteps: ", timesteps)
+        log.info(f"timesteps: {timesteps}")
         
         if denoise_strength < 1.0:
             steps = int(steps * denoise_strength)
