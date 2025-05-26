@@ -2264,7 +2264,7 @@ class WanVideoSampler:
                 "shift": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 1000.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "force_offload": ("BOOLEAN", {"default": True, "tooltip": "Moves the model to the offload device after sampling"}),
-                "scheduler": (["unipc", "unipc/beta", "dpm++", "dpm++/beta","dpm++_sde", "dpm++_sde/beta", "euler", "euler/beta", "deis", "lcm", "lcm/beta", "flowmatch_causvid"],
+                "scheduler": (["unipc", "unipc/beta", "dpm++", "dpm++/beta","dpm++_sde", "dpm++_sde/beta", "euler", "euler/beta", "euler/accvideo", "deis", "lcm", "lcm/beta", "flowmatch_causvid"],
                     {
                         "default": 'unipc'
                     }),
@@ -2287,6 +2287,7 @@ class WanVideoSampler:
                 "sigmas": ("SIGMAS", ),
                 "unianimate_poses": ("UNIANIMATE_POSE", ),
                 "fantasytalking_embeds": ("FANTASYTALKING_EMBEDS", ),
+                "uni3c_embeds": ("UNI3C_EMBEDS", ),
             }
         }
 
@@ -2298,7 +2299,7 @@ class WanVideoSampler:
     def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
         force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, 
         teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None, 
-        experimental_args=None, sigmas=None, unianimate_poses=None, fantasytalking_embeds=None):
+        experimental_args=None, sigmas=None, unianimate_poses=None, fantasytalking_embeds=None, uni3c_embeds=None):
         #assert not (context_options and teacache_args), "Context options cannot currently be used together with teacache."
         patcher = model
         model = model.model
@@ -2326,7 +2327,16 @@ class WanVideoSampler:
             if flowedit_args: #seems to work better
                 timesteps, _ = retrieve_timesteps(sample_scheduler, device=device, sigmas=get_sampling_sigmas(steps, shift))
             else:
-                sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None) 
+                sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
+        elif scheduler in ['euler/accvideo']:
+            if steps != 50:
+                raise Exception("Steps must be set to 50 for accvideo scheduler, 10 actual steps are used")
+            sample_scheduler = FlowMatchEulerDiscreteScheduler(shift=shift, use_beta_sigmas=(scheduler == 'euler/beta'))
+            sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
+            start_latent_list = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+            sample_scheduler.sigmas = sample_scheduler.sigmas[start_latent_list]
+            num_inference_steps = len(start_latent_list) - 1
+            sample_scheduler.timesteps = timesteps = sample_scheduler.timesteps[start_latent_list[:num_inference_steps]]
         elif 'dpm++' in scheduler:
             if 'sde' in scheduler:
                 algorithm_type = "sde-dpmsolver++"
@@ -2696,6 +2706,17 @@ class WanVideoSampler:
                     module.onload()
         elif model["manual_offloading"]:
             transformer.to(device)
+
+        #uni3c
+        pcd_data = None
+        if uni3c_embeds is not None:
+            transformer.controlnet = uni3c_embeds["controlnet"]
+            pcd_data = {
+                "render_latent": uni3c_embeds["render_latent"],
+                "render_mask": uni3c_embeds["render_mask"],
+                "camera_embedding": uni3c_embeds["camera_embedding"],
+            }
+
         #feta
         if feta_args is not None and latent_video_length > 1:
             set_enhance_weight(feta_args["weight"])
@@ -2872,6 +2893,7 @@ class WanVideoSampler:
                     'audio_proj': audio_proj if fantasytalking_embeds is not None else None,
                     'audio_context_lens': audio_context_lens if fantasytalking_embeds is not None else None,
                     'audio_scale': audio_scale if fantasytalking_embeds is not None else None,
+                    "pcd_data": pcd_data
                 }
 
                 batch_size = 1
