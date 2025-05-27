@@ -2312,6 +2312,11 @@ class WanVideoSampler:
         
         steps = int(steps/denoise_strength)
 
+        if isinstance(cfg, list):
+            if steps != len(cfg):
+                log.info(f"Received {len(cfg)} cfg values, but only {steps} steps. Setting step count to match.")
+                steps = len(cfg)
+
         timesteps = None
         if 'unipc' in scheduler:
             sample_scheduler = FlowUniPCMultistepScheduler(shift=shift)
