@@ -570,6 +570,8 @@ class WanVideoModelLoader:
 
         vace_layers, vace_in_dim = None, None
         if "vace_blocks.0.after_proj.weight" in sd:
+            if in_channels != 16:
+                raise ValueError("VACE only works properly with T2V models.")
             model_type = "t2v"
             if dim == 5120:
                 vace_layers = [0, 5, 10, 15, 20, 25, 30, 35]
@@ -1759,6 +1761,8 @@ class WanVideoPhantomEmbeds:
         if phantom_latent_4 is not None:
             samples = torch.cat([samples, phantom_latent_4["samples"].squeeze(0)], dim=1)
         C, T, H, W = samples.shape
+
+        log.info(f"Phantom latents shape: {samples.shape}")
 
         target_shape = (16, (num_frames - 1) // vae_stride[0] + 1 + T,
                         H * 8 // vae_stride[1],
