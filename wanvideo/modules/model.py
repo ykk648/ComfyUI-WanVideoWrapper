@@ -1451,7 +1451,7 @@ class WanModel(ModelMixin, ConfigMixin):
                     x += pdc_controlnet_states[b].to(x) * pcd_data["controlnet_weight"]
                 #controlnet
                 if (controlnet is not None) and (b % controlnet["controlnet_stride"] == 0) and (b // controlnet["controlnet_stride"] < len(controlnet["controlnet_states"])):
-                    x += controlnet["controlnet_states"][b // controlnet["controlnet_stride"]] * controlnet["controlnet_weight"]
+                    x += controlnet["controlnet_states"][b // controlnet["controlnet_stride"]].to(x) * controlnet["controlnet_weight"]
 
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.offload_device, non_blocking=self.use_non_blocking)

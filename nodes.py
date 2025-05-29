@@ -2907,12 +2907,13 @@ class WanVideoSampler:
 
                 if controlnet_latents is not None:
                     if (controlnet_start <= current_step_percentage < controlnet_end):
+                        self.controlnet.to(device)
                         controlnet_states = self.controlnet(
-                            hidden_states=latent_model_input.unsqueeze(0).to(self.controlnet.dtype),
+                            hidden_states=latent_model_input.unsqueeze(0).to(device, self.controlnet.dtype),
                             timestep=timestep,
-                            encoder_hidden_states=positive_embeds[0].unsqueeze(0).to(self.controlnet.dtype),
+                            encoder_hidden_states=positive_embeds[0].unsqueeze(0).to(device, self.controlnet.dtype),
                             attention_kwargs=None,
-                            controlnet_states=controlnet_latents.to(self.controlnet.dtype).to(self.controlnet.device),
+                            controlnet_states=controlnet_latents.to(device, self.controlnet.dtype),
                             return_dict=False,
                         )[0]
                         if isinstance(controlnet_states, (tuple, list)):
