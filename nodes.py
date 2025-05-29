@@ -2738,6 +2738,9 @@ class WanVideoSampler:
                 "render_latent": uni3c_embeds["render_latent"],
                 "render_mask": uni3c_embeds["render_mask"],
                 "camera_embedding": uni3c_embeds["camera_embedding"],
+                "controlnet_weight": uni3c_embeds["controlnet_weight"],
+                "start": uni3c_embeds["start"],
+                "end": uni3c_embeds["end"],
             }
 
         #feta

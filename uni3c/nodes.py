@@ -137,12 +137,12 @@ class WanVideoUni3C_embeds:
         return {"required": {
             "controlnet": ("WANVIDEOCONTROLNET",),
             "render_latent": ("LATENT",),
-            # "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.001}),
-            # "vace_start_percent": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Start percent of the steps to apply VACE"}),
-            # "vace_end_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "End percent of the steps to apply VACE"}),
+            "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.001}),
+            "start_percent": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Start percent of the steps to apply the controlnet"}),
+            "end_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "End percent of the steps to apply the controlnet"}),
             },
             "optional": {
-                "render_mask": ("MASK",),
+                "render_mask": ("MASK", {"tooltip": "NOT IMPLEMENTED!"}),
             },
         }
 
@@ -151,7 +151,7 @@ class WanVideoUni3C_embeds:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, controlnet, render_latent, render_mask=None):
+    def process(self, controlnet, render_latent, strength, start_percent, end_percent, render_mask=None):
 
         device = mm.get_torch_device()
 
@@ -163,6 +163,7 @@ class WanVideoUni3C_embeds:
         width = latents.shape[4] * 8
         
         if render_mask is not None:
+            raise NotImplementedError("render_mask is not implemented at this time")
             mask = torch.nn.functional.interpolate(
                     render_mask.unsqueeze(0).unsqueeze(0),  # Add batch and channel dims [1,1,T,H,W]
                     size=(nframe, height, width),
@@ -218,6 +219,9 @@ class WanVideoUni3C_embeds:
 
         uni3c_embeds = {
             "controlnet": controlnet,
+            "controlnet_weight": strength,
+            "start": start_percent,
+            "end": end_percent,
             "render_latent": latents.to(device),
             "render_mask": latent_mask,
             "camera_embedding": None
