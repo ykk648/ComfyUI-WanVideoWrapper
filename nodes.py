@@ -3487,14 +3487,16 @@ class WanVideoDecode:
 
         #if is_looped:
         #   latents = torch.cat([latents[:, :, :warmup_latent_count],latents], dim=2)
-
-        if isinstance(vae, TAEHV):            
+        if type(vae).__name__ == "TAEHV":      
             images = vae.decode_video(latents.permute(0, 2, 1, 3, 4))[0].permute(1, 0, 2, 3)
+            images = torch.clamp(images, 0.0, 1.0)
+            images = images.permute(1, 2, 3, 0).cpu().float()
+            return (images,)
         else:
             if end_image is not None:
                 enable_vae_tiling = False
             images = vae.decode(latents, device=device, end_=(end_image is not None), tiled=enable_vae_tiling, tile_size=(tile_x//8, tile_y//8), tile_stride=(tile_stride_x//8, tile_stride_y//8))[0]
-        vae.model.clear_cache()
+            vae.model.clear_cache()
 
         images = (images - images.min()) / (images.max() - images.min())      
 
