@@ -12,49 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import io
 from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
-
-
-def get_tracks_inference(tracks, height, width, quant_multi: Optional[int] = 8, **kwargs):
-    if isinstance(tracks, str):
-        tracks = torch.load(tracks)
-
-    tracks_np = unzip_to_array(tracks)
-    print("tracks_np shape: ", tracks_np.shape)
-    print(tracks_np)
-
-    tracks = process_tracks(
-        tracks_np, (width, height), quant_multi=1, **kwargs
-    )
-
-    return tracks
-
-
-def unzip_to_array(
-    data: bytes, key: Union[str, List[str]] = "array"
-) -> Union[np.ndarray, Dict[str, np.ndarray]]:
-    bytes_io = io.BytesIO(data)
-
-    if isinstance(key, str):
-        # Load the NPZ data from the BytesIO object
-        with np.load(bytes_io) as data:
-            return data[key]
-    else:
-        get = {}
-        with np.load(bytes_io) as data:
-            for k in key:
-                get[k] = data[k]
-        return get
-
 
 def process_tracks(tracks_np: np.ndarray, frame_size: Tuple[int, int], quant_multi: int = 8, **kwargs):
     # tracks: shape [t, h, w, 3] => samples align with 24 fps, model trained with 16 fps.
     # frame_size: tuple (W, H)
 
-    tracks = torch.from_numpy(tracks_np).float()# / quant_multi
+    tracks = torch.from_numpy(tracks_np).float()
     
     if tracks.shape[1] == 121:
         tracks = torch.permute(tracks, (1, 0, 2, 3))

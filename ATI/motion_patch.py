@@ -78,8 +78,6 @@ def patch_motion(
     tracks: torch.FloatTensor,  # (B, T, N, 4)
     vid: torch.FloatTensor,  # (C, T, H, W)
     temperature: float = 220.0,
-    training: bool = True,
-    tail_dropout: float = 0.2,
     vae_divide: tuple = (4, 16),
     topk: int = 2,
 ):
@@ -92,18 +90,6 @@ def patch_motion(
         tracks_n = tracks / torch.tensor([W / min(H, W), H / min(H, W)], device=tracks.device)
         tracks_n = tracks_n.clamp(-1, 1)
         visible = visible.clamp(0, 1)
-
-        if tail_dropout > 0 and training:
-            TT = visible.shape[1]
-            rrange = torch.arange(TT, device=visible.device, dtype=visible.dtype)[
-                None, :, None, None
-            ]
-            rand_nn = torch.rand_like(visible[:, :1])
-            rand_rr = torch.rand_like(visible[:, :1]) * (TT - 1)
-            visible = visible * (
-                (rand_nn > tail_dropout).type_as(visible)
-                + (rrange < rand_rr).type_as(visible)
-            ).clamp(0, 1)
 
         xx = torch.linspace(-W / min(H, W), W / min(H, W), W)
         yy = torch.linspace(-H / min(H, W), H / min(H, W), H)

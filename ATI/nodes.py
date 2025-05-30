@@ -1,9 +1,6 @@
-import os, io
 import json
-import torch
-script_directory = os.path.dirname(os.path.abspath(__file__))
 
-from .motion import get_tracks_inference, process_tracks
+from .motion import process_tracks
 import numpy as np
 FIXED_LENGTH = 121
 def pad_pts(tr):
@@ -25,6 +22,10 @@ class WanVideoATITracks:
             "tracks": ("STRING",),
             "width": ("INT", {"default": 832, "min": 64, "max": 2048, "step": 8, "tooltip": "Width of the image to encode"}),
             "height": ("INT", {"default": 480, "min": 64, "max": 29048, "step": 8, "tooltip": "Height of the image to encode"}),
+            "temperature": ("FLOAT", {"default": 220.0, "min": 0.0, "max": 1000.0, "step": 0.1}),
+            "topk": ("INT", {"default": 2, "min": 1, "max": 10, "step": 1}),
+            "start_percent": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Start percent of the steps to apply ATI"}),
+            "end_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "End percent of the steps to apply ATI"}),
         },
         }
 
@@ -33,15 +34,21 @@ class WanVideoATITracks:
     FUNCTION = "patchmodel"
     CATEGORY = "WanVideoWrapper"
 
-    def patchmodel(self, model, tracks, width, height):
-        tracks_data = json.loads(tracks)
+    def patchmodel(self, model, tracks, width, height, temperature, topk, start_percent, end_percent):
+    
+        if len(tracks) < 10:
+            tracks_data = []
+            for coords in tracks:
+                coords = json.loads(coords.replace("'", '"'))
+                tracks_data.append(coords)
+        else:
+            coords = json.loads(tracks.replace("'", '"'))
 
-        if tracks_data and isinstance(tracks_data[0], dict) and 'x' in tracks_data[0]:
-            # It's a single track, wrap it in a list to make it a list of tracks
-            tracks_data = [tracks_data]
+            if tracks_data and isinstance(tracks_data[0], dict) and 'x' in tracks_data[0]:
+                # It's a single track, wrap it in a list to make it a list of tracks
+                tracks_data = [tracks_data]
 
         arrs = []
-
         for track in tracks_data:
             pts = pad_pts(track)
             arrs.append(pts)
@@ -52,7 +59,11 @@ class WanVideoATITracks:
 
         patcher = model.clone()
         patcher.model_options["transformer_options"]["ati_tracks"] = processed_tracks.unsqueeze(0)
-       
+        patcher.model_options["transformer_options"]["ati_temperature"] = temperature
+        patcher.model_options["transformer_options"]["ati_topk"] = topk
+        patcher.model_options["transformer_options"]["ati_start_percent"] = start_percent
+        patcher.model_options["transformer_options"]["ati_end_percent"] = end_percent
+        
         return (patcher,)
         
 NODE_CLASS_MAPPINGS = {

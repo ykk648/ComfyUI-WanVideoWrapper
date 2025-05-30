@@ -2415,6 +2415,7 @@ class WanVideoSampler:
         fun_ref_image = None
 
         image_cond = image_embeds.get("image_embeds", None)
+        ATI_tracks = None
        
         if image_cond is not None:
             log.info(f"image_cond shape: {image_cond.shape}")
@@ -2423,7 +2424,11 @@ class WanVideoSampler:
                 ATI_tracks = transformer_options.get("ati_tracks", None)
                 if ATI_tracks is not None:
                     from .ATI.motion_patch import patch_motion
-                    image_cond = patch_motion(ATI_tracks.to(image_cond.device, image_cond.dtype), image_cond, training=False)
+                    topk = transformer_options.get("ati_topk", 2)
+                    temperature = transformer_options.get("ati_temperature", 220.0)
+                    ati_start_percent = transformer_options.get("ati_start_percentage", 0.0)
+                    ati_end_percent = transformer_options.get("ati_end_percentage", 1.0)
+                    image_cond_ati = patch_motion(ATI_tracks.to(image_cond.device, image_cond.dtype), image_cond, topk=topk, temperature=temperature)
                     log.info(f"ATI tracks shape: {ATI_tracks.shape}")
 
             end_image = image_embeds.get("end_image", None)
@@ -2906,7 +2911,11 @@ class WanVideoSampler:
                             if not patcher.model.is_patched:
                                 log.info("Loading LoRA...")
                                 patcher = apply_lora(patcher, device, device, low_mem_load=False)
-                                patcher.model.is_patched = True                   
+                                patcher.model.is_patched = True
+                elif ATI_tracks is not None:
+                    if (ati_start_percent <= current_step_percentage <= ati_end_percent) or \
+                        (ati_end_percent > 0 and idx == 0 and current_step_percentage >= ati_start_percent):
+                        image_cond_input = image_cond_ati.to(z)
                 else:
                     image_cond_input = image_cond.to(z) if image_cond is not None else None
 
