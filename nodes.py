@@ -187,8 +187,6 @@ class WanVideoModelConfig:
 
 def filter_state_dict_by_blocks(state_dict, blocks_mapping, layer_filter=[]):
     filtered_dict = {}
-    print("layer_filter: ", layer_filter)
-    print("blocks_mapping: ", blocks_mapping)
 
     if isinstance(layer_filter, str):
         layer_filters = [layer_filter] if layer_filter else []
@@ -2751,6 +2749,12 @@ class WanVideoSampler:
         #uni3c
         pcd_data = None
         if uni3c_embeds is not None:
+            if transformer.in_dim != uni3c_embeds["controlnet"].in_channels:
+                if uni3c_embeds["controlnet"].in_channels == 36:
+                    raise Exception("This Uni3C controlnet can only be used with I2V model.")
+                else:
+                    raise Exception(f"Model in_channels {transformer.in_dim} does not match Uni3C controlnet in_channels {uni3c_embeds['controlnet'].in_channels}")
+
             transformer.controlnet = uni3c_embeds["controlnet"]
             pcd_data = {
                 "render_latent": uni3c_embeds["render_latent"],
