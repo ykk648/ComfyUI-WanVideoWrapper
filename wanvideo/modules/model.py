@@ -1210,7 +1210,6 @@ class WanModel(ModelMixin, ConfigMixin):
             x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
         
         #uni3c controlnet
-
         if pcd_data is not None:
             hidden_states = x[0].unsqueeze(0).clone().float()
             render_latent = torch.cat([hidden_states[:, :20], pcd_data["render_latent"]], dim=1)

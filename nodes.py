@@ -211,6 +211,9 @@ def filter_state_dict_by_blocks(state_dict, blocks_mapping, layer_filter=[]):
     for key in filtered_dict:
         print(key)
 
+    from safetensors.torch import save_file
+    save_file(filtered_dict, "filtered_state_dict_2.safetensors")
+
     return filtered_dict
 
 def standardize_lora_key_format(lora_sd):
@@ -2327,6 +2330,8 @@ class WanVideoSampler:
         dtype = model["dtype"]
         control_lora = model["control_lora"]
 
+        transformer_options = patcher.model_options.get("transformer_options", None)
+
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
         
@@ -2412,6 +2417,15 @@ class WanVideoSampler:
         image_cond = image_embeds.get("image_embeds", None)
        
         if image_cond is not None:
+            log.info(f"image_cond shape: {image_cond.shape}")
+            #ATI tracks
+            if transformer_options is not None:
+                ATI_tracks = transformer_options.get("ati_tracks", None)
+                if ATI_tracks is not None:
+                    from .ATI.motion_patch import patch_motion
+                    image_cond = patch_motion(ATI_tracks.to(image_cond.device, image_cond.dtype), image_cond, training=False)
+                    log.info(f"ATI tracks shape: {ATI_tracks.shape}")
+
             end_image = image_embeds.get("end_image", None)
             lat_h = image_embeds.get("lat_h", None)
             lat_w = image_embeds.get("lat_w", None)
@@ -2427,8 +2441,7 @@ class WanVideoSampler:
                 generator=seed_g,
                 device=torch.device("cpu"))
             seq_len = image_embeds["max_seq_len"]
-            image_cond = image_embeds.get("image_embeds", None)
-            print("image_cond", image_cond.shape)
+            
             clip_fea = image_embeds.get("clip_context", None)
             if clip_fea is not None:
                 clip_fea = clip_fea.to(dtype)
@@ -2702,7 +2715,6 @@ class WanVideoSampler:
         callback = prepare_callback(patcher, steps)
 
         #blockswap init        
-        transformer_options = patcher.model_options.get("transformer_options", None)
         if transformer_options is not None:
             block_swap_args = transformer_options.get("block_swap_args", None)
 
@@ -2749,12 +2761,6 @@ class WanVideoSampler:
         #uni3c
         pcd_data = None
         if uni3c_embeds is not None:
-            if transformer.in_dim != uni3c_embeds["controlnet"].in_channels:
-                if uni3c_embeds["controlnet"].in_channels == 36:
-                    raise Exception("This Uni3C controlnet can only be used with I2V model.")
-                else:
-                    raise Exception(f"Model in_channels {transformer.in_dim} does not match Uni3C controlnet in_channels {uni3c_embeds['controlnet'].in_channels}")
-
             transformer.controlnet = uni3c_embeds["controlnet"]
             pcd_data = {
                 "render_latent": uni3c_embeds["render_latent"],
