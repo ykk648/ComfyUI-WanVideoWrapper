@@ -2,7 +2,7 @@
   "id": "206247b6-9fec-4ed2-8927-e4f388c674d4",
   "revision": 0,
   "last_node_id": 87,
-  "last_link_id": 145,
+  "last_link_id": 146,
   "nodes": [
     {
       "id": 46,
@@ -1031,7 +1031,8 @@
         0,
         1,
         "",
-        "comfy"
+        "comfy",
+        ""
       ]
     },
     {
@@ -1404,8 +1405,7 @@
           "name": "coord_str",
           "type": "STRING",
           "links": [
-            123,
-            140
+            123
           ]
         },
         {
@@ -1479,7 +1479,7 @@
           "widget": {
             "name": "tracks"
           },
-          "link": 140
+          "link": 146
         }
       ],
       "outputs": [
@@ -1571,45 +1571,6 @@
       ]
     },
     {
-      "id": 87,
-      "type": "Reroute",
-      "pos": [
-        1101.33740234375,
-        771.3507690429688
-      ],
-      "size": [
-        75,
-        26
-      ],
-      "flags": {},
-      "order": 29,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "",
-          "type": "*",
-          "widget": {
-            "name": "value"
-          },
-          "link": 142
-        }
-      ],
-      "outputs": [
-        {
-          "name": "",
-          "type": "STRING",
-          "links": [
-            143,
-            144
-          ]
-        }
-      ],
-      "properties": {
-        "showOutputText": false,
-        "horizontal": false
-      }
-    },
-    {
       "id": 80,
       "type": "AppendStringsToList",
       "pos": [
@@ -1641,48 +1602,6 @@
           "type": "STRING",
           "links": [
             127
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfyui-kjnodes",
-        "ver": "08a22951ed624ca90146e33626b3204d8b8f8ad0",
-        "Node name for S&R": "AppendStringsToList"
-      },
-      "widgets_values": []
-    },
-    {
-      "id": 82,
-      "type": "AppendStringsToList",
-      "pos": [
-        1012.6956176757812,
-        1301.9168701171875
-      ],
-      "size": [
-        179.98202514648438,
-        46
-      ],
-      "flags": {},
-      "order": 28,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "string1",
-          "type": "STRING",
-          "link": 127
-        },
-        {
-          "name": "string2",
-          "type": "STRING",
-          "link": 128
-        }
-      ],
-      "outputs": [
-        {
-          "name": "STRING",
-          "type": "STRING",
-          "links": [
-            142
           ]
         }
       ],
@@ -1809,13 +1728,13 @@
           "hidden": false,
           "paused": false,
           "params": {
-            "filename": "WanVideoWrapper_I2V_01223.mp4",
+            "filename": "WanVideoWrapper_I2V_01224.mp4",
             "subfolder": "",
             "type": "output",
             "format": "video/h264-mp4",
             "frame_rate": 16,
-            "workflow": "WanVideoWrapper_I2V_01223.png",
-            "fullpath": "N:\\AI\\ComfyUI\\output\\WanVideoWrapper_I2V_01223.mp4"
+            "workflow": "WanVideoWrapper_I2V_01224.png",
+            "fullpath": "N:\\AI\\ComfyUI\\output\\WanVideoWrapper_I2V_01224.mp4"
           }
         }
       }
@@ -1824,12 +1743,12 @@
       "id": 30,
       "type": "VHS_VideoCombine",
       "pos": [
-        2111.46044921875,
-        -435.6816101074219
+        2153.667236328125,
+        -713.9832153320312
       ],
       "size": [
-        1632.8150634765625,
-        1960.8150634765625
+        1034.0052490234375,
+        1362.0052490234375
       ],
       "flags": {},
       "order": 36,
@@ -1886,15 +1805,97 @@
           "hidden": false,
           "paused": false,
           "params": {
-            "filename": "WanVideoWrapper_I2V_ATI_00007.mp4",
+            "filename": "WanVideoWrapper_I2V_ATI_00035.mp4",
             "subfolder": "",
             "type": "output",
             "format": "video/h264-mp4",
             "frame_rate": 16,
-            "workflow": "WanVideoWrapper_I2V_ATI_00007.png",
-            "fullpath": "N:\\AI\\ComfyUI\\output\\WanVideoWrapper_I2V_ATI_00007.mp4"
+            "workflow": "WanVideoWrapper_I2V_ATI_00035.png",
+            "fullpath": "N:\\AI\\ComfyUI\\output\\WanVideoWrapper_I2V_ATI_00035.mp4"
           }
         }
+      }
+    },
+    {
+      "id": 82,
+      "type": "AppendStringsToList",
+      "pos": [
+        1012.6956176757812,
+        1301.9168701171875
+      ],
+      "size": [
+        179.98202514648438,
+        46
+      ],
+      "flags": {},
+      "order": 28,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "string1",
+          "type": "STRING",
+          "link": 127
+        },
+        {
+          "name": "string2",
+          "type": "STRING",
+          "link": 128
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            142
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-kjnodes",
+        "ver": "08a22951ed624ca90146e33626b3204d8b8f8ad0",
+        "Node name for S&R": "AppendStringsToList"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 87,
+      "type": "Reroute",
+      "pos": [
+        1101.33740234375,
+        771.3507690429688
+      ],
+      "size": [
+        75,
+        26
+      ],
+      "flags": {},
+      "order": 29,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "",
+          "type": "*",
+          "widget": {
+            "name": "value"
+          },
+          "link": 142
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "STRING",
+          "links": [
+            143,
+            144,
+            146
+          ]
+        }
+      ],
+      "properties": {
+        "showOutputText": false,
+        "horizontal": false
       }
     }
   ],
@@ -2196,14 +2197,6 @@
       "IMAGE"
     ],
     [
-      140,
-      70,
-      1,
-      85,
-      1,
-      "STRING"
-    ],
-    [
       141,
       76,
       0,
@@ -2242,6 +2235,14 @@
       77,
       0,
       "IMAGE"
+    ],
+    [
+      146,
+      87,
+      0,
+      85,
+      1,
+      "STRING"
     ]
   ],
   "groups": [
@@ -2262,10 +2263,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.5054470284993271,
+      "scale": 0.611590904484186,
       "offset": [
-        460.2691671907301,
-        917.2250857341934
+        238.62880156144652,
+        649.933426658655
       ]
     },
     "frontendVersion": "1.21.2",
