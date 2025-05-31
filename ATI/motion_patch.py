@@ -60,14 +60,20 @@ def merge_final(vert_attr: torch.Tensor, weight: torch.Tensor, vert_assign: torc
     if len(vert_attr.shape) == 2:
         assert vert_attr.shape[0] > vert_assign.max()
         # [n, d] ind: [b(optional), w, h, M]-> [b(optional), w, h, M, d]
-        sel_attr = ind_sel(
-            vert_attr[(None,) * target_dim], vert_assign.type(torch.long), dim=target_dim
-        )
+        # sel_attr = ind_sel(
+        #     vert_attr[(None,) * target_dim], vert_assign.type(torch.long), dim=target_dim
+        # )
+        new_shape = [1] * target_dim + list(vert_attr.shape)
+        tensor = vert_attr.reshape(new_shape)
+        sel_attr = ind_sel(tensor, vert_assign.type(torch.long), dim=target_dim)
     else:
         assert vert_attr.shape[1] > vert_assign.max()
-        sel_attr = ind_sel(
-            vert_attr[:, *(None,) * (target_dim - 1)], vert_assign.type(torch.long), dim=target_dim
-        )
+        #sel_attr = ind_sel(
+        #    vert_attr[:, *(None,) * (target_dim - 1)], vert_assign.type(torch.long), dim=target_dim
+        #)
+        new_shape = [vert_attr.shape[0]] + [1] * (target_dim - 1) + list(vert_attr.shape[1:])
+        tensor = vert_attr.reshape(new_shape)
+        sel_attr = ind_sel(tensor, vert_assign.type(torch.long), dim=target_dim)
 
     # [b(optional), w, h, M]
     final_attr = torch.sum(sel_attr * weight.unsqueeze(-1), dim=-2)
