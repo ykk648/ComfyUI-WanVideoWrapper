@@ -1,7 +1,8 @@
 import json
-
 from .motion import process_tracks
 import numpy as np
+from typing import List, Tuple
+import torch
 FIXED_LENGTH = 121
 def pad_pts(tr):
     """Convert list of {x,y} to (FIXED_LENGTH,1,3) array, padding/truncating."""
@@ -13,6 +14,96 @@ def pad_pts(tr):
     else:
         pts = pts[:FIXED_LENGTH]
     return pts.reshape(FIXED_LENGTH, 1, 3)
+
+def age_to_bgr(ratio: float) -> Tuple[int,int,int]:
+    """
+    Map ratio∈[0,1] through: 0→blue, 1/3→green, 2/3→yellow, 1→red.
+    Returns (B,G,R) for OpenCV.
+    """
+    if ratio <= 1/3:
+        # blue→green
+        t = ratio / (1/3)
+        b = int(255 * (1 - t))
+        g = int(255 * t)
+        r = 0
+    elif ratio <= 2/3:
+        # green→yellow
+        t = (ratio - 1/3) / (1/3)
+        b = 0
+        g = 255
+        r = int(255 * t)
+    else:
+        # yellow→red
+        t = (ratio - 2/3) / (1/3)
+        b = 0
+        g = int(255 * (1 - t))
+        r = 255
+    return (r, g, b)
+
+def paint_point_track(
+    frames: np.ndarray,
+    point_tracks: np.ndarray,
+    visibles: np.ndarray,
+    min_radius: int = 1,
+    max_radius: int = 6,
+    max_retain: int = 50
+) -> np.ndarray:
+    """
+    Draws every past point of each track on each frame, with radius and color
+    interpolated by the point's age (old→small to new→large).
+
+    Args:
+      frames:      [F, H, W, 3] uint8 RGB
+      point_tracks:[N, F, 2] float32  – (x,y) in pixel coords
+      visibles:    [N, F] bool        – visibility mask
+      min_radius:  radius for the very first point (oldest)
+      max_radius:  radius for the current point (newest)
+
+    Returns:
+      video: [F, H, W, 3] uint8 RGB
+    """
+    import cv2
+    num_points, num_frames = point_tracks.shape[:2]
+    H, W = frames.shape[1:3]
+
+    video = frames.copy()
+
+    for t in range(num_frames):
+        # start from the original frame
+        frame = video[t].copy()
+
+        for i in range(num_points):
+            # draw every past step τ = 0..t
+            for τ in range(t + 1):
+                if not visibles[i, τ]:
+                    continue
+
+                if t - τ > max_retain:
+                    continue
+
+                # sub-pixel offset + clamp
+                x, y = point_tracks[i, τ] + 0.5
+                xi = int(np.clip(x, 0, W - 1))
+                yi = int(np.clip(y, 0, H - 1))
+
+                # age‐ratio in [0,1]
+                if num_frames > 1:
+                    ratio = 1 - float(t - τ) / max_retain
+                else:
+                    ratio = 1.0
+
+                # interpolated radius
+                radius = int(round(min_radius + (max_radius - min_radius) * ratio))
+
+                # OpenCV draws in BGR order:
+                color_rgb = age_to_bgr(ratio)
+
+                # filled circle
+                cv2.circle(frame, (xi, yi), radius, color_rgb, thickness=-1)
+
+        video[t] = frame
+
+    return video
 
 class WanVideoATITracks:
     @classmethod
@@ -35,18 +126,18 @@ class WanVideoATITracks:
     CATEGORY = "WanVideoWrapper"
 
     def patchmodel(self, model, tracks, width, height, temperature, topk, start_percent, end_percent):
-    
+        tracks_data = []
         if len(tracks) < 10:
-            tracks_data = []
             for coords in tracks:
                 coords = json.loads(coords.replace("'", '"'))
                 tracks_data.append(coords)
         else:
             coords = json.loads(tracks.replace("'", '"'))
+            tracks_data.append(coords)
 
-            if tracks_data and isinstance(tracks_data[0], dict) and 'x' in tracks_data[0]:
-                # It's a single track, wrap it in a list to make it a list of tracks
-                tracks_data = [tracks_data]
+        if tracks_data and isinstance(tracks_data[0], dict) and 'x' in tracks_data[0]:
+            # It's a single track, wrap it in a list to make it a list of tracks
+            tracks_data = [tracks_data]
 
         arrs = []
         for track in tracks_data:
@@ -65,10 +156,64 @@ class WanVideoATITracks:
         patcher.model_options["transformer_options"]["ati_end_percent"] = end_percent
         
         return (patcher,)
+    
+class WanVideoATITracksVisualize:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "images": ("IMAGE",),
+            "tracks": ("STRING",),
+            "min_radius": ("INT", {"default": 1, "min": 0, "max": 100, "step": 1, "tooltip": "radius for the very first point (oldest)"}),
+            "max_radius": ("INT", {"default": 6, "min": 0, "max": 100, "step": 1, "tooltip": "radius for the current point (newest)"}),
+            "max_retain": ("INT", {"default": 50, "min": 0, "max": 100, "step": 1, "tooltip": "Maximum number of points to retain"}),
+        },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images",)
+    FUNCTION = "patchmodel"
+    CATEGORY = "WanVideoWrapper"
+
+    def patchmodel(self, images, tracks, min_radius, max_radius, max_retain):
+        tracks_data = []
+        if len(tracks) < 10:
+            for coords in tracks:
+                coords = json.loads(coords.replace("'", '"'))
+                tracks_data.append(coords)
+        else:
+            coords = json.loads(tracks.replace("'", '"'))
+            tracks_data.append(coords)
+
+        if tracks_data and isinstance(tracks_data[0], dict) and 'x' in tracks_data[0]:
+            tracks_data = [tracks_data]
+
+        arrs = []
+        for track in tracks_data:
+            pts = pad_pts(track)
+            arrs.append(pts)
+
+        tracks_np = np.stack(arrs, axis=0)
+        track = np.repeat(tracks_np, 2, axis=1)[:, ::3]
+        points = track[:, :, 0, :2].astype(np.float32)
+        visibles = track[:, :, 0, 2].astype(np.float32)
+
+        if images.shape[0] < points.shape[1]:
+            repeat_count = (points.shape[1] + images.shape[0] - 1) // images.shape[0]
+            images = images.repeat(repeat_count, 1, 1, 1)
+            images = images[:points.shape[1]]
+        elif images.shape[0] > points.shape[1]:
+            images = images[:points.shape[1]]
+
+        video_viz = paint_point_track(images.cpu().numpy(), points, visibles, min_radius, max_radius, max_retain)
+        video_viz = torch.from_numpy(video_viz).float()
+        
+        return (video_viz,)
         
 NODE_CLASS_MAPPINGS = {
     "WanVideoATITracks": WanVideoATITracks,
+    "WanVideoATITracksVisualize": WanVideoATITracksVisualize,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoATITracks": "WanVideo ATI Tracks",
+    "WanVideoATITracksVisualize": "WanVideo ATI Tracks Visualize",
     }
