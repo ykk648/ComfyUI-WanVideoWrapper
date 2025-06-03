@@ -127,17 +127,31 @@ class WanVideoATITracks:
 
     def patchmodel(self, model, tracks, width, height, temperature, topk, start_percent, end_percent):
         tracks_data = []
-        if len(tracks) < 10:
-            for coords in tracks:
-                coords = json.loads(coords.replace("'", '"'))
-                tracks_data.append(coords)
-        else:
-            coords = json.loads(tracks.replace("'", '"'))
-            tracks_data.append(coords)
-
-        if tracks_data and isinstance(tracks_data[0], dict) and 'x' in tracks_data[0]:
-            # It's a single track, wrap it in a list to make it a list of tracks
-            tracks_data = [tracks_data]
+        try:
+            # If tracks is a string, try to parse it as JSON
+            if isinstance(tracks, str):
+                parsed = json.loads(tracks.replace("'", '"'))
+                tracks_data.append(parsed)
+            else:
+                # If tracks is a list of strings, parse each one
+                for track_str in tracks:
+                    parsed = json.loads(track_str.replace("'", '"'))
+                    tracks_data.append(parsed)
+            
+            # Check if we have a single track (dict with x,y) or a list of tracks
+            if tracks_data and isinstance(tracks_data[0], dict) and 'x' in tracks_data[0]:
+                # Single track detected, wrap it in a list
+                tracks_data = [tracks_data]
+            elif tracks_data and isinstance(tracks_data[0], list) and tracks_data[0] and isinstance(tracks_data[0][0], dict) and 'x' in tracks_data[0][0]:
+                # Already a list of tracks, nothing to do
+                pass
+            else:
+                # Unexpected format
+                print(f"Warning: Unexpected track format: {type(tracks_data[0])}")
+                
+        except json.JSONDecodeError as e:
+            print(f"Error parsing tracks JSON: {e}")
+            tracks_data = []
 
         arrs = []
         for track in tracks_data:
