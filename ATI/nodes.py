@@ -111,12 +111,12 @@ def parse_json_tracks(tracks):
         # If tracks is a string, try to parse it as JSON
         if isinstance(tracks, str):
             parsed = json.loads(tracks.replace("'", '"'))
-            tracks_data.append(parsed)
+            tracks_data.extend(parsed)
         else:
             # If tracks is a list of strings, parse each one
             for track_str in tracks:
                 parsed = json.loads(track_str.replace("'", '"'))
-                tracks_data.append(parsed)
+                tracks_data.extend(parsed)
         
         # Check if we have a single track (dict with x,y) or a list of tracks
         if tracks_data and isinstance(tracks_data[0], dict) and 'x' in tracks_data[0]:
