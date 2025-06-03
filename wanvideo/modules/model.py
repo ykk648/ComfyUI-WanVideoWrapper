@@ -1163,6 +1163,8 @@ class WanModel(ModelMixin, ConfigMixin):
         audio_scale=1.0,
         pcd_data=None,
         controlnet=None,
+        add_cond=None,
+        attn_cond=None
         
     ):
         r"""
@@ -1237,6 +1239,19 @@ class WanModel(ModelMixin, ConfigMixin):
 
         x = [u.flatten(2).transpose(1, 2) for u in x]
 
+        if add_cond is not None:
+            add_cond = self.add_conv_in(add_cond.to(self.add_conv_in.weight.dtype)).to(x[0].dtype)
+            add_cond = add_cond.flatten(2).transpose(1, 2)
+            x[0] = x[0] + self.add_proj(add_cond)
+        if attn_cond is not None:
+            F_cond, H_cond, W_cond = attn_cond.shape[2], attn_cond.shape[3], attn_cond.shape[4]
+            grid_sizes = torch.stack([torch.tensor([u[0] + 1, u[1], u[2]]) for u in grid_sizes]).to(grid_sizes.device)
+            attn_cond = self.attn_conv_in(attn_cond.to(self.attn_conv_in.weight.dtype)).to(x[0].dtype)
+            attn_cond = attn_cond.flatten(2).transpose(1, 2)
+            x_len = x[0].shape[1]
+            x[0] = torch.cat([x[0], attn_cond], dim=1)
+            seq_len += attn_cond.size(1)
+
         if self.ref_conv is not None and fun_ref is not None:
             fun_ref = self.ref_conv(fun_ref).flatten(2).transpose(1, 2)
             grid_sizes = torch.stack([torch.tensor([u[0] + 1, u[1], u[2]]) for u in grid_sizes]).to(grid_sizes.device)
@@ -1260,18 +1275,37 @@ class WanModel(ModelMixin, ConfigMixin):
             img_ids[:, :, :, 0] = img_ids[:, :, :, 0] + torch.linspace(0, f_len - 1, steps=f_len, device=x.device, dtype=x.dtype).reshape(-1, 1, 1)
             img_ids[:, :, :, 1] = img_ids[:, :, :, 1] + torch.linspace(0, h_len - 1, steps=h_len, device=x.device, dtype=x.dtype).reshape(1, -1, 1)
             img_ids[:, :, :, 2] = img_ids[:, :, :, 2] + torch.linspace(0, w_len - 1, steps=w_len, device=x.device, dtype=x.dtype).reshape(1, 1, -1)
-            img_ids = repeat(img_ids, "t h w c -> b (t h w) c", b=1)
 
-            freqs = self.rope_embedder(img_ids).movedim(1, 2)
+            if attn_cond is not None:   
+                cond_f_len = ((F_cond + (self.patch_size[0] // 2)) // self.patch_size[0])
+                cond_h_len = ((H_cond + (self.patch_size[1] // 2)) // self.patch_size[1])
+                cond_w_len = ((W_cond + (self.patch_size[2] // 2)) // self.patch_size[2])
+                cond_img_ids = torch.zeros((cond_f_len, cond_h_len, cond_w_len, 3), device=x.device, dtype=x.dtype)
+                
+                #shift
+                shift_f_size = 81 # Default value
+                shift_f = False
+                if shift_f:
+                    cond_img_ids[:, :, :, 0] = cond_img_ids[:, :, :, 0] + torch.linspace(shift_f_size, shift_f_size + cond_f_len - 1,steps=cond_f_len, device=x.device, dtype=x.dtype).reshape(-1, 1, 1)
+                else:
+                    cond_img_ids[:, :, :, 0] = cond_img_ids[:, :, :, 0] + torch.linspace(0, cond_f_len - 1, steps=cond_f_len, device=x.device, dtype=x.dtype).reshape(-1, 1, 1)
+                cond_img_ids[:, :, :, 1] = cond_img_ids[:, :, :, 1] + torch.linspace(h_len, h_len + cond_h_len - 1, steps=cond_h_len, device=x.device, dtype=x.dtype).reshape(1, -1, 1)
+                cond_img_ids[:, :, :, 2] = cond_img_ids[:, :, :, 2] + torch.linspace(w_len, w_len + cond_w_len - 1, steps=cond_w_len, device=x.device, dtype=x.dtype).reshape(1, 1, -1)
+              
+                # Combine original and conditional position ids
+                img_ids = repeat(img_ids, "t h w c -> b (t h w) c", b=1)
+                cond_img_ids = repeat(cond_img_ids, "t h w c -> b (t h w) c", b=1)
+                combined_img_ids = torch.cat([img_ids, cond_img_ids], dim=1)
+                
+                # Generate RoPE frequencies for the combined positions
+                freqs = self.rope_embedder(combined_img_ids).movedim(1, 2)
+            else:
+                img_ids = repeat(img_ids, "t h w c -> b (t h w) c", b=1)
+                freqs = self.rope_embedder(img_ids).movedim(1, 2)
         else:
             rope_func = "default"
 
         # time embeddings
-        
-        # e = self.time_embedding(
-        #     sinusoidal_embedding_1d(self.freq_dim, t).float())
-        # e0 = self.time_projection(e).unflatten(1, (6, self.dim))
-        # assert e.dtype == torch.float32 and e0.dtype == torch.float32
         if t.dim() == 2:
             b, f = t.shape
             _flag_df = True
@@ -1466,6 +1500,10 @@ class WanModel(ModelMixin, ConfigMixin):
         if self.ref_conv is not None and fun_ref is not None:
             full_ref_length = fun_ref.size(1)
             x = x[:, full_ref_length:]
+            grid_sizes = torch.stack([torch.tensor([u[0] - 1, u[1], u[2]]) for u in grid_sizes]).to(grid_sizes.device)
+
+        if attn_cond is not None:
+            x = x[:, :x_len]
             grid_sizes = torch.stack([torch.tensor([u[0] - 1, u[1], u[2]]) for u in grid_sizes]).to(grid_sizes.device)
 
         x = self.head(x, e.to(x.device))
