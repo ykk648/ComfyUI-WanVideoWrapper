@@ -2968,10 +2968,10 @@ class WanVideoSampler:
                                 log.info("Loading LoRA...")
                                 patcher = apply_lora(patcher, device, device, low_mem_load=False)
                                 patcher.model.is_patched = True
-                elif ATI_tracks is not None:
-                    if (ati_start_percent <= current_step_percentage <= ati_end_percent) or \
-                        (ati_end_percent > 0 and idx == 0 and current_step_percentage >= ati_start_percent):
-                        image_cond_input = image_cond_ati.to(z)
+                                
+                elif ATI_tracks is not None and ((ati_start_percent <= current_step_percentage <= ati_end_percent) or 
+                              (ati_end_percent > 0 and idx == 0 and current_step_percentage >= ati_start_percent)):
+                    image_cond_input = image_cond_ati.to(z)
                 else:
                     image_cond_input = image_cond.to(z) if image_cond is not None else None
 
