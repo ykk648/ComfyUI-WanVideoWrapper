@@ -1239,6 +1239,8 @@ class WanModel(ModelMixin, ConfigMixin):
 
         x = [u.flatten(2).transpose(1, 2) for u in x]
 
+        x_len = x[0].shape[1]
+
         if add_cond is not None:
             add_cond = self.add_conv_in(add_cond.to(self.add_conv_in.weight.dtype)).to(x[0].dtype)
             add_cond = add_cond.flatten(2).transpose(1, 2)
@@ -1248,7 +1250,6 @@ class WanModel(ModelMixin, ConfigMixin):
             grid_sizes = torch.stack([torch.tensor([u[0] + 1, u[1], u[2]]) for u in grid_sizes]).to(grid_sizes.device)
             attn_cond = self.attn_conv_in(attn_cond.to(self.attn_conv_in.weight.dtype)).to(x[0].dtype)
             attn_cond = attn_cond.flatten(2).transpose(1, 2)
-            x_len = x[0].shape[1]
             x[0] = torch.cat([x[0], attn_cond], dim=1)
             seq_len += attn_cond.size(1)
 
@@ -1481,10 +1482,10 @@ class WanModel(ModelMixin, ConfigMixin):
 
                 #uni3c controlnet
                 if pdc_controlnet_states is not None and b < len(pdc_controlnet_states):
-                    x += pdc_controlnet_states[b].to(x) * pcd_data["controlnet_weight"]
+                    x[:, :x_len] += pdc_controlnet_states[b].to(x) * pcd_data["controlnet_weight"]
                 #controlnet
                 if (controlnet is not None) and (b % controlnet["controlnet_stride"] == 0) and (b // controlnet["controlnet_stride"] < len(controlnet["controlnet_states"])):
-                    x += controlnet["controlnet_states"][b // controlnet["controlnet_stride"]].to(x) * controlnet["controlnet_weight"]
+                    x[:, :x_len] += controlnet["controlnet_states"][b // controlnet["controlnet_stride"]].to(x) * controlnet["controlnet_weight"]
 
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.offload_device, non_blocking=self.use_non_blocking)
