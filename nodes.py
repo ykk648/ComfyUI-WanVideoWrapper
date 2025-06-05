@@ -1573,6 +1573,8 @@ class WanVideoRealisDanceLatents:
         return {"required": {
             "ref_latent": ("LATENT", {"tooltip": "Reference image to encode"}),
             "smpl_latent": ("LATENT", {"tooltip": "SMPL pose image to encode"}),
+            "pose_cond_start_percent": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Start percent of the SMPL model"}),
+            "pose_cond_end_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "End percent of the SMPL model"}),
             },
             "optional": {
                 "hamer_latent": ("LATENT", {"tooltip": "Hamer hand pose image to encode"}),
@@ -1584,7 +1586,7 @@ class WanVideoRealisDanceLatents:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, ref_latent, smpl_latent, hamer_latent=None):
+    def process(self, ref_latent, smpl_latent, pose_cond_start_percent, pose_cond_end_percent, hamer_latent=None):
         if hamer_latent is None:
             hamer = torch.zeros_like(smpl_latent["samples"])
         else:
@@ -1595,6 +1597,8 @@ class WanVideoRealisDanceLatents:
         realisdance_latents = {
             "ref_latent": ref_latent["samples"],
             "pose_latent": pose_latent,
+            "pose_cond_start_percent": pose_cond_start_percent,
+            "pose_cond_end_percent": pose_cond_end_percent,
         }
 
         return (realisdance_latents,)
@@ -2486,6 +2490,8 @@ class WanVideoSampler:
                 add_cond = realisdance_latents["pose_latent"]
                 attn_cond = realisdance_latents["ref_latent"]
                 attn_cond_neg = realisdance_latents["ref_latent_neg"]
+                add_cond_start_percent = realisdance_latents["pose_cond_start_percent"]
+                add_cond_end_percent = realisdance_latents["pose_cond_end_percent"]
 
             end_image = image_embeds.get("end_image", None)
             lat_h = image_embeds.get("lat_h", None)
@@ -3014,6 +3020,12 @@ class WanVideoSampler:
                             controlnet["controlnet_states"] = [x.to(latent_model_input) for x in controlnet_states]
                         else:
                             controlnet["controlnet_states"] = controlnet_states.to(latent_model_input)
+
+                add_cond_input = None
+                if add_cond is not None:
+                    if (add_cond_start_percent <= current_step_percentage <= add_cond_end_percent) or \
+                        (add_cond_end_percent > 0 and idx == 0 and current_step_percentage >= add_cond_start_percent):
+                        add_cond_input = add_cond
                  
                 base_params = {
                     'seq_len': seq_len,
@@ -3031,7 +3043,7 @@ class WanVideoSampler:
                     'audio_scale': audio_scale if fantasytalking_embeds is not None else None,
                     "pcd_data": pcd_data,
                     "controlnet": controlnet,
-                    "add_cond": add_cond,
+                    "add_cond": add_cond_input,
                 }
 
                 batch_size = 1
