@@ -3413,7 +3413,8 @@ class WanVideoSampler:
                             "start_percent": unianimate_poses["start_percent"],
                             "end_percent": unianimate_poses["end_percent"]
                         }
-                    
+                        
+                    partial_add_cond = None
                     if add_cond is not None:
                         partial_add_cond = add_cond[:, :, c].to(device, dtype)
 
