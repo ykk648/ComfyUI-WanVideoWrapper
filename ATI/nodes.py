@@ -215,12 +215,115 @@ class WanVideoATITracksVisualize:
         video_viz = torch.from_numpy(video_viz).float()
         
         return (video_viz,)
+
+from comfy import utils
+import types
+from .motion_patch import patch_motion
+
+class WanConcatCondPatch:
+    def __init__(self, tracks, temperature, topk):
+        self.tracks = tracks
+        self.temperature = temperature
+        self.topk = topk
+        
+    def __get__(self, obj, objtype=None):
+        # Create bound method with stored parameters
+        def wrapped_concat_cond(self_module, *args, **kwargs):
+            return modified_concat_cond(self_module, self.tracks, self.temperature, self.topk, *args, **kwargs)
+        return types.MethodType(wrapped_concat_cond, obj)
+    
+def modified_concat_cond(self, tracks, temperature, topk, **kwargs):
+    noise = kwargs.get("noise", None)
+    extra_channels = self.diffusion_model.patch_embedding.weight.shape[1] - noise.shape[1]
+    if extra_channels == 0:
+        return None
+
+    image = kwargs.get("concat_latent_image", None)
+    device = kwargs["device"]
+
+    if image is None:
+        shape_image = list(noise.shape)
+        shape_image[1] = extra_channels
+        image = torch.zeros(shape_image, dtype=noise.dtype, layout=noise.layout, device=noise.device)
+    else:
+        image = utils.common_upscale(image.to(device), noise.shape[-1], noise.shape[-2], "bilinear", "center")
+        for i in range(0, image.shape[1], 16):
+            image[:, i: i + 16] = self.process_latent_in(image[:, i: i + 16])
+        image = utils.resize_to_batch_size(image, noise.shape[0])
+
+    if not self.image_to_video or extra_channels == image.shape[1]:
+        return image
+
+    if image.shape[1] > (extra_channels - 4):
+        image = image[:, :(extra_channels - 4)]
+
+    mask = kwargs.get("concat_mask", kwargs.get("denoise_mask", None))
+    if mask is None:
+        mask = torch.zeros_like(noise)[:, :4]
+    else:
+        if mask.shape[1] != 4:
+            mask = torch.mean(mask, dim=1, keepdim=True)
+        mask = 1.0 - mask
+        mask = utils.common_upscale(mask.to(device), noise.shape[-1], noise.shape[-2], "bilinear", "center")
+        if mask.shape[-3] < noise.shape[-3]:
+            mask = torch.nn.functional.pad(mask, (0, 0, 0, 0, 0, noise.shape[-3] - mask.shape[-3]), mode='constant', value=0)
+        if mask.shape[1] == 1:
+            mask = mask.repeat(1, 4, 1, 1, 1)
+        mask = utils.resize_to_batch_size(mask, noise.shape[0])
+
+    image_cond = torch.cat((mask, image), dim=1)
+    image_cond_ati = patch_motion(tracks.to(image_cond.device, image_cond.dtype), image_cond[0], 
+                                  temperature=temperature, topk=topk)
+
+    return image_cond_ati.unsqueeze(0)
+
+class WanVideoATI_comfy:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "model": ("MODEL", ),
+            "width": ("INT", {"default": 832, "min": 64, "max": 2048, "step": 8, "tooltip": "Width of the image to encode"}),
+            "height": ("INT", {"default": 480, "min": 64, "max": 29048, "step": 8, "tooltip": "Height of the image to encode"}),
+            "tracks": ("STRING",),
+            "temperature": ("FLOAT", {"default": 220.0, "min": 0.0, "max": 1000.0, "step": 0.1}),
+            "topk": ("INT", {"default": 2, "min": 1, "max": 10, "step": 1}),
+            },
+        }
+
+    RETURN_TYPES = ("MODEL",)
+    RETURN_NAMES = ("model", )
+    FUNCTION = "patchcond"
+    CATEGORY = "WanVideoWrapper"
+
+    def patchcond(self, model, tracks, width, height, temperature, topk):
+        
+        tracks_data = parse_json_tracks(tracks)
+        arrs = []
+        for track in tracks_data:
+            pts = pad_pts(track)
+            arrs.append(pts)
+
+        tracks_np = np.stack(arrs, axis=0)
+
+        processed_tracks = process_tracks(tracks_np, (width, height))
+    
+        model_clone = model.clone()
+        model_clone.add_object_patch(
+            "concat_cond", 
+            WanConcatCondPatch(
+                processed_tracks.unsqueeze(0), temperature, topk
+                ).__get__(model.model, model.model.__class__)
+            )
+
+        return (model_clone,)
         
 NODE_CLASS_MAPPINGS = {
     "WanVideoATITracks": WanVideoATITracks,
     "WanVideoATITracksVisualize": WanVideoATITracksVisualize,
+    "WanVideoATI_comfy": WanVideoATI_comfy,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoATITracks": "WanVideo ATI Tracks",
     "WanVideoATITracksVisualize": "WanVideo ATI Tracks Visualize",
+    "WanVideoATI_comfy": "WanVideo ATI Comfy",
     }
