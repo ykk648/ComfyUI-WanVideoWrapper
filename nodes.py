@@ -553,12 +553,7 @@ class WanVideoModelLoader:
         model_path = folder_paths.get_full_path_or_raise("diffusion_models", model)
       
         sd = load_torch_file(model_path, device=transformer_load_device, safe_load=True)
-        if "state_dict" in sd:
-            sd = sd["state_dict"]
-        elif "generator" in sd:
-            sd = sd["generator"]
-        elif "generator_ema" in sd:
-            sd = sd["generator_ema"]
+
         
         if "vace_blocks.0.after_proj.weight" in sd and not "patch_embedding.weight" in sd:
             raise ValueError("You are attempting to load a VACE module as a WanVideo model, instead you should use the vace_model input and matching T2V base model")
@@ -572,6 +567,12 @@ class WanVideoModelLoader:
             new_sd = {}
             for key, value in sd.items():
                 new_key = key.replace("model.diffusion_model.", "", 1)
+                new_sd[new_key] = value
+            sd = new_sd
+        elif first_key.startswith("model."):
+            new_sd = {}
+            for key, value in sd.items():
+                new_key = key.replace("model.", "", 1)
                 new_sd[new_key] = value
             sd = new_sd
         if not "patch_embedding.weight" in sd:
