@@ -553,6 +553,12 @@ class WanVideoModelLoader:
         model_path = folder_paths.get_full_path_or_raise("diffusion_models", model)
       
         sd = load_torch_file(model_path, device=transformer_load_device, safe_load=True)
+        if "state_dict" in sd:
+            sd = sd["state_dict"]
+        elif "generator" in sd:
+            sd = sd["generator"]
+        elif "generator_ema" in sd:
+            sd = sd["generator_ema"]
         
         if "vace_blocks.0.after_proj.weight" in sd and not "patch_embedding.weight" in sd:
             raise ValueError("You are attempting to load a VACE module as a WanVideo model, instead you should use the vace_model input and matching T2V base model")
@@ -2443,9 +2449,9 @@ class WanVideoSampler:
             if transformer.dim == 5120:
                 denoising_list = [999, 934, 862, 756, 603, 410, 250, 140, 74]
             else:
-                if steps != 3:
-                    raise ValueError("CausVid 1.3B schedule is only for 3 steps")
-                denoising_list = [1000, 757, 522]
+                if steps != 4:
+                    raise ValueError("CausVid 1.3B schedule is only for 4 steps")
+                denoising_list = [1000, 750, 500, 250]
             sample_scheduler = FlowMatchScheduler(num_inference_steps=steps, shift=shift, sigma_min=0, extra_one_step=True)
             sample_scheduler.timesteps = torch.tensor(denoising_list)[:steps].to(device)
             sample_scheduler.sigmas = torch.cat([sample_scheduler.timesteps / 1000, torch.tensor([0.0], device=device)])
