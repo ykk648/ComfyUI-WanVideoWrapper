@@ -2925,15 +2925,20 @@ class WanVideoSampler:
                 drift_timesteps = torch.cat([drift_timesteps, torch.tensor([0]).to(drift_timesteps.device)]).to(drift_timesteps.device)
                 timesteps[-drift_steps:] = drift_timesteps[-drift_steps:]
 
-        use_cfg_zero_star, use_fresca, use_nag = False, False, False
+        use_cfg_zero_star = use_fresca = nag_scale = False
+        nag_negative_context = None
         if experimental_args is not None:
             use_nag = experimental_args.get("use_nag", False)
-            nag_scale = experimental_args.get("nag_scale", 11)
+            if use_nag:
+                nag_negative_context = text_embeds["negative_prompt_embeds"]
+                nag_scale = experimental_args.get("nag_scale", 11)
+
             video_attention_split_steps = experimental_args.get("video_attention_split_steps", [])
             if video_attention_split_steps:
                 transformer.video_attention_split_steps = [int(x.strip()) for x in video_attention_split_steps.split(",")]
             else:
                 transformer.video_attention_split_steps = []
+
             use_zero_init = experimental_args.get("use_zero_init", True)
             use_cfg_zero_star = experimental_args.get("cfg_zero_star", False)
             zero_star_steps = experimental_args.get("zero_star_steps", 0)
@@ -3056,6 +3061,7 @@ class WanVideoSampler:
                     "controlnet": controlnet,
                     "add_cond": add_cond_input,
                     "nag_scale": nag_scale,
+                    "nag_context": nag_negative_context
                 }
 
                 batch_size = 1
@@ -3063,9 +3069,9 @@ class WanVideoSampler:
                 if not math.isclose(cfg_scale, 1.0) and len(positive_embeds) > 1:
                     negative_embeds = negative_embeds * len(positive_embeds)
                 
-                if use_nag:
-                    nag_negative_prompt_embeds = negative_embeds
-                    positive_embeds = torch.cat([positive_embeds, nag_negative_prompt_embeds], dim=0)
+                # if use_nag:
+                #     nag_negative_prompt_embeds = negative_embeds
+                #     positive_embeds = torch.cat([positive_embeds[0], nag_negative_prompt_embeds], dim=0)
 
                 if not batched_cfg:
                     #cond

@@ -371,52 +371,45 @@ class WanT2VCrossAttention(WanSelfAttention):
         self.nag_tau = nag_tau
         self.nag_alpha = nag_alpha
 
-    def forward(self, x, context, context_lens, clip_embed=None, audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21, nag_scale=11.0):
+    def forward(self, x, context, context_lens, clip_embed=None, audio_proj=None, audio_context_lens=None, audio_scale=1.0, 
+                num_latent_frames=21, nag_scale=11.0, nag_context=None):
         b, n, d = x.size(0), self.num_heads, self.head_dim
         # compute query
         q = self.norm_q(self.q(x)).view(b, -1, n, d)
 
-        apply_guidance = nag_scale > 1 and context is not None
-        if apply_guidance and context.size(0) == 2 * b:
+        if nag_scale > 1 and nag_context is not None:
             # NAG text attention
-            batch_size = b
-            context_positive = context[:batch_size]
-            context_negative = context[batch_size:]
-            if context_lens is not None:
-                context_lens_positive = context_lens[:batch_size]
-                context_lens_negative = context_lens[batch_size:]
-            else:
-                context_lens_positive = None
-                context_lens_negative = None
+            context_positive = context
+            context_negative = nag_context
+        
+            k_positive = self.norm_k(self.k(context_positive)).view(b, -1, n, d)
+            v_positive = self.v(context_positive).view(b, -1, n, d)
+            k_negative = self.norm_k(self.k(context_negative)).view(b, -1, n, d)
+            v_negative = self.v(context_negative).view(b, -1, n, d)
 
-            k_positive = self.norm_k(self.k(context_positive)).view(batch_size, -1, n, d)
-            v_positive = self.v(context_positive).view(batch_size, -1, n, d)
-            k_negative = self.norm_k(self.k(context_negative)).view(batch_size, -1, n, d)
-            v_negative = self.v(context_negative).view(batch_size, -1, n, d)
+            x_positive = attention(q, k_positive, v_positive, k_lens=None, attention_mode=self.attention_mode)
+            x_positive = x_positive.flatten(2)
 
-            hidden_states_positive = attention(q, k_positive, v_positive, k_lens=context_lens_positive, attention_mode=self.attention_mode)
-            hidden_states_positive = hidden_states_positive.flatten(2)
+            x_negative = attention(q, k_negative, v_negative, k_lens=None, attention_mode=self.attention_mode)
+            x_negative = x_negative.flatten(2)
 
-            hidden_states_negative = attention(q, k_negative, v_negative, k_lens=context_lens_negative, attention_mode=self.attention_mode)
-            hidden_states_negative = hidden_states_negative.flatten(2)
-
-            hidden_states_guidance = hidden_states_positive * nag_scale - hidden_states_negative * (nag_scale - 1)
+            nag_guidance = x_positive * nag_scale - x_negative * (nag_scale - 1)
             
-            norm_positive = torch.norm(hidden_states_positive, p=1, dim=-1, keepdim=True).expand_as(hidden_states_positive)
-            norm_guidance = torch.norm(hidden_states_guidance, p=1, dim=-1, keepdim=True).expand_as(hidden_states_guidance)
+            norm_positive = torch.norm(x_positive, p=1, dim=-1, keepdim=True).expand_as(x_positive)
+            norm_guidance = torch.norm(nag_guidance, p=1, dim=-1, keepdim=True).expand_as(nag_guidance)
             
             scale = norm_guidance / norm_positive
             scale = torch.nan_to_num(scale, nan=10.0)
             
             mask = scale > self.nag_tau
             adjustment = (norm_positive * self.nag_tau) / (norm_guidance + 1e-7)
-            hidden_states_guidance = torch.where(mask, hidden_states_guidance * adjustment, hidden_states_guidance)
+            nag_guidance = torch.where(mask, nag_guidance * adjustment, nag_guidance)
             
-            x_text = hidden_states_guidance * self.nag_alpha + hidden_states_positive * (1 - self.nag_alpha)
+            x_text = nag_guidance * self.nag_alpha + x_positive * (1 - self.nag_alpha)
         else:
             k = self.norm_k(self.k(context)).view(b, -1, n, d)
             v = self.v(context).view(b, -1, n, d)
-            x_text = attention(q, k, v, k_lens=context_lens, attention_mode=self.attention_mode)
+            x_text = attention(q, k, v, k_lens=None, attention_mode=self.attention_mode)
             x_text = x_text.flatten(2)
 
         x = x_text
@@ -453,7 +446,8 @@ class WanI2VCrossAttention(WanSelfAttention):
         self.nag_tau = nag_tau
         self.nag_alpha = nag_alpha
 
-    def forward(self, x, context, context_lens, clip_embed, audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21, nag_scale=11.):
+    def forward(self, x, context, context_lens, clip_embed, audio_proj=None, audio_context_lens=None, 
+                audio_scale=1.0, num_latent_frames=21, nag_scale=11.0, nag_context=None):
         r"""
         Args:
             x(Tensor): Shape [B, L1, C]
@@ -464,39 +458,35 @@ class WanI2VCrossAttention(WanSelfAttention):
         # compute query
         q = self.norm_q(self.q(x)).view(b, -1, n, d)
 
-        apply_guidance = nag_scale > 1 and context is not None
-        if apply_guidance and context.size(0) == 2 * b:
+        if nag_scale > 1 and nag_context is not None:
             # NAG text attention
-            batch_size = b
-            context_positive = context[:batch_size]
-            context_negative = context[batch_size:]
-            context_lens_positive = context_lens[:batch_size]
-            context_lens_negative = context_lens[batch_size:]
+            context_positive = context
+            context_negative = nag_context
 
-            k_positive = self.norm_k(self.k(context_positive)).view(batch_size, -1, n, d)
-            v_positive = self.v(context_positive).view(batch_size, -1, n, d)
-            k_negative = self.norm_k(self.k(context_negative)).view(batch_size, -1, n, d)
-            v_negative = self.v(context_negative).view(batch_size, -1, n, d)
+            k_positive = self.norm_k(self.k(context_positive)).view(b, -1, n, d)
+            v_positive = self.v(context_positive).view(b, -1, n, d)
+            k_negative = self.norm_k(self.k(context_negative)).view(b, -1, n, d)
+            v_negative = self.v(context_negative).view(b, -1, n, d)
 
-            hidden_states_positive = attention(q, k_positive, v_positive, k_lens=context_lens_positive, attention_mode=self.attention_mode)
-            hidden_states_positive = hidden_states_positive.flatten(2)
+            x_positive = attention(q, k_positive, v_positive, k_lens=None, attention_mode=self.attention_mode)
+            x_positive = x_positive.flatten(2)
 
-            hidden_states_negative = attention(q, k_negative, v_negative, k_lens=context_lens_negative, attention_mode=self.attention_mode)
-            hidden_states_negative = hidden_states_negative.flatten(2)
+            x_negative = attention(q, k_negative, v_negative, k_lens=None, attention_mode=self.attention_mode)
+            x_negative = x_negative.flatten(2)
 
-            hidden_states_guidance = hidden_states_positive * nag_scale - hidden_states_negative * (nag_scale - 1)
+            nag_guidance = x_positive * nag_scale - x_negative * (nag_scale - 1)
             
-            norm_positive = torch.norm(hidden_states_positive, p=1, dim=-1, keepdim=True).expand_as(hidden_states_positive)
-            norm_guidance = torch.norm(hidden_states_guidance, p=1, dim=-1, keepdim=True).expand_as(hidden_states_guidance)
+            norm_positive = torch.norm(x_positive, p=1, dim=-1, keepdim=True).expand_as(x_positive)
+            norm_guidance = torch.norm(nag_guidance, p=1, dim=-1, keepdim=True).expand_as(nag_guidance)
             
             scale = norm_guidance / norm_positive
             scale = torch.nan_to_num(scale, nan=10.0)
             
             mask = scale > self.nag_tau
             adjustment = (norm_positive * self.nag_tau) / (norm_guidance + 1e-7)
-            hidden_states_guidance = torch.where(mask, hidden_states_guidance * adjustment, hidden_states_guidance)
+            nag_guidance = torch.where(mask, nag_guidance * adjustment, nag_guidance)
             
-            x_text = hidden_states_guidance * self.nag_alpha + hidden_states_positive * (1 - self.nag_alpha)
+            x_text = nag_guidance * self.nag_alpha + x_positive * (1 - self.nag_alpha)
         else:
             # text attention
             k = self.norm_k(self.k(context)).view(b, -1, n, d)
@@ -596,6 +586,7 @@ class WanAttentionBlock(nn.Module):
     def modulate(self, x, e):
         return x * (1 + e[1]) + e[0]
 
+    #region attention forward
     def forward(
         self,
         x,
@@ -615,7 +606,8 @@ class WanAttentionBlock(nn.Module):
         audio_scale=1.0,
         num_latent_frames=21,
         block_mask=None,
-        nag_scale=11.
+        nag_scale=11.0,
+        nag_context=None
     ):
         r"""
         Args:
@@ -669,14 +661,16 @@ class WanAttentionBlock(nn.Module):
             x = self.split_cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes, nag_scale=nag_scale)
         else:
             x = self.cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes, 
-                                    audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, num_latent_frames=num_latent_frames, nag_scale=nag_scale)
+                                    audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, 
+                                    num_latent_frames=num_latent_frames, nag_scale=nag_scale, nag_context=nag_context)
         del e
         return x
     @torch.compiler.disable()
     def cross_attn_ffn(self, x, context, context_lens, e, clip_embed=None, grid_sizes=None, 
-                       audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21, nag_scale=11.):
+                       audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21, nag_scale=11.0, nag_context=None):
             x = x + self.cross_attn(self.norm3(x), context, context_lens, clip_embed=clip_embed,
-                                    audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, num_latent_frames=num_latent_frames, nag_scale=nag_scale)
+                                    audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, 
+                                    num_latent_frames=num_latent_frames, nag_scale=nag_scale, nag_context=nag_context)
             y = self.ffn(self.norm2(x) * (1 + e[4]) + e[3])
             x = x + (y * e[5])
             return x
@@ -1224,6 +1218,7 @@ class WanModel(ModelMixin, ConfigMixin):
         add_cond=None,
         attn_cond=None,
         nag_scale=11.,
+        nag_context=None
     ):
         r"""
         Forward pass through the diffusion model
@@ -1408,6 +1403,15 @@ class WanModel(ModelMixin, ConfigMixin):
                     [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
                 for u in context
             ]).to(x.dtype))
+        # NAG
+        if nag_context is not None:
+            nag_context = self.text_embedding(
+            torch.stack([
+                torch.cat(
+                    [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
+                for u in nag_context
+            ]).to(x.dtype))
+        
         if self.offload_txt_emb:
             self.text_embedding.to(self.offload_device, non_blocking=self.use_non_blocking)
 
@@ -1493,7 +1497,8 @@ class WanModel(ModelMixin, ConfigMixin):
                 num_latent_frames = F,
                 audio_scale=audio_scale,
                 block_mask=self.block_mask,
-                nag_scale=nag_scale
+                nag_scale=nag_scale,
+                nag_context=nag_context
                 )
             
             if vace_data is not None:
