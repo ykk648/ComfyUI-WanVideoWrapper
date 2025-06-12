@@ -643,7 +643,7 @@ class WanAttentionBlock(nn.Module):
                                     num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context)
         del e
         return x
-    @torch.compiler.disable()
+    #@torch.compiler.disable()
     def cross_attn_ffn(self, x, context, context_lens, e, clip_embed=None, grid_sizes=None, 
                        audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21, nag_params={}, nag_context=None):
             x = x + self.cross_attn(self.norm3(x), context, context_lens, clip_embed=clip_embed,
