@@ -1277,13 +1277,92 @@ class WanVideoTextEncode:
             
         return cleaned_prompt, weights
     
+class WanVideoTextEncodeSingle:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "t5": ("WANTEXTENCODER",),
+            "prompt": ("STRING", {"default": "", "multiline": True} ),
+            },
+            "optional": {
+                "force_offload": ("BOOLEAN", {"default": True}),
+                "model_to_offload": ("WANVIDEOMODEL", {"tooltip": "Model to move to offload_device before encoding"}),
+            }
+        }
+
+    RETURN_TYPES = ("WANVIDEOTEXTEMBEDS", )
+    RETURN_NAMES = ("text_embeds",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Encodes text prompt into text embedding."
+
+    def process(self, t5, prompt, force_offload=True, model_to_offload=None):
+
+        device = mm.get_torch_device()
+        offload_device = mm.unet_offload_device()
+
+        if model_to_offload is not None:
+            log.info(f"Moving video model to {offload_device}")
+            model_to_offload.model.to(offload_device)
+            mm.soft_empty_cache()
+
+        encoder = t5["model"]
+        dtype = t5["dtype"]
+
+        encoder.model.to(device)
+       
+        with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=True):
+            encoded = encoder([prompt], device)
+
+        if force_offload:
+            encoder.model.to(offload_device)
+            mm.soft_empty_cache()
+
+        prompt_embeds_dict = {
+                "prompt_embeds": encoded,
+                "negative_prompt_embeds": None,
+            }
+        return (prompt_embeds_dict,)
+    
+class WanVideoApplyNAG:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "original_text_embeds": ("WANVIDEOTEXTEMBEDS",),
+            "nag_text_embeds": ("WANVIDEOTEXTEMBEDS",),
+            "nag_scale": ("FLOAT", {"default": 11.0, "min": 0.0, "max": 100.0, "step": 0.1}),
+            "nag_tau": ("FLOAT", {"default": 2.5, "min": 0.0, "max": 10.0, "step": 0.1}),
+            "nag_alpha": ("FLOAT", {"default": 0.25, "min": 0.0, "max": 1.0, "step": 0.01}),
+            },
+        }
+
+    RETURN_TYPES = ("WANVIDEOTEXTEMBEDS", )
+    RETURN_NAMES = ("text_embeds",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Adds NAG prompt embeds to original prompt embeds: 'https://github.com/ChenDarYen/Normalized-Attention-Guidance'"
+
+    def process(self, original_text_embeds, nag_text_embeds, nag_scale, nag_tau, nag_alpha):
+        prompt_embeds_dict_copy = original_text_embeds.copy()
+        prompt_embeds_dict_copy.update({
+                "nag_prompt_embeds": nag_text_embeds["prompt_embeds"],
+                "nag_params": {
+                    "nag_scale": nag_scale,
+                    "nag_tau": nag_tau,
+                    "nag_alpha": nag_alpha,
+                }
+            })
+        return (prompt_embeds_dict_copy,)
+    
 class WanVideoTextEmbedBridge:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
             "positive": ("CONDITIONING",),
-            "negative": ("CONDITIONING",),
             },
+            "optional": {
+                "negative": ("CONDITIONING",),
+            }
         }
 
     RETURN_TYPES = ("WANVIDEOTEXTEMBEDS", )
@@ -1292,11 +1371,11 @@ class WanVideoTextEmbedBridge:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "Bridge between ComfyUI native text embedding and WanVideoWrapper text embedding"
 
-    def process(self, positive, negative):
+    def process(self, positive, negative=None):
         device=mm.get_torch_device()
         prompt_embeds_dict = {
                 "prompt_embeds": positive[0][0].to(device),
-                "negative_prompt_embeds": negative[0][0].to(device),
+                "negative_prompt_embeds": negative[0][0].to(device) if negative is not None else None,
             }
         return (prompt_embeds_dict,)
     
@@ -2923,13 +3002,14 @@ class WanVideoSampler:
                 drift_timesteps = torch.cat([drift_timesteps, torch.tensor([0]).to(drift_timesteps.device)]).to(drift_timesteps.device)
                 timesteps[-drift_steps:] = drift_timesteps[-drift_steps:]
 
-        use_cfg_zero_star, use_fresca = False, False
+        use_cfg_zero_star = use_fresca = False
         if experimental_args is not None:
             video_attention_split_steps = experimental_args.get("video_attention_split_steps", [])
             if video_attention_split_steps:
                 transformer.video_attention_split_steps = [int(x.strip()) for x in video_attention_split_steps.split(",")]
             else:
                 transformer.video_attention_split_steps = []
+
             use_zero_init = experimental_args.get("use_zero_init", True)
             use_cfg_zero_star = experimental_args.get("cfg_zero_star", False)
             zero_star_steps = experimental_args.get("zero_star_steps", 0)
@@ -3051,12 +3131,18 @@ class WanVideoSampler:
                     "pcd_data": pcd_data,
                     "controlnet": controlnet,
                     "add_cond": add_cond_input,
+                    "nag_params": text_embeds.get("nag_params", {}),
+                    "nag_context": text_embeds.get("nag_prompt_embeds", None),
                 }
 
                 batch_size = 1
 
                 if not math.isclose(cfg_scale, 1.0) and len(positive_embeds) > 1:
                     negative_embeds = negative_embeds * len(positive_embeds)
+                
+                # if use_nag:
+                #     nag_negative_prompt_embeds = negative_embeds
+                #     positive_embeds = torch.cat([positive_embeds[0], nag_negative_prompt_embeds], dim=0)
 
                 if not batched_cfg:
                     #cond
@@ -3440,7 +3526,7 @@ class WanVideoSampler:
                     noise_pred[:, c] += noise_pred_context * window_mask
                     counter[:, c] += window_mask
                 noise_pred /= counter
-            #normal inference
+            #region normal inference
             else:
                 noise_pred, self.teacache_state = predict_with_cfg(
                     latent_model_input, 
@@ -3725,6 +3811,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoSampler": WanVideoSampler,
     "WanVideoDecode": WanVideoDecode,
     "WanVideoTextEncode": WanVideoTextEncode,
+    "WanVideoTextEncodeSingle": WanVideoTextEncodeSingle,
     "WanVideoModelLoader": WanVideoModelLoader,
     "WanVideoVAELoader": WanVideoVAELoader,
     "LoadWanVideoT5TextEncoder": LoadWanVideoT5TextEncoder,
@@ -3756,12 +3843,14 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoVACEModelSelect": WanVideoVACEModelSelect,
     "WanVideoPhantomEmbeds": WanVideoPhantomEmbeds,
     "CreateCFGScheduleFloatList": CreateCFGScheduleFloatList,
-    "WanVideoRealisDanceLatents": WanVideoRealisDanceLatents
+    "WanVideoRealisDanceLatents": WanVideoRealisDanceLatents,
+    "WanVideoApplyNAG": WanVideoApplyNAG
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
     "WanVideoDecode": "WanVideo Decode",
     "WanVideoTextEncode": "WanVideo TextEncode",
+    "WanVideoTextEncodeSingle": "WanVideo TextEncodeSingle",
     "WanVideoTextImageEncode": "WanVideo TextImageEncode (IP2V)",
     "WanVideoModelLoader": "WanVideo Model Loader",
     "WanVideoVAELoader": "WanVideo VAE Loader",
@@ -3795,4 +3884,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoPhantomEmbeds": "WanVideo Phantom Embeds",
     "CreateCFGScheduleFloatList": "WanVideo CFG Schedule Float List",
     "WanVideoRealisDanceLatents": "WanVideo RealisDance Latents",
+    "WanVideoApplyNAG": "WanVideo Apply NAG"
     }
