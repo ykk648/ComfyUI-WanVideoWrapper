@@ -380,8 +380,12 @@ class WanT2VCrossAttention(WanSelfAttention):
             batch_size = b
             context_positive = context[:batch_size]
             context_negative = context[batch_size:]
-            context_lens_positive = context_lens[:batch_size]
-            context_lens_negative = context_lens[batch_size:]
+            if context_lens is not None:
+                context_lens_positive = context_lens[:batch_size]
+                context_lens_negative = context_lens[batch_size:]
+            else:
+                context_lens_positive = None
+                context_lens_negative = None
 
             k_positive = self.norm_k(self.k(context_positive)).view(batch_size, -1, n, d)
             v_positive = self.v(context_positive).view(batch_size, -1, n, d)
@@ -408,7 +412,7 @@ class WanT2VCrossAttention(WanSelfAttention):
             
             x_text = hidden_states_guidance * self.nag_alpha + hidden_states_positive * (1 - self.nag_alpha)
             
-            print("Nag applied in apply_guidance!")
+            #print("Nag applied in apply_guidance!")
         else:
             k = self.norm_k(self.k(context)).view(b, -1, n, d)
             v = self.v(context).view(b, -1, n, d)

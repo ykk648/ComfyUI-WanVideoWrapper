@@ -3064,11 +3064,8 @@ class WanVideoSampler:
                     negative_embeds = negative_embeds * len(positive_embeds)
                 
                 if use_nag:
-                    print("Nag triggered!")
                     nag_negative_prompt_embeds = negative_embeds
-                    print(positive_embeds.shape)
                     positive_embeds = torch.cat([positive_embeds, nag_negative_prompt_embeds], dim=0)
-                    print(positive_embeds.shape)
 
                 if not batched_cfg:
                     #cond
