@@ -373,10 +373,12 @@ class WanT2VCrossAttention(WanSelfAttention):
 
     def forward(self, x, context, context_lens, clip_embed=None, audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21, nag_scale=11.0):
         b, n, d = x.size(0), self.num_heads, self.head_dim
+        # compute query
         q = self.norm_q(self.q(x)).view(b, -1, n, d)
 
         apply_guidance = nag_scale > 1 and context is not None
         if apply_guidance and context.size(0) == 2 * b:
+            # NAG text attention
             batch_size = b
             context_positive = context[:batch_size]
             context_negative = context[batch_size:]
@@ -411,8 +413,6 @@ class WanT2VCrossAttention(WanSelfAttention):
             hidden_states_guidance = torch.where(mask, hidden_states_guidance * adjustment, hidden_states_guidance)
             
             x_text = hidden_states_guidance * self.nag_alpha + hidden_states_positive * (1 - self.nag_alpha)
-            
-            #print("Nag applied in apply_guidance!")
         else:
             k = self.norm_k(self.k(context)).view(b, -1, n, d)
             v = self.v(context).view(b, -1, n, d)
@@ -421,6 +421,7 @@ class WanT2VCrossAttention(WanSelfAttention):
 
         x = x_text
 
+        # FantasyTalking audio attention
         if audio_proj is not None:
             if len(audio_proj.shape) == 4:
                 audio_q = q.view(b * num_latent_frames, -1, n, d)
@@ -440,48 +441,6 @@ class WanT2VCrossAttention(WanSelfAttention):
         x = self.o(x)
         return x
 
-# class WanT2VCrossAttention(WanSelfAttention):
-
-#     def forward(self, x, context, context_lens, clip_embed=None, audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21):
-#         r"""
-#         Args:
-#             x(Tensor): Shape [B, L1, C]
-#             context(Tensor): Shape [B, L2, C]
-#             context_lens(Tensor): Shape [B]
-#         """
-#         b, n, d = x.size(0), self.num_heads, self.head_dim
-
-#         # compute query, key, value
-#         q = self.norm_q(self.q(x)).view(b, -1, n, d)
-#         k = self.norm_k(self.k(context)).view(b, -1, n, d)
-#         v = self.v(context).view(b, -1, n, d)
-
-#         # compute attention
-#         x = attention(q, k, v, k_lens=context_lens, attention_mode=self.attention_mode)
-
-#         # output
-#         x = x.flatten(2)
-
-#         # FantasyTalking audio attention
-#         if audio_proj is not None:
-#             if len(audio_proj.shape) == 4:
-#                 audio_q = q.view(b * num_latent_frames, -1, n, d)  # [b, 21, l1, n, d]
-#                 ip_key = self.k_proj(audio_proj).view(b * num_latent_frames, -1, n, d)
-#                 ip_value = self.v_proj(audio_proj).view(b * num_latent_frames, -1, n, d)
-#                 audio_x = attention(
-#                     audio_q, ip_key, ip_value, k_lens=audio_context_lens, attention_mode=self.attention_mode
-#                 )
-#                 audio_x = audio_x.view(b, q.size(1), n, d)
-#                 audio_x = audio_x.flatten(2)
-#             elif len(audio_proj.shape) == 3:
-#                 ip_key = self.k_proj(audio_proj).view(b, -1, n, d)
-#                 ip_value = self.v_proj(audio_proj).view(b, -1, n, d)
-#                 audio_x = attention(q, ip_key, ip_value, k_lens=audio_context_lens, attention_mode=self.attention_mode)
-#                 audio_x = audio_x.flatten(2)
-            
-#             x = x + audio_x * audio_scale
-#         x = self.o(x)
-#         return x
 
 class WanI2VCrossAttention(WanSelfAttention):
 
@@ -495,11 +454,19 @@ class WanI2VCrossAttention(WanSelfAttention):
         self.nag_alpha = nag_alpha
 
     def forward(self, x, context, context_lens, clip_embed, audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21, nag_scale=11.):
+        r"""
+        Args:
+            x(Tensor): Shape [B, L1, C]
+            context(Tensor): Shape [B, L2, C]
+            context_lens(Tensor): Shape [B]
+        """
         b, n, d = x.size(0), self.num_heads, self.head_dim
+        # compute query
         q = self.norm_q(self.q(x)).view(b, -1, n, d)
 
         apply_guidance = nag_scale > 1 and context is not None
         if apply_guidance and context.size(0) == 2 * b:
+            # NAG text attention
             batch_size = b
             context_positive = context[:batch_size]
             context_negative = context[batch_size:]
@@ -531,10 +498,12 @@ class WanI2VCrossAttention(WanSelfAttention):
             
             x_text = hidden_states_guidance * self.nag_alpha + hidden_states_positive * (1 - self.nag_alpha)
         else:
+            # text attention
             k = self.norm_k(self.k(context)).view(b, -1, n, d)
             v = self.v(context).view(b, -1, n, d)
             x_text = attention(q, k, v, k_lens=context_lens, attention_mode=self.attention_mode).flatten(2)
 
+        #img attention
         if clip_embed is not None:
             k_img = self.norm_k_img(self.k_img(clip_embed)).view(b, -1, n, d)
             v_img = self.v_img(clip_embed).view(b, -1, n, d)
@@ -543,6 +512,7 @@ class WanI2VCrossAttention(WanSelfAttention):
         else:
             x = x_text
 
+        # FantasyTalking audio attention
         if audio_proj is not None:
             if len(audio_proj.shape) == 4:
                 audio_q = q.view(b * num_latent_frames, -1, n, d)
@@ -561,72 +531,6 @@ class WanI2VCrossAttention(WanSelfAttention):
 
         x = self.o(x)
         return x
-
-# class WanI2VCrossAttention(WanSelfAttention):
-
-#     def __init__(self,
-#                  dim,
-#                  num_heads,
-#                  window_size=(-1, -1),
-#                  qk_norm=True,
-#                  eps=1e-6,
-#                  attention_mode='sdpa'):
-#         super().__init__(dim, num_heads, window_size, qk_norm, eps)
-
-#         self.k_img = nn.Linear(dim, dim)
-#         self.v_img = nn.Linear(dim, dim)
-#         # self.alpha = nn.Parameter(torch.zeros((1, )))
-#         self.norm_k_img = WanRMSNorm(dim, eps=eps) if qk_norm else nn.Identity()
-#         self.attention_mode = attention_mode
-
-#     def forward(self, x, context, context_lens, clip_embed, audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21):
-#         r"""
-#         Args:
-#             x(Tensor): Shape [B, L1, C]
-#             context(Tensor): Shape [B, L2, C]
-#             context_lens(Tensor): Shape [B]
-#         """
-#         b, n, d = x.size(0), self.num_heads, self.head_dim
-
-#         # compute query, key, value
-#         q = self.norm_q(self.q(x)).view(b, -1, n, d)
-#         k = self.norm_k(self.k(context)).view(b, -1, n, d)
-#         v = self.v(context).view(b, -1, n, d)
-           
-#         # text attention
-#         x = attention(q, k, v, k_lens=context_lens, attention_mode=self.attention_mode)
-#         x = x.flatten(2)
-
-#         #img attention
-#         if clip_embed is not None:
-#             k_img = self.norm_k_img(self.k_img(clip_embed)).view(b, -1, n, d)
-#             v_img = self.v_img(clip_embed).view(b, -1, n, d)
-#             img_x = attention(q, k_img, v_img, k_lens=None, attention_mode=self.attention_mode)
-#             img_x = img_x.flatten(2)
-
-#             x = x + img_x
-
-#         # FantasyTalking audio attention
-#         if audio_proj is not None:
-#             if len(audio_proj.shape) == 4:
-#                 audio_q = q.view(b * num_latent_frames, -1, n, d)  # [b, 21, l1, n, d]
-#                 ip_key = self.k_proj(audio_proj).view(b * num_latent_frames, -1, n, d)
-#                 ip_value = self.v_proj(audio_proj).view(b * num_latent_frames, -1, n, d)
-#                 audio_x = attention(
-#                     audio_q, ip_key, ip_value, k_lens=audio_context_lens, attention_mode=self.attention_mode
-#                 )
-#                 audio_x = audio_x.view(b, q.size(1), n, d)
-#                 audio_x = audio_x.flatten(2)
-#             elif len(audio_proj.shape) == 3:
-#                 ip_key = self.k_proj(audio_proj).view(b, -1, n, d)
-#                 ip_value = self.v_proj(audio_proj).view(b, -1, n, d)
-#                 audio_x = attention(q, ip_key, ip_value, k_lens=audio_context_lens, attention_mode=self.attention_mode)
-#                 audio_x = audio_x.flatten(2)
-            
-#             x = x + audio_x * audio_scale
-
-#         x = self.o(x)
-#         return x
 
 
 WAN_CROSSATTENTION_CLASSES = {
