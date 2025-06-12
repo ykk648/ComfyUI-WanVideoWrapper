@@ -2321,6 +2321,7 @@ class WanVideoExperimentalArgs:
                 "fresca_scale_high": ("FLOAT", {"default": 1.25, "min": 0.0, "max": 10.0, "step": 0.01}),
                 "fresca_freq_cutoff": ("INT", {"default": 20, "min": 0, "max": 10000, "step": 1}),
                 "use_nag": ("BOOLEAN", {"default": False}),
+                "nag_scale": ("FLOAT", {"default": 11.0, "min": 1.0, "max": 20.0, "step": 1.0}),
             },
         }
 
@@ -2927,6 +2928,7 @@ class WanVideoSampler:
         use_cfg_zero_star, use_fresca, use_nag = False, False, False
         if experimental_args is not None:
             use_nag = experimental_args.get("use_nag", False)
+            nag_scale = experimental_args.get("nag_scale", 11)
             video_attention_split_steps = experimental_args.get("video_attention_split_steps", [])
             if video_attention_split_steps:
                 transformer.video_attention_split_steps = [int(x.strip()) for x in video_attention_split_steps.split(",")]
@@ -3053,6 +3055,7 @@ class WanVideoSampler:
                     "pcd_data": pcd_data,
                     "controlnet": controlnet,
                     "add_cond": add_cond_input,
+                    "nag_scale": nag_scale,
                 }
 
                 batch_size = 1
@@ -3061,8 +3064,11 @@ class WanVideoSampler:
                     negative_embeds = negative_embeds * len(positive_embeds)
                 
                 if use_nag:
+                    print("Nag triggered!")
                     nag_negative_prompt_embeds = negative_embeds
+                    print(positive_embeds.shape)
                     positive_embeds = torch.cat([positive_embeds, nag_negative_prompt_embeds], dim=0)
+                    print(positive_embeds.shape)
 
                 if not batched_cfg:
                     #cond
