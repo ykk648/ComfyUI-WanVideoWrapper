@@ -194,7 +194,7 @@ def filter_state_dict_by_blocks(state_dict, blocks_mapping, layer_filter=[]):
         # Filter out empty strings
         layer_filters = [f for f in layer_filter if f] if layer_filter else []
 
-    print("layer_filter: ", layer_filters)
+    #print("layer_filter: ", layer_filters)
 
     for key in state_dict:
         if not any(filter_str in key for filter_str in layer_filters):
@@ -211,8 +211,8 @@ def filter_state_dict_by_blocks(state_dict, blocks_mapping, layer_filter=[]):
     for key in filtered_dict:
         print(key)
 
-    from safetensors.torch import save_file
-    save_file(filtered_dict, "filtered_state_dict_2.safetensors")
+    #from safetensors.torch import save_file
+    #save_file(filtered_dict, "filtered_state_dict_2.safetensors")
 
     return filtered_dict
 
