@@ -2399,8 +2399,6 @@ class WanVideoExperimentalArgs:
                 "fresca_scale_low": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.01}),
                 "fresca_scale_high": ("FLOAT", {"default": 1.25, "min": 0.0, "max": 10.0, "step": 0.01}),
                 "fresca_freq_cutoff": ("INT", {"default": 20, "min": 0, "max": 10000, "step": 1}),
-                "use_nag": ("BOOLEAN", {"default": False}),
-                "nag_scale": ("FLOAT", {"default": 11.0, "min": 1.0, "max": 20.0, "step": 1.0}),
             },
         }
 
@@ -3004,14 +3002,8 @@ class WanVideoSampler:
                 drift_timesteps = torch.cat([drift_timesteps, torch.tensor([0]).to(drift_timesteps.device)]).to(drift_timesteps.device)
                 timesteps[-drift_steps:] = drift_timesteps[-drift_steps:]
 
-        use_cfg_zero_star = use_fresca = nag_scale = False
-        nag_negative_context = None
+        use_cfg_zero_star = use_fresca = False
         if experimental_args is not None:
-            use_nag = experimental_args.get("use_nag", False)
-            if use_nag:
-                nag_negative_context = text_embeds["negative_prompt_embeds"]
-                nag_scale = experimental_args.get("nag_scale", 11)
-
             video_attention_split_steps = experimental_args.get("video_attention_split_steps", [])
             if video_attention_split_steps:
                 transformer.video_attention_split_steps = [int(x.strip()) for x in video_attention_split_steps.split(",")]
