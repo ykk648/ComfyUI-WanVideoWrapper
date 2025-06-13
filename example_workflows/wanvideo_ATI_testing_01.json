@@ -907,9 +907,9 @@
           "link": null
         },
         {
-          "name": "teacache_args",
+          "name": "cache_args",
           "shape": 7,
-          "type": "TEACACHEARGS",
+          "type": "CACHEARGS",
           "link": null
         },
         {

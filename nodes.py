@@ -111,8 +111,8 @@ class WanVideoTeaCache:
                 "mode": (["e", "e0"], {"default": "e", "tooltip": "Choice between using e (time embeds, default) or e0 (modulated time embeds)"}),
             },
         }
-    RETURN_TYPES = ("TEACACHEARGS",)
-    RETURN_NAMES = ("teacache_args",)
+    RETURN_TYPES = ("CACHEARGS",)
+    RETURN_NAMES = ("cache_args",)
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = """
@@ -141,18 +141,54 @@ Official recommended values https://github.com/ali-vilab/TeaCache/tree/main/TeaC
 
     def process(self, rel_l1_thresh, start_step, end_step, cache_device, use_coefficients, mode="e"):
         if cache_device == "main_device":
-            teacache_device = mm.get_torch_device()
+            cache_device = mm.get_torch_device()
         else:
-            teacache_device = mm.unet_offload_device()
-        teacache_args = {
+            cache_device = mm.unet_offload_device()
+        cache_args = {
+            "cache_type": "TeaCache",
             "rel_l1_thresh": rel_l1_thresh,
             "start_step": start_step,
             "end_step": end_step,
-            "cache_device": teacache_device,
+            "cache_device": cache_device,
             "use_coefficients": use_coefficients,
             "mode": mode,
         }
-        return (teacache_args,)
+        return (cache_args,)
+    
+class WanVideoMagCache:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "magcache_thresh": ("FLOAT", {"default": 0.02, "min": 0.0, "max": 0.3, "step": 0.001, "tooltip": "How strongly to cache the output of diffusion model. This value must be non-negative."}),
+                "magcache_K": ("INT", {"default": 4, "min": 0, "max": 6, "step": 1, "tooltip": "The maxium skip steps of MagCache."}),
+                "start_step": ("INT", {"default": 1, "min": 0, "max": 9999, "step": 1, "tooltip": "Step to start applying MagCache"}),
+                "end_step": ("INT", {"default": -1, "min": -1, "max": 9999, "step": 1, "tooltip": "Step to end applying MagCache"}),
+                "cache_device": (["main_device", "offload_device"], {"default": "offload_device", "tooltip": "Device to cache to"}),
+            },
+        }
+    RETURN_TYPES = ("CACHEARGS",)
+    RETURN_NAMES = ("cache_args",)
+    FUNCTION = "setargs"
+    CATEGORY = "WanVideoWrapper"
+    EXPERIMENTAL = True
+    DESCRIPTION = "MagCache for WanVideoWrapper, source https://github.com/Zehong-Ma/MagCache"
+
+    def setargs(self, magcache_thresh, magcache_K, start_step, end_step, cache_device):
+        if cache_device == "main_device":
+            cache_device = mm.get_torch_device()
+        else:
+            cache_device = mm.unet_offload_device()
+
+        cache_args = {
+            "cache_type": "MagCache",
+            "magcache_thresh": magcache_thresh,
+            "magcache_K": magcache_K,
+            "start_step": start_step,
+            "end_step": end_step,
+            "cache_device": cache_device,
+        }
+        return (cache_args,)
 
 
 class WanVideoModel(comfy.model_base.BaseModel):
@@ -625,6 +661,14 @@ class WanVideoModelLoader:
                 "e0": [8.10705460e+03, 2.13393892e+03, -3.72934672e+02, 1.66203073e+01, -4.17769401e-02],
             },
         }
+
+        magcache_ratios_map = {
+            "1_3B": np.array([1.0]*2+[1.0124, 1.02213, 1.00166, 1.0041, 0.99791, 1.00061, 0.99682, 0.99762, 0.99634, 0.99685, 0.99567, 0.99586, 0.99416, 0.99422, 0.99578, 0.99575, 0.9957, 0.99563, 0.99511, 0.99506, 0.99535, 0.99531, 0.99552, 0.99549, 0.99541, 0.99539, 0.9954, 0.99536, 0.99489, 0.99485, 0.99518, 0.99514, 0.99484, 0.99478, 0.99481, 0.99479, 0.99415, 0.99413, 0.99419, 0.99416, 0.99396, 0.99393, 0.99388, 0.99386, 0.99349, 0.99349, 0.99309, 0.99304, 0.9927, 0.9927, 0.99228, 0.99226, 0.99171, 0.9917, 0.99137, 0.99135, 0.99068, 0.99063, 0.99005, 0.99003, 0.98944, 0.98942, 0.98849, 0.98849, 0.98758, 0.98757, 0.98644, 0.98643, 0.98504, 0.98503, 0.9836, 0.98359, 0.98202, 0.98201, 0.97977, 0.97978, 0.97717, 0.97718, 0.9741, 0.97411, 0.97003, 0.97002, 0.96538, 0.96541, 0.9593, 0.95933, 0.95086, 0.95089, 0.94013, 0.94019, 0.92402, 0.92414, 0.90241, 0.9026, 0.86821, 0.86868, 0.81838, 0.81939]),
+            "14B": np.array([1.0]*2+[1.02504, 1.03017, 1.00025, 1.00251, 0.9985, 0.99962, 0.99779, 0.99771, 0.9966, 0.99658, 0.99482, 0.99476, 0.99467, 0.99451, 0.99664, 0.99656, 0.99434, 0.99431, 0.99533, 0.99545, 0.99468, 0.99465, 0.99438, 0.99434, 0.99516, 0.99517, 0.99384, 0.9938, 0.99404, 0.99401, 0.99517, 0.99516, 0.99409, 0.99408, 0.99428, 0.99426, 0.99347, 0.99343, 0.99418, 0.99416, 0.99271, 0.99269, 0.99313, 0.99311, 0.99215, 0.99215, 0.99218, 0.99215, 0.99216, 0.99217, 0.99163, 0.99161, 0.99138, 0.99135, 0.98982, 0.9898, 0.98996, 0.98995, 0.9887, 0.98866, 0.98772, 0.9877, 0.98767, 0.98765, 0.98573, 0.9857, 0.98501, 0.98498, 0.9838, 0.98376, 0.98177, 0.98173, 0.98037, 0.98035, 0.97678, 0.97677, 0.97546, 0.97543, 0.97184, 0.97183, 0.96711, 0.96708, 0.96349, 0.96345, 0.95629, 0.95625, 0.94926, 0.94929, 0.93964, 0.93961, 0.92511, 0.92504, 0.90693, 0.90678, 0.8796, 0.87945, 0.86111, 0.86189]),
+            "i2v_480": np.array([1.0]*2+[0.98783, 0.98993, 0.97559, 0.97593, 0.98311, 0.98319, 0.98202, 0.98225, 0.9888, 0.98878, 0.98762, 0.98759, 0.98957, 0.98971, 0.99052, 0.99043, 0.99383, 0.99384, 0.98857, 0.9886, 0.99065, 0.99068, 0.98845, 0.98847, 0.99057, 0.99057, 0.98957, 0.98961, 0.98601, 0.9861, 0.98823, 0.98823, 0.98756, 0.98759, 0.98808, 0.98814, 0.98721, 0.98724, 0.98571, 0.98572, 0.98543, 0.98544, 0.98157, 0.98165, 0.98411, 0.98413, 0.97952, 0.97953, 0.98149, 0.9815, 0.9774, 0.97742, 0.97825, 0.97826, 0.97355, 0.97361, 0.97085, 0.97087, 0.97056, 0.97055, 0.96588, 0.96587, 0.96113, 0.96124, 0.9567, 0.95681, 0.94961, 0.94969, 0.93973, 0.93988, 0.93217, 0.93224, 0.91878, 0.91896, 0.90955, 0.90954, 0.92617, 0.92616]),
+            "i2v_720": np.array([1.0]*2+[0.99428, 0.99498, 0.98588, 0.98621, 0.98273, 0.98281, 0.99018, 0.99023, 0.98911, 0.98917, 0.98646, 0.98652, 0.99454, 0.99456, 0.9891, 0.98909, 0.99124, 0.99127, 0.99102, 0.99103, 0.99215, 0.99212, 0.99515, 0.99515, 0.99576, 0.99572, 0.99068, 0.99072, 0.99097, 0.99097, 0.99166, 0.99169, 0.99041, 0.99042, 0.99201, 0.99198, 0.99101, 0.99101, 0.98599, 0.98603, 0.98845, 0.98844, 0.98848, 0.98851, 0.98862, 0.98857, 0.98718, 0.98719, 0.98497, 0.98497, 0.98264, 0.98263, 0.98389, 0.98393, 0.97938, 0.9794, 0.97535, 0.97536, 0.97498, 0.97499, 0.973, 0.97301, 0.96827, 0.96828, 0.96261, 0.96263, 0.95335, 0.9534, 0.94649, 0.94655, 0.93397, 0.93414, 0.91636, 0.9165, 0.89088, 0.89109, 0.8679, 0.86768]),
+        }
+
         model_variant = "14B" #default to this
         if model_type == "i2v" or model_type == "fl2v":
             if "480" in model or "fun" in model.lower() or "a2" in model.lower() or "540" in model: #just a guess for the Fun model for now...
@@ -653,6 +697,7 @@ class WanVideoModelLoader:
             "main_device": device,
             "offload_device": offload_device,
             "teacache_coefficients": teacache_coefficients_map[model_variant],
+            "magcache_ratios": magcache_ratios_map[model_variant],
             "vace_layers": vace_layers,
             "vace_in_dim": vace_in_dim,
             "inject_sample_info": True if "fps_embedding.weight" in sd else False,
@@ -2439,7 +2484,7 @@ class WanVideoSampler:
                 "denoise_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "feta_args": ("FETAARGS", ),
                 "context_options": ("WANVIDCONTEXT", ),
-                "teacache_args": ("TEACACHEARGS", ),
+                "cache_args": ("CACHEARGS", ),
                 "flowedit_args": ("FLOWEDITARGS", ),
                 "batched_cfg": ("BOOLEAN", {"default": False, "tooltip": "Batch cond and uncond for faster sampling, possibly faster on some hardware, uses more memory"}),
                 "slg_args": ("SLGARGS", ),
@@ -2460,9 +2505,9 @@ class WanVideoSampler:
 
     def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
         force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, 
-        teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None, 
+        cache_args=None, teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None, 
         experimental_args=None, sigmas=None, unianimate_poses=None, fantasytalking_embeds=None, uni3c_embeds=None):
-        #assert not (context_options and teacache_args), "Context options cannot currently be used together with teacache."
+        
         patcher = model
         model = model.model
         transformer = model.diffusion_model
@@ -2938,19 +2983,29 @@ class WanVideoSampler:
             feta_args = None
             disable_enhance()
 
-        # Initialize TeaCache if enabled
-        if teacache_args is not None:
-            transformer.enable_teacache = True
-            transformer.rel_l1_thresh = teacache_args["rel_l1_thresh"]
-            transformer.teacache_start_step = teacache_args["start_step"]
-            transformer.teacache_cache_device = teacache_args["cache_device"]
-            log.info(f"TeaCache: Using cache device: {transformer.teacache_state.cache_device}")
-            transformer.teacache_end_step = len(timesteps)-1 if teacache_args["end_step"] == -1 else teacache_args["end_step"]
-            transformer.teacache_use_coefficients = teacache_args["use_coefficients"]
-            transformer.teacache_mode = teacache_args["mode"]
-            transformer.teacache_state.clear_all()
-        else:
-            transformer.enable_teacache = False
+        # Initialize Cache if enabled
+        transformer.enable_teacache = transformer.enable_magcache = False
+        if teacache_args is not None: #for backward compatibility on old workflows
+            cache_args = teacache_args
+        if cache_args is not None:            
+            transformer.cache_device = cache_args["cache_device"]
+            if cache_args["cache_type"] == "TeaCache":
+                log.info(f"TeaCache: Using cache device: {transformer.cache_device}")
+                transformer.teacache_state.clear_all()
+                transformer.enable_teacache = True
+                transformer.rel_l1_thresh = cache_args["rel_l1_thresh"]
+                transformer.teacache_start_step = cache_args["start_step"]
+                transformer.teacache_end_step = len(timesteps)-1 if cache_args["end_step"] == -1 else cache_args["end_step"]
+                transformer.teacache_use_coefficients = cache_args["use_coefficients"]
+                transformer.teacache_mode = cache_args["mode"]
+            elif cache_args["cache_type"] == "MagCache":
+                log.info(f"MagCache: Using cache device: {transformer.cache_device}")
+                transformer.magcache_state.clear_all()
+                transformer.enable_magcache = True
+                transformer.magcache_start_step = cache_args["start_step"]
+                transformer.magcache_end_step = len(timesteps)-1 if cache_args["end_step"] == -1 else cache_args["end_step"]
+                transformer.magcache_thresh = cache_args["magcache_thresh"]
+                transformer.magcache_K = cache_args["magcache_K"]
 
         if slg_args is not None:
             assert batched_cfg is not None, "Batched cfg is not supported with SLG"
@@ -2960,12 +3015,12 @@ class WanVideoSampler:
         else:
             transformer.slg_blocks = None
 
-        self.teacache_state = [None, None]
+        self.cache_state = [None, None]
         if phantom_latents is not None:
             log.info(f"Phantom latents shape: {phantom_latents.shape}")
-            self.teacache_state = [None, None, None]
-        self.teacache_state_source = [None, None]
-        self.teacache_states_context = []
+            self.cache_state = [None, None, None]
+        self.cache_state_source = [None, None]
+        self.cache_states_context = []
 
         if flowedit_args is not None:
             source_embeds = flowedit_args["source_embeds"]
@@ -3022,7 +3077,7 @@ class WanVideoSampler:
 
         #region model pred
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, 
-                             control_latents=None, vace_data=None, unianim_data=None, audio_proj=None, control_camera_latents=None, add_cond=None, teacache_state=None):
+                             control_latents=None, vace_data=None, unianim_data=None, audio_proj=None, control_camera_latents=None, add_cond=None, cache_state=None):
             z = z.to(dtype)
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=("fp8" in model["quantization"])):
 
@@ -3087,8 +3142,8 @@ class WanVideoSampler:
                         z_phantom_img = torch.cat([z[:,:-phantom_latents.shape[1]], phantom_latents.to(z)], dim=1)
                         z_neg = torch.cat([z[:,:-phantom_latents.shape[1]], torch.zeros_like(phantom_latents).to(z)], dim=1)
                         use_phantom = True
-                        if teacache_state is not None and len(teacache_state) != 3:
-                            teacache_state.append(None)
+                        if cache_state is not None and len(cache_state) != 3:
+                            cache_state.append(None)
                 if not use_phantom:
                     z_pos = z_neg = z
 
@@ -3146,10 +3201,10 @@ class WanVideoSampler:
 
                 if not batched_cfg:
                     #cond
-                    noise_pred_cond, teacache_state_cond = transformer(
+                    noise_pred_cond, cache_state_cond = transformer(
                         [z_pos], context=positive_embeds, y=[image_cond_input] if image_cond_input is not None else None,
                         clip_fea=clip_fea, is_uncond=False, current_step_percentage=current_step_percentage,
-                        pred_id=teacache_state[0] if teacache_state else None,
+                        pred_id=cache_state[0] if cache_state else None,
                         vace_data=vace_data, attn_cond=attn_cond,
                         **base_params
                     )
@@ -3162,44 +3217,44 @@ class WanVideoSampler:
                                 scale_high=fresca_scale_high,
                                 freq_cutoff=fresca_freq_cutoff,
                             )
-                        return noise_pred_cond, [teacache_state_cond]
+                        return noise_pred_cond, [cache_state_cond]
                     #uncond
                     if fantasytalking_embeds is not None:
                         if not math.isclose(audio_cfg_scale[idx], 1.0):
                             base_params['audio_proj'] = None
-                    noise_pred_uncond, teacache_state_uncond = transformer(
+                    noise_pred_uncond, cache_state_uncond = transformer(
                         [z_neg], context=negative_embeds, clip_fea=clip_fea_neg if clip_fea_neg is not None else clip_fea,
                         y=[image_cond_input] if image_cond_input is not None else None, 
                         is_uncond=True, current_step_percentage=current_step_percentage,
-                        pred_id=teacache_state[1] if teacache_state else None,
+                        pred_id=cache_state[1] if cache_state else None,
                         vace_data=vace_data, attn_cond=attn_cond_neg,
                         **base_params
                     )
                     noise_pred_uncond = noise_pred_uncond[0].to(intermediate_device)
                     #phantom
                     if use_phantom and not math.isclose(phantom_cfg_scale[idx], 1.0):
-                        noise_pred_phantom, teacache_state_phantom = transformer(
+                        noise_pred_phantom, cache_state_phantom = transformer(
                         [z_phantom_img], context=negative_embeds, clip_fea=clip_fea_neg if clip_fea_neg is not None else clip_fea,
                         y=[image_cond_input] if image_cond_input is not None else None, 
                         is_uncond=True, current_step_percentage=current_step_percentage,
-                        pred_id=teacache_state[2] if teacache_state else None,
+                        pred_id=cache_state[2] if cache_state else None,
                         vace_data=None,
                         **base_params
                     )
                         noise_pred_phantom = noise_pred_phantom[0].to(intermediate_device)
                         
                         noise_pred = noise_pred_uncond + phantom_cfg_scale[idx] * (noise_pred_phantom - noise_pred_uncond) + cfg_scale * (noise_pred_cond - noise_pred_phantom)
-                        return noise_pred, [teacache_state_cond, teacache_state_uncond, teacache_state_phantom]
+                        return noise_pred, [cache_state_cond, cache_state_uncond, cache_state_phantom]
                     #fantasytalking
                     if fantasytalking_embeds is not None:
                         if not math.isclose(audio_cfg_scale[idx], 1.0):
-                            if teacache_state is not None and len(teacache_state) != 3:
-                                teacache_state.append(None)
+                            if cache_state is not None and len(cache_state) != 3:
+                                cache_state.append(None)
                             base_params['audio_proj'] = None
-                            noise_pred_no_audio, teacache_state_audio = transformer(
+                            noise_pred_no_audio, cache_state_audio = transformer(
                                 [z_pos], context=positive_embeds, y=[image_cond_input] if image_cond_input is not None else None,
                                 clip_fea=clip_fea, is_uncond=False, current_step_percentage=current_step_percentage,
-                                pred_id=teacache_state[2] if teacache_state else None,
+                                pred_id=cache_state[2] if cache_state else None,
                                 vace_data=vace_data,
                                 **base_params
                             )
@@ -3209,16 +3264,16 @@ class WanVideoSampler:
                                 + cfg_scale * (noise_pred_no_audio - noise_pred_uncond)
                                 + audio_cfg_scale[idx] * (noise_pred_cond - noise_pred_no_audio)
                                 )
-                            return noise_pred, [teacache_state_cond, teacache_state_uncond, teacache_state_audio]
+                            return noise_pred, [cache_state_cond, cache_state_uncond, cache_state_audio]
 
                 #batched
                 else:
-                    teacache_state_uncond = None
-                    [noise_pred_cond, noise_pred_uncond], teacache_state_cond = transformer(
+                    cache_state_uncond = None
+                    [noise_pred_cond, noise_pred_uncond], cache_state_cond = transformer(
                         [z] + [z], context=positive_embeds + negative_embeds, 
                         y=[image_cond_input] + [image_cond_input] if image_cond_input is not None else None,
                         clip_fea=clip_fea.repeat(2,1,1), is_uncond=False, current_step_percentage=current_step_percentage,
-                        pred_id=teacache_state[0] if teacache_state else None,
+                        pred_id=cache_state[0] if cache_state else None,
                         **base_params
                     )
                 #cfg
@@ -3245,7 +3300,7 @@ class WanVideoSampler:
                     noise_pred = noise_pred_uncond * alpha + cfg_scale * (noise_pred_cond - noise_pred_uncond * alpha)
                 
 
-                return noise_pred, [teacache_state_cond, teacache_state_uncond]
+                return noise_pred, [cache_state_cond, cache_state_uncond]
 
         log.info(f"Sampling {(latent_video_length-1) * 4 + 1} frames at {latent.shape[3]*8}x{latent.shape[2]*8} with {steps} steps")
 
@@ -3332,8 +3387,8 @@ class WanVideoSampler:
                         for c in context_queue:
                             window_id = self.window_tracker.get_window_id(c)
 
-                            if teacache_args is not None:
-                                current_teacache = self.window_tracker.get_teacache(window_id, self.teacache_state)
+                            if cache_args is not None:
+                                current_teacache = self.window_tracker.get_teacache(window_id, self.cache_state)
                             else:
                                 current_teacache = None
 
@@ -3358,21 +3413,21 @@ class WanVideoSampler:
                                 timestep, idx, partial_img_emb, control_latents,
                                 source_clip_fea, current_teacache)
                             
-                            if teacache_args is not None:
-                                self.window_tracker.teacache_states[window_id] = new_teacache
+                            if cache_args is not None:
+                                self.window_tracker.cache_states[window_id] = new_teacache
 
                             window_mask = create_window_mask(vt_src_context, c, latent_video_length, context_overlap)
                             vt_src[:, c, :, :] += vt_src_context * window_mask
                             counter[:, c, :, :] += window_mask
                         vt_src /= counter
                     else:
-                        vt_src, self.teacache_state_source = predict_with_cfg(
+                        vt_src, self.cache_state_source = predict_with_cfg(
                             zt_src, cfg[idx], 
                             source_embeds["prompt_embeds"], 
                             source_embeds["negative_prompt_embeds"],
                             timestep, idx, source_image_cond, 
                             source_clip_fea, control_latents,
-                            teacache_state=self.teacache_state_source)
+                            cache_state=self.cache_state_source)
                 else:
                     if idx == len(timesteps) - drift_steps:
                         x_tgt = zt_tgt
@@ -3386,8 +3441,8 @@ class WanVideoSampler:
                     for c in context_queue:
                         window_id = self.window_tracker.get_window_id(c)
 
-                        if teacache_args is not None:
-                            current_teacache = self.window_tracker.get_teacache(window_id, self.teacache_state)
+                        if cache_args is not None:
+                            current_teacache = self.window_tracker.get_teacache(window_id, self.cache_state)
                         else:
                             current_teacache = None
 
@@ -3415,20 +3470,20 @@ class WanVideoSampler:
                             timestep, idx, partial_img_emb, partial_control_latents,
                             clip_fea, current_teacache)
                         
-                        if teacache_args is not None:
-                            self.window_tracker.teacache_states[window_id] = new_teacache
+                        if cache_args is not None:
+                            self.window_tracker.cache_states[window_id] = new_teacache
                         
                         window_mask = create_window_mask(vt_tgt_context, c, latent_video_length, context_overlap)
                         vt_tgt[:, c, :, :] += vt_tgt_context * window_mask
                         counter[:, c, :, :] += window_mask
                     vt_tgt /= counter
                 else:
-                    vt_tgt, self.teacache_state = predict_with_cfg(
+                    vt_tgt, self.cache_state = predict_with_cfg(
                         zt_tgt, cfg[idx], 
                         text_embeds["prompt_embeds"], 
                         text_embeds["negative_prompt_embeds"], 
                         timestep, idx, image_cond, clip_fea, control_latents,
-                        teacache_state=self.teacache_state)
+                        cache_state=self.cache_state)
                 v_delta = vt_tgt - vt_src
                 x_tgt = x_tgt.to(torch.float32)
                 v_delta = v_delta.to(torch.float32)
@@ -3443,8 +3498,8 @@ class WanVideoSampler:
                 for c in context_queue:
                     window_id = self.window_tracker.get_window_id(c)
                     
-                    if teacache_args is not None:
-                        current_teacache = self.window_tracker.get_teacache(window_id, self.teacache_state)
+                    if cache_args is not None:
+                        current_teacache = self.window_tracker.get_teacache(window_id, self.cache_state)
                     else:
                         current_teacache = None
 
@@ -3519,8 +3574,8 @@ class WanVideoSampler:
                         partial_control_camera_latents, partial_add_cond,
                         current_teacache)
 
-                    if teacache_args is not None:
-                        self.window_tracker.teacache_states[window_id] = new_teacache
+                    if cache_args is not None:
+                        self.window_tracker.cache_states[window_id] = new_teacache
 
                     window_mask = create_window_mask(noise_pred_context, c, latent_video_length, context_overlap, looped=is_looped)                    
                     noise_pred[:, c] += noise_pred_context * window_mask
@@ -3528,13 +3583,13 @@ class WanVideoSampler:
                 noise_pred /= counter
             #region normal inference
             else:
-                noise_pred, self.teacache_state = predict_with_cfg(
+                noise_pred, self.cache_state = predict_with_cfg(
                     latent_model_input, 
                     cfg[idx], 
                     text_embeds["prompt_embeds"], 
                     text_embeds["negative_prompt_embeds"], 
                     timestep, idx, image_cond, clip_fea, control_latents, vace_data, unianim_data, audio_proj, control_camera_latents, add_cond,
-                    teacache_state=self.teacache_state)
+                    cache_state=self.cache_state)
 
             if latent_shift_loop:
                 #reverse latent shift
@@ -3580,8 +3635,9 @@ class WanVideoSampler:
         if phantom_latents is not None:
             x0 = x0[:,:-phantom_latents.shape[1]]
                 
-        if teacache_args is not None:
-            states = transformer.teacache_state.states
+        if cache_args is not None:
+            cache_type = cache_args["cache_type"]
+            states = transformer.teacache_state.states if cache_type == "TeaCache" else transformer.magcache_state.states
             state_names = {
                 0: "conditional",
                 1: "unconditional"
@@ -3589,13 +3645,10 @@ class WanVideoSampler:
             for pred_id, state in states.items():
                 name = state_names.get(pred_id, f"prediction_{pred_id}")
                 if 'skipped_steps' in state:
-                    log.info(f"TeaCache skipped: {len(state['skipped_steps'])} {name} steps: {state['skipped_steps']}")
+                    log.info(f"{cache_type} skipped: {len(state['skipped_steps'])} {name} steps: {state['skipped_steps']}")
             transformer.teacache_state.clear_all()
-
-        # if transformer.attention_mode == "spargeattn_tune":
-        #     saved_state_dict = extract_sparse_attention_state_dict(transformer)
-        #     torch.save(saved_state_dict, "sparge_wan.pt")
-        #     save_torch_file(saved_state_dict, "sparge_wan.safetensors")
+            transformer.magcache_state.clear_all()
+            del states
 
         if force_offload:
             if model["manual_offloading"]:
@@ -3617,7 +3670,7 @@ class WindowTracker:
     def __init__(self, verbose=False):
         self.window_map = {}  # Maps frame sequence to persistent ID
         self.next_id = 0
-        self.teacache_states = {}  # Maps persistent ID to teacache state
+        self.cache_states = {}  # Maps persistent ID to teacache state
         self.verbose = verbose
     
     def get_window_id(self, frames):
@@ -3630,11 +3683,11 @@ class WindowTracker:
         return self.window_map[key]
     
     def get_teacache(self, window_id, base_state):
-        if window_id not in self.teacache_states:
+        if window_id not in self.cache_states:
             if self.verbose:
                 log.info(f"Initializing persistent teacache for window {window_id}")
-            self.teacache_states[window_id] = base_state.copy()
-        return self.teacache_states[window_id]
+            self.cache_states[window_id] = base_state.copy()
+        return self.cache_states[window_id]
 
 #region VideoDecode
 class WanVideoDecode:
@@ -3828,6 +3881,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoEnhanceAVideo": WanVideoEnhanceAVideo,
     "WanVideoContextOptions": WanVideoContextOptions,
     "WanVideoTeaCache": WanVideoTeaCache,
+    "WanVideoMagCache": WanVideoMagCache,
     "WanVideoVRAMManagement": WanVideoVRAMManagement,
     "WanVideoTextEmbedBridge": WanVideoTextEmbedBridge,
     "WanVideoFlowEdit": WanVideoFlowEdit,
@@ -3868,6 +3922,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoEnhanceAVideo": "WanVideo Enhance-A-Video",
     "WanVideoContextOptions": "WanVideo Context Options",
     "WanVideoTeaCache": "WanVideo TeaCache",
+    "WanVideoMagCache": "WanVideo MagCache",
     "WanVideoVRAMManagement": "WanVideo VRAM Management",
     "WanVideoTextEmbedBridge": "WanVideo TextEmbed Bridge",
     "WanVideoFlowEdit": "WanVideo FlowEdit",

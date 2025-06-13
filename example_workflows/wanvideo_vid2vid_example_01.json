@@ -668,8 +668,8 @@
       "inputs": [],
       "outputs": [
         {
-          "name": "teacache_args",
-          "type": "TEACACHEARGS",
+          "name": "cache_args",
+          "type": "CACHEARGS",
           "slot_index": 0,
           "links": [
             62
@@ -736,9 +736,9 @@
           "link": null
         },
         {
-          "name": "teacache_args",
+          "name": "cache_args",
           "shape": 7,
-          "type": "TEACACHEARGS",
+          "type": "CACHEARGS",
           "link": 62
         },
         {

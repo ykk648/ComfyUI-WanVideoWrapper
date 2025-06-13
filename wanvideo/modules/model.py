@@ -404,12 +404,12 @@ class WanT2VCrossAttention(WanSelfAttention):
         self.attention_mode = attention_mode
 
     def forward(self, x, context, context_lens, clip_embed=None, audio_proj=None, audio_context_lens=None, audio_scale=1.0, 
-                num_latent_frames=21, nag_params={}, nag_context=None):
+                num_latent_frames=21, nag_params={}, nag_context=None, is_uncond=False):
         b, n, d = x.size(0), self.num_heads, self.head_dim
         # compute query
         q = self.norm_q(self.q(x)).view(b, -1, n, d)
 
-        if nag_context is not None:
+        if nag_context is not None and not is_uncond:
             x_text = self.normalized_attention_guidance(b, n, d, q, context, nag_context, nag_params)
         else:
             k = self.norm_k(self.k(context)).view(b, -1, n, d)
@@ -450,7 +450,7 @@ class WanI2VCrossAttention(WanSelfAttention):
         self.attention_mode = attention_mode
 
     def forward(self, x, context, context_lens, clip_embed, audio_proj=None, audio_context_lens=None, 
-                audio_scale=1.0, num_latent_frames=21, nag_params={}, nag_context=None):
+                audio_scale=1.0, num_latent_frames=21, nag_params={}, nag_context=None, is_uncond=False):
         r"""
         Args:
             x(Tensor): Shape [B, L1, C]
@@ -461,7 +461,7 @@ class WanI2VCrossAttention(WanSelfAttention):
         # compute query
         q = self.norm_q(self.q(x)).view(b, -1, n, d)
 
-        if nag_context is not None:
+        if nag_context is not None and not is_uncond:
             x_text = self.normalized_attention_guidance(b, n, d, q, context, nag_context, nag_params)
         else:
             # text attention
@@ -583,7 +583,8 @@ class WanAttentionBlock(nn.Module):
         num_latent_frames=21,
         block_mask=None,
         nag_params={},
-        nag_context=None
+        nag_context=None,
+        is_uncond=False
     ):
         r"""
         Args:
@@ -640,15 +641,16 @@ class WanAttentionBlock(nn.Module):
         else:
             x = self.cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes, 
                                     audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, 
-                                    num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context)
+                                    num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context, is_uncond=is_uncond)
         del e
         return x
     #@torch.compiler.disable()
     def cross_attn_ffn(self, x, context, context_lens, e, clip_embed=None, grid_sizes=None, 
-                       audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21, nag_params={}, nag_context=None):
+                       audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21, nag_params={}, 
+                       nag_context=None, is_uncond=False):
             x = x + self.cross_attn(self.norm3(x), context, context_lens, clip_embed=clip_embed,
                                     audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, 
-                                    num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context)
+                                    num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context, is_uncond=is_uncond)
             y = self.ffn(self.norm2(x) * (1 + e[4]) + e[3])
             x = x + (y * e[5])
             return x
@@ -866,6 +868,7 @@ class WanModel(ModelMixin, ConfigMixin):
                  main_device=torch.device('cuda'),
                  offload_device=torch.device('cpu'),
                  teacache_coefficients=[],
+                 magcache_ratios=[],
                  vace_layers=None,
                  vace_in_dim=None,
                  inject_sample_info=False,
@@ -937,16 +940,26 @@ class WanModel(ModelMixin, ConfigMixin):
         self.offload_img_emb = False
         self.vace_blocks_to_swap = -1
 
+        self.cache_device = offload_device
+
         #init TeaCache variables
         self.enable_teacache = False
         self.rel_l1_thresh = 0.15
         self.teacache_start_step= 0
         self.teacache_end_step = -1
-        self.teacache_cache_device = offload_device
-        self.teacache_state = TeaCacheState(cache_device=self.teacache_cache_device)
+        self.teacache_state = TeaCacheState(cache_device=self.cache_device)
         self.teacache_coefficients = teacache_coefficients
         self.teacache_use_coefficients = False
         self.teacache_mode = 'e'
+
+        #init MagCache variables
+        self.enable_magcache = False
+        self.magcache_state = MagCacheState(cache_device=self.cache_device)
+        self.magcache_thresh = 0.24
+        self.magcache_K = 4
+        self.magcache_start_step = 0
+        self.magcache_end_step = -1
+        self.magcache_ratios = magcache_ratios
 
         self.slg_blocks = None
         self.slg_start_percent = 0.0
@@ -1175,11 +1188,12 @@ class WanModel(ModelMixin, ConfigMixin):
         seq_len,
         is_uncond=False,
         current_step_percentage=0.0,
+        current_step=0,
+        total_steps=50,
         clip_fea=None,
         y=None,
         device=torch.device('cuda'),
         freqs=None,
-        current_step=0,
         pred_id=None,
         control_lora_enabled=False,
         vace_data=None,
@@ -1407,9 +1421,7 @@ class WanModel(ModelMixin, ConfigMixin):
         accumulated_rel_l1_distance = torch.tensor(0.0, dtype=torch.float32, device=device)
         if self.enable_teacache and self.teacache_start_step <= current_step <= self.teacache_end_step:
             if pred_id is None:
-                pred_id = self.teacache_state.new_prediction(cache_device=self.teacache_cache_device)
-                #log.info(current_step)
-                #log.info(f"TeaCache: Initializing TeaCache variables for model pred: {pred_id}")
+                pred_id = self.teacache_state.new_prediction(cache_device=self.cache_device)
                 should_calc = True                
             else:
                 previous_modulated_input = self.teacache_state.get(pred_id)['previous_modulated_input']
@@ -1429,29 +1441,64 @@ class WanModel(ModelMixin, ConfigMixin):
                     accumulated_rel_l1_distance = accumulated_rel_l1_distance.to(e0.device) + temb_relative_l1
                     del temb_relative_l1
 
-                #print("accumulated_rel_l1_distance", accumulated_rel_l1_distance)
 
                 if accumulated_rel_l1_distance < self.rel_l1_thresh:
                     should_calc = False
                 else:
                     should_calc = True
                     accumulated_rel_l1_distance = torch.tensor(0.0, dtype=torch.float32, device=device)
-                accumulated_rel_l1_distance = accumulated_rel_l1_distance.to(self.teacache_cache_device)
+                accumulated_rel_l1_distance = accumulated_rel_l1_distance.to(self.cache_device)
 
-            previous_modulated_input = e.to(self.teacache_cache_device).clone() if (self.teacache_use_coefficients and self.teacache_mode == 'e') else e0.to(self.teacache_cache_device).clone()
+            previous_modulated_input = e.to(self.cache_device).clone() if (self.teacache_use_coefficients and self.teacache_mode == 'e') else e0.to(self.cache_device).clone()
            
             if not should_calc:
                 x = x.to(previous_residual.dtype) + previous_residual.to(x.device)
-                #log.info(f"TeaCache: Skipping uncond step {current_step+1}")
                 self.teacache_state.update(
                     pred_id,
                     accumulated_rel_l1_distance=accumulated_rel_l1_distance,
                 )
                 self.teacache_state.get(pred_id)['skipped_steps'].append(current_step)
 
-        if not self.enable_teacache or (self.enable_teacache and should_calc):
-            if self.enable_teacache:
-                original_x = x.to(self.teacache_cache_device).clone()
+        # enable magcache
+        if self.enable_magcache and self.magcache_start_step <= current_step <= self.magcache_end_step:
+            if pred_id is None:
+                pred_id = self.magcache_state.new_prediction(cache_device=self.cache_device)
+                should_calc = True
+            else:
+                accumulated_ratio = self.magcache_state.get(pred_id)['accumulated_ratio']
+                accumulated_err = self.magcache_state.get(pred_id)['accumulated_err']
+                accumulated_steps = self.magcache_state.get(pred_id)['accumulated_steps']
+
+                calibration_len = len(self.magcache_ratios) // 2
+                cur_mag_ratio = self.magcache_ratios[int((current_step*(calibration_len/total_steps)))]
+
+                accumulated_ratio *= cur_mag_ratio
+                accumulated_err += np.abs(1-accumulated_ratio)
+                accumulated_steps += 1
+
+                self.magcache_state.update(
+                    pred_id,
+                    accumulated_ratio=accumulated_ratio,
+                    accumulated_steps=accumulated_steps,
+                    accumulated_err=accumulated_err
+                )
+
+                if accumulated_err<=self.magcache_thresh and accumulated_steps<=self.magcache_K:
+                    should_calc = False
+                    x += self.magcache_state.get(pred_id)['residual_cache'].to(x.device)
+                    self.magcache_state.get(pred_id)['skipped_steps'].append(current_step)
+                else:
+                    should_calc = True
+                    self.magcache_state.update(
+                        pred_id,
+                        accumulated_ratio=1.0,
+                        accumulated_steps=0,
+                        accumulated_err=0
+                    )
+
+        if should_calc:
+            if self.enable_teacache or self.enable_magcache:
+                original_x = x.to(self.cache_device).clone()
 
             if hasattr(self, "dwpose_embedding") and unianim_data is not None:
                 if unianim_data['start_percent'] <= current_step_percentage <= unianim_data['end_percent']:
@@ -1476,7 +1523,8 @@ class WanModel(ModelMixin, ConfigMixin):
                 audio_scale=audio_scale,
                 block_mask=self.block_mask,
                 nag_params=nag_params,
-                nag_context=nag_context
+                nag_context=nag_context,
+                is_uncond = is_uncond
                 )
             
             if vace_data is not None:
@@ -1539,7 +1587,12 @@ class WanModel(ModelMixin, ConfigMixin):
                     accumulated_rel_l1_distance=accumulated_rel_l1_distance,
                     previous_modulated_input=previous_modulated_input
                 )
-
+            elif self.enable_magcache and (self.magcache_start_step <= current_step <= self.magcache_end_step) and pred_id is not None:
+                self.magcache_state.update(
+                    pred_id,
+                    residual_cache=(x.to(original_x.device) - original_x)
+                )
+                
         if self.ref_conv is not None and fun_ref is not None:
             full_ref_length = fun_ref.size(1)
             x = x[:, full_ref_length:]
@@ -1607,14 +1660,40 @@ class TeaCacheState:
     
     def get(self, pred_id):
         return self.states.get(pred_id, {})
-
-    def report(self):
-        for pred_id in self.states:
-            log.info(f"Prediction {pred_id}: {self.states[pred_id]}")
     
-    def clear_prediction(self, pred_id):
-        if pred_id in self.states:
-            del self.states[pred_id]
+    def clear_all(self):
+        self.states = {}
+        self._next_pred_id = 0
+
+class MagCacheState:
+    def __init__(self, cache_device='cpu'):
+        self.cache_device = cache_device
+        self.states = {}
+        self._next_pred_id = 0
+    
+    def new_prediction(self, cache_device='cpu'):
+        """Create new prediction state and return its ID"""
+        self.cache_device = cache_device
+        pred_id = self._next_pred_id
+        self._next_pred_id += 1
+        self.states[pred_id] = {
+            'residual_cache': None,
+            'accumulated_ratio': 1.0,
+            'accumulated_steps': 0,
+            'accumulated_err': 0,
+            'skipped_steps': [],
+        }
+        return pred_id
+    
+    def update(self, pred_id, **kwargs):
+        """Update state for specific prediction"""
+        if pred_id not in self.states:
+            return None
+        for key, value in kwargs.items():
+            self.states[pred_id][key] = value
+    
+    def get(self, pred_id):
+        return self.states.get(pred_id, {})
     
     def clear_all(self):
         self.states = {}

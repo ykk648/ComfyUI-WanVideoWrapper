@@ -1751,8 +1751,8 @@
       "inputs": [],
       "outputs": [
         {
-          "name": "teacache_args",
-          "type": "TEACACHEARGS",
+          "name": "cache_args",
+          "type": "CACHEARGS",
           "links": [
             334
           ]
@@ -1789,8 +1789,8 @@
       "inputs": [],
       "outputs": [
         {
-          "name": "teacache_args",
-          "type": "TEACACHEARGS",
+          "name": "cache_args",
+          "type": "CACHEARGS",
           "links": [
             335
           ]
@@ -2252,8 +2252,8 @@
       "inputs": [],
       "outputs": [
         {
-          "name": "teacache_args",
-          "type": "TEACACHEARGS",
+          "name": "cache_args",
+          "type": "CACHEARGS",
           "links": [
             350
           ]
@@ -2840,9 +2840,9 @@
           "link": null
         },
         {
-          "name": "teacache_args",
+          "name": "cache_args",
           "shape": 7,
-          "type": "TEACACHEARGS",
+          "type": "CACHEARGS",
           "link": 350
         },
         {
@@ -2966,9 +2966,9 @@
           "link": null
         },
         {
-          "name": "teacache_args",
+          "name": "cache_args",
           "shape": 7,
-          "type": "TEACACHEARGS",
+          "type": "CACHEARGS",
           "link": 335
         },
         {
@@ -5220,9 +5220,9 @@
           "link": null
         },
         {
-          "name": "teacache_args",
+          "name": "cache_args",
           "shape": 7,
-          "type": "TEACACHEARGS",
+          "type": "CACHEARGS",
           "link": 334
         },
         {
