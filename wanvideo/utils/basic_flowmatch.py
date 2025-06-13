@@ -46,8 +46,12 @@ class FlowMatchScheduler():
             timestep = timestep.flatten(0, 1)
         self.sigmas = self.sigmas.to(model_output.device)
         self.timesteps = self.timesteps.to(model_output.device)
-        timestep_id = torch.argmin(
-            (self.timesteps.unsqueeze(0) - timestep.unsqueeze(1)).abs(), dim=1)
+        print(timestep.shape, timestep.ndim)
+        if timestep.ndim == 0:
+            timestep_id = torch.argmin((self.timesteps - timestep).abs(), dim=0)
+        else:
+            timestep_id = torch.argmin((self.timesteps.unsqueeze(0) - timestep.unsqueeze(1)).abs(), dim=1)
+        
         sigma = self.sigmas[timestep_id].reshape(-1, 1, 1, 1)
         if to_final or (timestep_id + 1 >= len(self.timesteps)).any():
             sigma_ = 1 if (
