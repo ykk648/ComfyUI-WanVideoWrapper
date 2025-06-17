@@ -2869,8 +2869,8 @@ class WanVideoSampler:
         minimax_latents = image_embeds.get("minimax_latents", None)
         minimax_mask_latents = image_embeds.get("minimax_mask_latents", None)
         if minimax_latents is not None:
-            log.info("minimax_latents: ", minimax_latents.shape)
-            log.info("minimax_mask_latents: ", minimax_mask_latents.shape)
+            log.info(f"minimax_latents: {minimax_latents.shape}")
+            log.info(f"minimax_mask_latents: {minimax_mask_latents.shape}")
             minimax_latents = minimax_latents.to(device, dtype)
             minimax_mask_latents = minimax_mask_latents.to(device, dtype)
 
