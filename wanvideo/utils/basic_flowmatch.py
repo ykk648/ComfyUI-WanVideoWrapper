@@ -46,7 +46,6 @@ class FlowMatchScheduler():
             timestep = timestep.flatten(0, 1)
         self.sigmas = self.sigmas.to(model_output.device)
         self.timesteps = self.timesteps.to(model_output.device)
-        print(timestep.shape, timestep.ndim)
         if timestep.ndim == 0:
             timestep_id = torch.argmin((self.timesteps - timestep).abs(), dim=0)
         else:

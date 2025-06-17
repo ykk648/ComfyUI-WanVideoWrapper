@@ -393,6 +393,7 @@ class WanSelfAttention(nn.Module):
         mask = scale > nag_tau
         adjustment = (norm_positive * nag_tau) / (norm_guidance + 1e-7)
         nag_guidance = torch.where(mask, nag_guidance * adjustment, nag_guidance)
+        del mask, adjustment
         
         return nag_guidance * nag_alpha + x_positive * (1 - nag_alpha)
 
@@ -531,15 +532,16 @@ class WanAttentionBlock(nn.Module):
         self.norm1 = WanLayerNorm(dim, eps)
         self.self_attn = WanSelfAttention(dim, num_heads, window_size, qk_norm,
                                           eps, self.attention_mode)
-        self.norm3 = WanLayerNorm(
-            dim, eps,
-            elementwise_affine=True) if cross_attn_norm else nn.Identity()
-        self.cross_attn = WAN_CROSSATTENTION_CLASSES[cross_attn_type](dim,
-                                                                      num_heads,
-                                                                      (-1, -1),
-                                                                      qk_norm,
-                                                                      eps,#attention_mode=attention_mode sageattn doesn't seem faster here
-                                                                      )
+        if cross_attn_type != "no_cross_attn":
+            self.norm3 = WanLayerNorm(
+                dim, eps,
+                elementwise_affine=True) if cross_attn_norm else nn.Identity()
+            self.cross_attn = WAN_CROSSATTENTION_CLASSES[cross_attn_type](dim,
+                                                                          num_heads,
+                                                                          (-1, -1),
+                                                                          qk_norm,
+                                                                          eps,#attention_mode=attention_mode sageattn doesn't seem faster here
+                                                                          )
         self.norm2 = WanLayerNorm(dim, eps)
         self.ffn = nn.Sequential(
             nn.Linear(dim, ffn_dim), nn.GELU(approximate='tanh'),
@@ -608,7 +610,7 @@ class WanAttentionBlock(nn.Module):
             input_x += camera_embed
 
         # self-attention
-        if (context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1)) and x.shape[0] == 1:
+        if context is not None and (context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1)) and x.shape[0] == 1:
             y = self.self_attn.forward_split(
             input_x, 
             seq_lens, grid_sizes,
@@ -634,14 +636,18 @@ class WanAttentionBlock(nn.Module):
         del y
 
         # cross-attention & ffn function
-        if (context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1)) and x.shape[0] == 1:
-            if nag_context is not None:
-                raise NotImplementedError("nag_context is not supported in split_cross_attn_ffn")
-            x = self.split_cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes)
+        if context is not None:
+            if (context.shape[0] > 1 or (clip_embed is not None and clip_embed.shape[0] > 1)) and x.shape[0] == 1:
+                if nag_context is not None:
+                    raise NotImplementedError("nag_context is not supported in split_cross_attn_ffn")
+                x = self.split_cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes)
+            else:
+                x = self.cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes, 
+                                        audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, 
+                                        num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context, is_uncond=is_uncond)
         else:
-            x = self.cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes, 
-                                    audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, 
-                                    num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context, is_uncond=is_uncond)
+            y = self.ffn(self.norm2(x) * (1 + e[4]) + e[3])
+            x = x + (y * e[5])
         del e
         return x
     #@torch.compiler.disable()
@@ -976,9 +982,10 @@ class WanModel(ModelMixin, ConfigMixin):
         self.original_patch_embedding = self.patch_embedding
         self.expanded_patch_embedding = self.patch_embedding
 
-        self.text_embedding = nn.Sequential(
-            nn.Linear(text_dim, dim), nn.GELU(approximate='tanh'),
-            nn.Linear(dim, dim))
+        if model_type != 'no_cross_attn':
+            self.text_embedding = nn.Sequential(
+                nn.Linear(text_dim, dim), nn.GELU(approximate='tanh'),
+                nn.Linear(dim, dim))
 
         self.time_embedding = nn.Sequential(
             nn.Linear(freq_dim, dim), nn.SiLU(), nn.Linear(dim, dim))
@@ -1010,7 +1017,13 @@ class WanModel(ModelMixin, ConfigMixin):
             ])
         else:
             # blocks
-            cross_attn_type = 't2v_cross_attn' if model_type == 't2v' else 'i2v_cross_attn'
+            if model_type == 't2v':
+                cross_attn_type = 't2v_cross_attn'
+            elif model_type == 'i2v':
+                cross_attn_type = 'i2v_cross_attn'
+            else:
+                cross_attn_type = 'no_cross_attn'
+
             self.blocks = nn.ModuleList([
                 WanAttentionBlock(cross_attn_type, dim, ffn_dim, num_heads,
                                 window_size, qk_norm, cross_attn_norm, eps,
@@ -1385,27 +1398,30 @@ class WanModel(ModelMixin, ConfigMixin):
             
             e = e.to(self.offload_device, non_blocking=self.use_non_blocking)
 
-        # context
+        # context (test embedding)
         context_lens = None
-        if self.offload_txt_emb:
-            self.text_embedding.to(self.main_device)
-        context = self.text_embedding(
-            torch.stack([
-                torch.cat(
-                    [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
-                for u in context
-            ]).to(x.dtype))
-        # NAG
-        if nag_context is not None:
-            nag_context = self.text_embedding(
-            torch.stack([
-                torch.cat(
-                    [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
-                for u in nag_context
-            ]).to(x.dtype))
-        
-        if self.offload_txt_emb:
-            self.text_embedding.to(self.offload_device, non_blocking=self.use_non_blocking)
+        if hasattr(self, "text_embedding"):
+            if self.offload_txt_emb:
+                self.text_embedding.to(self.main_device)
+            context = self.text_embedding(
+                torch.stack([
+                    torch.cat(
+                        [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
+                    for u in context
+                ]).to(x.dtype))
+            # NAG
+            if nag_context is not None:
+                nag_context = self.text_embedding(
+                torch.stack([
+                    torch.cat(
+                        [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
+                    for u in nag_context
+                ]).to(x.dtype))
+            
+            if self.offload_txt_emb:
+                self.text_embedding.to(self.offload_device, non_blocking=self.use_non_blocking)
+        else:
+            context = None
 
         clip_embed = None
         if clip_fea is not None and hasattr(self, "img_emb"):

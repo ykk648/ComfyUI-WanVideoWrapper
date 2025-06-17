@@ -618,7 +618,9 @@ class WanVideoModelLoader:
         log.info(f"Detected model in_channels: {in_channels}")
         ffn_dim = sd["blocks.0.ffn.0.bias"].shape[0]
 
-        if "model_type.Wan2_1-FLF2V-14B-720P" in sd or "img_emb.emb_pos" in sd or "flf2v" in model.lower():
+        if not "text_embedding.0.weight" in sd:
+            model_type = "no_cross_attn" #minimaxremover
+        elif "model_type.Wan2_1-FLF2V-14B-720P" in sd or "img_emb.emb_pos" in sd or "flf2v" in model.lower():
             model_type = "fl2v"
         elif in_channels in [36, 48]:
             model_type = "i2v"
@@ -1928,6 +1930,39 @@ class WanVideoEmptyEmbeds:
         }
     
         return (embeds,)
+
+class WanVideoMiniMaxRemoverEmbeds:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "width": ("INT", {"default": 832, "min": 64, "max": 2048, "step": 8, "tooltip": "Width of the image to encode"}),
+            "height": ("INT", {"default": 480, "min": 64, "max": 29048, "step": 8, "tooltip": "Height of the image to encode"}),
+            "num_frames": ("INT", {"default": 81, "min": 1, "max": 10000, "step": 4, "tooltip": "Number of frames to encode"}),
+            "latents": ("LATENT", {"tooltip": "Encoded latents to use as control signals"}),
+            "mask_latents": ("LATENT", {"tooltip": "Encoded latents to use as mask"}),
+            },
+        }
+
+    RETURN_TYPES = ("WANVIDIMAGE_EMBEDS", )
+    RETURN_NAMES = ("image_embeds",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+
+    def process(self, num_frames, width, height, latents, mask_latents):
+        vae_stride = (4, 8, 8)
+
+        target_shape = (16, (num_frames - 1) // vae_stride[0] + 1,
+                        height // vae_stride[1],
+                        width // vae_stride[2])
+        
+        embeds = {
+            "target_shape": target_shape,
+            "num_frames": num_frames,
+            "minimax_latents": latents["samples"].squeeze(0),
+            "minimax_mask_latents": mask_latents["samples"].squeeze(0),
+        }
+    
+        return (embeds,)
     
 # region phantom
 class WanVideoPhantomEmbeds:
@@ -2464,14 +2499,14 @@ class WanVideoSampler:
         return {
             "required": {
                 "model": ("WANVIDEOMODEL",),
-                "text_embeds": ("WANVIDEOTEXTEMBEDS", ),
+                
                 "image_embeds": ("WANVIDIMAGE_EMBEDS", ),
                 "steps": ("INT", {"default": 30, "min": 1}),
                 "cfg": ("FLOAT", {"default": 6.0, "min": 0.0, "max": 30.0, "step": 0.01}),
                 "shift": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 1000.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "force_offload": ("BOOLEAN", {"default": True, "tooltip": "Moves the model to the offload device after sampling"}),
-                "scheduler": (["unipc", "unipc/beta", "dpm++", "dpm++/beta","dpm++_sde", "dpm++_sde/beta", "euler", "euler/beta", "euler/accvideo", "deis", "lcm", "lcm/beta", "flowmatch_causvid"],
+                "scheduler": (["unipc", "unipc/beta", "dpm++", "dpm++/beta","dpm++_sde", "dpm++_sde/beta", "euler", "euler/beta", "euler/accvideo", "deis", "lcm", "lcm/beta", "flowmatch_causvid", "flowmatch_distill"],
                     {
                         "default": 'unipc'
                     }),
@@ -2480,6 +2515,7 @@ class WanVideoSampler:
 
             },
             "optional": {
+                "text_embeds": ("WANVIDEOTEXTEMBEDS", ),
                 "samples": ("LATENT", {"tooltip": "init Latents to use for video2video process"} ),
                 "denoise_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "feta_args": ("FETAARGS", ),
@@ -2503,7 +2539,7 @@ class WanVideoSampler:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, model, text_embeds, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, 
+    def process(self, model, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, text_embeds=None,
         force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, 
         cache_args=None, teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None, 
         experimental_args=None, sigmas=None, unianimate_poses=None, fantasytalking_embeds=None, uni3c_embeds=None):
@@ -2520,6 +2556,12 @@ class WanVideoSampler:
         offload_device = mm.unet_offload_device()
         
         steps = int(steps/denoise_strength)
+
+        if text_embeds == None:
+            text_embeds = {
+                "prompt_embeds": [],
+                "negative_prompt_embeds": [],
+            }
 
         if isinstance(cfg, list):
             if steps != len(cfg):
@@ -2579,6 +2621,24 @@ class WanVideoSampler:
                 denoising_list = [1000, 750, 500, 250]
             sample_scheduler = FlowMatchScheduler(num_inference_steps=steps, shift=shift, sigma_min=0, extra_one_step=True)
             sample_scheduler.timesteps = torch.tensor(denoising_list)[:steps].to(device)
+            sample_scheduler.sigmas = torch.cat([sample_scheduler.timesteps / 1000, torch.tensor([0.0], device=device)])
+        elif 'flowmatch_distill' in scheduler:
+            sample_scheduler = FlowMatchScheduler(
+                shift=shift, sigma_min=0.0, extra_one_step=True
+            )
+            sample_scheduler.set_timesteps(1000, training=True)
+          
+            denoising_step_list = torch.tensor([999, 750, 500, 250] , dtype=torch.long)
+            temp_timesteps = torch.cat((sample_scheduler.timesteps.cpu(), torch.tensor([0], dtype=torch.float32)))
+            denoising_step_list = temp_timesteps[1000 - denoising_step_list]
+            print("denoising_step_list: ", denoising_step_list)
+            
+
+            #denoising_step_list = [999, 750, 500, 250]
+            if steps != 4:
+                raise ValueError("This scheduler is only for 4 steps")
+            #sample_scheduler = FlowMatchScheduler(num_inference_steps=steps, shift=shift, sigma_min=0, extra_one_step=True)
+            sample_scheduler.timesteps = torch.tensor(denoising_step_list)[:steps].to(device)
             sample_scheduler.sigmas = torch.cat([sample_scheduler.timesteps / 1000, torch.tensor([0.0], device=device)])
         
         if timesteps is None:
@@ -2804,6 +2864,15 @@ class WanVideoSampler:
             if not isinstance(audio_cfg_scale, list):
                 audio_cfg_scale = [audio_cfg_scale] * (steps +1)
             log.info(f"Audio proj shape: {audio_proj.shape}, audio context lens: {audio_context_lens}")
+        
+        minimax_latents = minimax_mask_latents = None
+        minimax_latents = image_embeds.get("minimax_latents", None)
+        minimax_mask_latents = image_embeds.get("minimax_mask_latents", None)
+        if minimax_latents is not None:
+            log.info("minimax_latents: ", minimax_latents.shape)
+            log.info("minimax_mask_latents: ", minimax_mask_latents.shape)
+            minimax_latents = minimax_latents.to(device, dtype)
+            minimax_mask_latents = minimax_mask_latents.to(device, dtype)
 
         is_looped = False
         if context_options is not None:
@@ -3082,7 +3151,7 @@ class WanVideoSampler:
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=("fp8" in model["quantization"])):
 
                 if use_cfg_zero_star and (idx <= zero_star_steps) and use_zero_init:
-                    return latent_model_input*0, None
+                    return z*0, None
 
                 nonlocal patcher
                 current_step_percentage = idx / len(timesteps)
@@ -3151,7 +3220,7 @@ class WanVideoSampler:
                     if (controlnet_start <= current_step_percentage < controlnet_end):
                         self.controlnet.to(device)
                         controlnet_states = self.controlnet(
-                            hidden_states=latent_model_input.unsqueeze(0).to(device, self.controlnet.dtype),
+                            hidden_states=z.unsqueeze(0).to(device, self.controlnet.dtype),
                             timestep=timestep,
                             encoder_hidden_states=positive_embeds[0].unsqueeze(0).to(device, self.controlnet.dtype),
                             attention_kwargs=None,
@@ -3159,15 +3228,18 @@ class WanVideoSampler:
                             return_dict=False,
                         )[0]
                         if isinstance(controlnet_states, (tuple, list)):
-                            controlnet["controlnet_states"] = [x.to(latent_model_input) for x in controlnet_states]
+                            controlnet["controlnet_states"] = [x.to(z) for x in controlnet_states]
                         else:
-                            controlnet["controlnet_states"] = controlnet_states.to(latent_model_input)
+                            controlnet["controlnet_states"] = controlnet_states.to(z)
 
                 add_cond_input = None
                 if add_cond is not None:
                     if (add_cond_start_percent <= current_step_percentage <= add_cond_end_percent) or \
                         (add_cond_end_percent > 0 and idx == 0 and current_step_percentage >= add_cond_start_percent):
                         add_cond_input = add_cond
+
+                if minimax_latents is not None:
+                    z_pos = z_neg = torch.cat([z, minimax_latents, minimax_mask_latents], dim=0)
                  
                 base_params = {
                     'seq_len': seq_len,
@@ -3194,10 +3266,6 @@ class WanVideoSampler:
 
                 if not math.isclose(cfg_scale, 1.0) and len(positive_embeds) > 1:
                     negative_embeds = negative_embeds * len(positive_embeds)
-                
-                # if use_nag:
-                #     nag_negative_prompt_embeds = negative_embeds
-                #     positive_embeds = torch.cat([positive_embeds[0], nag_negative_prompt_embeds], dim=0)
 
                 if not batched_cfg:
                     #cond
@@ -3898,7 +3966,8 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoPhantomEmbeds": WanVideoPhantomEmbeds,
     "CreateCFGScheduleFloatList": CreateCFGScheduleFloatList,
     "WanVideoRealisDanceLatents": WanVideoRealisDanceLatents,
-    "WanVideoApplyNAG": WanVideoApplyNAG
+    "WanVideoApplyNAG": WanVideoApplyNAG,
+    "WanVideoMiniMaxRemoverEmbeds": WanVideoMiniMaxRemoverEmbeds
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -3939,5 +4008,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoPhantomEmbeds": "WanVideo Phantom Embeds",
     "CreateCFGScheduleFloatList": "WanVideo CFG Schedule Float List",
     "WanVideoRealisDanceLatents": "WanVideo RealisDance Latents",
-    "WanVideoApplyNAG": "WanVideo Apply NAG"
+    "WanVideoApplyNAG": "WanVideo Apply NAG",
+    "WanVideoMiniMaxRemoverEmbeds": "WanVideo MiniMax Remover Embeds"
     }
