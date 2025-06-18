@@ -3291,11 +3291,10 @@ class WanVideoSampler:
                         ).unsqueeze(
                             1
                         ) + indices.unsqueeze(0)
-                        center_indices = torch.clamp(center_indices, min=0, max=audio_embedding[human_idx].shape[0]-1)
-                        audio_emb = audio_embedding[human_idx][center_indices][None,...].to(device)
+                        center_indices = torch.clamp(center_indices, min=0, max=audio_embedding[human_idx].shape[0] - 1)
+                        audio_emb = audio_embedding[human_idx][center_indices].unsqueeze(0).to(device)
                         audio_embs.append(audio_emb)
                     audio_embs = torch.concat(audio_embs, dim=0).to(dtype)
-                    print("audio_embs: ", audio_embs.shape)
                  
                 base_params = {
                     'seq_len': seq_len,
