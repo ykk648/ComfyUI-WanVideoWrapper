@@ -137,7 +137,10 @@ class MultiTalkWav2VecEmbeds:
         audio_feature = audio_feature.unsqueeze(0)
 
         # audio encoder
-        embeddings = wav2vec(audio_feature.to(dtype), seq_len=int(num_frames), output_hidden_states=True)
+        audio_duration = len(audio_segment) / sr
+        video_length = audio_duration * 25 # Assume the video fps is 25
+        print("Audio duration:", audio_duration, "Video length:", video_length)
+        embeddings = wav2vec(audio_feature.to(dtype), seq_len=int(video_length), output_hidden_states=True)
 
         if len(embeddings) == 0:
             print("Fail to extract audio embedding")
