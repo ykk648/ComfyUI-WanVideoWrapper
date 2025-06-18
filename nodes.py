@@ -538,6 +538,7 @@ class WanVideoModelLoader:
                 "vram_management_args": ("VRAM_MANAGEMENTARGS", {"default": None, "tooltip": "Alternative offloading method from DiffSynth-Studio, more aggressive in reducing memory use than block swapping, but can be slower"}),
                 "vace_model": ("VACEPATH", {"default": None, "tooltip": "VACE model to use when not using model that has it included"}),
                 "fantasytalking_model": ("FANTASYTALKINGMODEL", {"default": None, "tooltip": "FantasyTalking model https://github.com/Fantasy-AMAP"}),
+                "multitalk_model": ("MULTITALKMODEL", {"default": None, "tooltip": "Multitalk model"}),
             }
         }
 
@@ -547,7 +548,7 @@ class WanVideoModelLoader:
     CATEGORY = "WanVideoWrapper"
 
     def loadmodel(self, model, base_precision, load_device,  quantization,
-                  compile_args=None, attention_mode="sdpa", block_swap_args=None, lora=None, vram_management_args=None, vace_model=None, fantasytalking_model=None):
+                  compile_args=None, attention_mode="sdpa", block_swap_args=None, lora=None, vram_management_args=None, vace_model=None, fantasytalking_model=None, multitalk_model=None):
         assert not (vram_management_args is not None and block_swap_args is not None), "Can't use both block_swap_args and vram_management_args at the same time"
         lora_low_mem_load = False
         if lora is not None:
@@ -733,8 +734,31 @@ class WanVideoModelLoader:
                 block.cross_attn.k_proj = nn.Linear(context_dim, dim, bias=False)
                 block.cross_attn.v_proj = nn.Linear(context_dim, dim, bias=False)
             sd.update(fantasytalking_model["sd"])
+        if multitalk_model is not None:
+            # init audio module
+            from .multitalk.multitalk import SingleStreamMultiAttention
+            from .wanvideo.modules.model import WanRMSNorm, WanLayerNorm
+            norm_input_visual = True #dunno what this is
+               
+            for block in transformer.blocks:
+                block.audio_cross_attn = SingleStreamMultiAttention(
+                        dim=dim,
+                        encoder_hidden_states_dim=768,
+                        num_heads=num_heads,
+                        qk_norm=False,
+                        qkv_bias=True,
+                        eps=transformer.eps,
+                        norm_layer=WanRMSNorm,
+                        class_range=24,
+                        class_interval=4
+                    )
+                block.norm_x = WanLayerNorm(dim, transformer.eps, elementwise_affine=True) if norm_input_visual else nn.Identity()
+            log.info("MultiTalk model detected, patching model...")
+            
+            sd.update(multitalk_model["sd"])
+
         
-        # RealisDance-DiT
+        # Additional cond latents
         if "add_conv_in.weight" in sd:
             def zero_module(module):
                 for p in module.parameters():
@@ -855,6 +879,9 @@ class WanVideoModelLoader:
             convert_fp8_linear(patcher.model.diffusion_model, base_dtype, params_to_keep=params_to_keep)
 
         del sd
+
+        if multitalk_model is not None:
+            transformer.audio_proj = multitalk_model["proj_model"]
 
         if vram_management_args is not None:
             from .diffsynth.vram_management import enable_vram_management, AutoWrappedModule, AutoWrappedLinear
@@ -1714,8 +1741,8 @@ class WanVideoRealisDanceLatents:
             },
         }
 
-    RETURN_TYPES = ("REALISDANCELATENTS",)
-    RETURN_NAMES = ("realisdance_latents",)
+    RETURN_TYPES = ("ADD_COND_LATENTS",)
+    RETURN_NAMES = ("add_cond_latents",)
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
@@ -1727,14 +1754,14 @@ class WanVideoRealisDanceLatents:
 
         pose_latent = torch.cat((smpl_latent["samples"], hamer), dim=1)
         
-        realisdance_latents = {
+        add_cond_latents = {
             "ref_latent": ref_latent["samples"],
             "pose_latent": pose_latent,
             "pose_cond_start_percent": pose_cond_start_percent,
             "pose_cond_end_percent": pose_cond_end_percent,
         }
 
-        return (realisdance_latents,)
+        return (add_cond_latents,)
 
 class WanVideoImageToVideoEncode:
     @classmethod
@@ -1758,7 +1785,7 @@ class WanVideoImageToVideoEncode:
                 "temporal_mask": ("MASK", {"tooltip": "mask"}),
                 "extra_latents": ("LATENT", {"tooltip": "Extra latents to add to the input front, used for Skyreels A2 reference images"}),
                 "tiled_vae": ("BOOLEAN", {"default": False, "tooltip": "Use tiled VAE encoding for reduced memory use"}),
-                "realisdance_latents": ("REALISDANCELATENTS", {"tooltip": "RealisDance latents"}),
+                "add_cond_latents": ("ADD_COND_LATENTS", {"advanced": True, "tooltip": "Additional cond latents WIP"}),
             }
         }
 
@@ -1769,7 +1796,7 @@ class WanVideoImageToVideoEncode:
 
     def process(self, vae, width, height, num_frames, force_offload, noise_aug_strength, 
                 start_latent_strength, end_latent_strength, start_image=None, end_image=None, control_embeds=None, fun_or_fl2v_model=False, 
-                temporal_mask=None, extra_latents=None, clip_embeds=None, tiled_vae=False, realisdance_latents=None):
+                temporal_mask=None, extra_latents=None, clip_embeds=None, tiled_vae=False, add_cond_latents=None):
 
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
@@ -1872,8 +1899,8 @@ class WanVideoImageToVideoEncode:
         frames_per_stride = (num_frames - 1) // 4 + (2 if end_image is not None and not fun_or_fl2v_model else 1)
         max_seq_len = frames_per_stride * patches_per_frame
 
-        if realisdance_latents is not None:
-            realisdance_latents["ref_latent_neg"] = vae.encode(torch.zeros(1, 3, 1, H, W, device=device, dtype=vae.dtype), device)
+        if add_cond_latents is not None:
+            add_cond_latents["ref_latent_neg"] = vae.encode(torch.zeros(1, 3, 1, H, W, device=device, dtype=vae.dtype), device)
 
         vae.model.clear_cache()
         if force_offload:
@@ -1893,7 +1920,7 @@ class WanVideoImageToVideoEncode:
             "end_image": resized_end_image if end_image is not None else None,
             "fun_or_fl2v_model": fun_or_fl2v_model,
             "has_ref": has_ref,
-            "realisdance_latents": realisdance_latents
+            "add_cond_latents": add_cond_latents
         }
 
         return (image_embeds,)
@@ -2531,6 +2558,7 @@ class WanVideoSampler:
                 "unianimate_poses": ("UNIANIMATE_POSE", ),
                 "fantasytalking_embeds": ("FANTASYTALKING_EMBEDS", ),
                 "uni3c_embeds": ("UNI3C_EMBEDS", ),
+                "multitalk_embeds": ("MULTITALK_EMBEDS", ),
             }
         }
 
@@ -2542,7 +2570,7 @@ class WanVideoSampler:
     def process(self, model, image_embeds, shift, steps, cfg, seed, scheduler, riflex_freq_index, text_embeds=None,
         force_offload=True, samples=None, feta_args=None, denoise_strength=1.0, context_options=None, 
         cache_args=None, teacache_args=None, flowedit_args=None, batched_cfg=False, slg_args=None, rope_function="default", loop_args=None, 
-        experimental_args=None, sigmas=None, unianimate_poses=None, fantasytalking_embeds=None, uni3c_embeds=None):
+        experimental_args=None, sigmas=None, unianimate_poses=None, fantasytalking_embeds=None, uni3c_embeds=None, multitalk_embeds=None):
         
         patcher = model
         model = model.model
@@ -2676,13 +2704,13 @@ class WanVideoSampler:
                     image_cond_ati = patch_motion(ATI_tracks.to(image_cond.device, image_cond.dtype), image_cond, topk=topk, temperature=temperature)
                     log.info(f"ATI tracks shape: {ATI_tracks.shape}")
             
-            realisdance_latents = image_embeds.get("realisdance_latents", None)
-            if realisdance_latents is not None:
-                add_cond = realisdance_latents["pose_latent"]
-                attn_cond = realisdance_latents["ref_latent"]
-                attn_cond_neg = realisdance_latents["ref_latent_neg"]
-                add_cond_start_percent = realisdance_latents["pose_cond_start_percent"]
-                add_cond_end_percent = realisdance_latents["pose_cond_end_percent"]
+            add_cond_latents = image_embeds.get("add_cond_latents", None)
+            if add_cond_latents is not None:
+                add_cond = add_cond_latents["pose_latent"]
+                attn_cond = add_cond_latents["ref_latent"]
+                attn_cond_neg = add_cond_latents["ref_latent_neg"]
+                add_cond_start_percent = add_cond_latents["pose_cond_start_percent"]
+                add_cond_end_percent = add_cond_latents["pose_cond_end_percent"]
 
             end_image = image_embeds.get("end_image", None)
             lat_h = image_embeds.get("lat_h", None)
@@ -2855,7 +2883,8 @@ class WanVideoSampler:
                 "end_percent": unianimate_poses["end_percent"]
             }
 
-        audio_proj = None
+        audio_proj = multitalk_audio_embedding = None
+        audio_scale = 1.0
         if fantasytalking_embeds is not None:
             audio_proj = fantasytalking_embeds["audio_proj"].to(device)
             audio_context_lens = fantasytalking_embeds["audio_context_lens"]
@@ -2864,6 +2893,14 @@ class WanVideoSampler:
             if not isinstance(audio_cfg_scale, list):
                 audio_cfg_scale = [audio_cfg_scale] * (steps +1)
             log.info(f"Audio proj shape: {audio_proj.shape}, audio context lens: {audio_context_lens}")
+        elif multitalk_embeds is not None:
+            multitalk_audio_embedding = multitalk_embeds["audio_features"].to(device, dtype)
+            audio_scale = multitalk_embeds["audio_scale"]
+            audio_cfg_scale = multitalk_embeds["audio_cfg_scale"]
+            if not isinstance(audio_cfg_scale, list):
+                audio_cfg_scale = [audio_cfg_scale] * (steps +1)
+            log.info(f"Multitalk audio features shape: {multitalk_audio_embedding.shape}")
+    
         
         minimax_latents = minimax_mask_latents = None
         minimax_latents = image_embeds.get("minimax_latents", None)
@@ -3240,6 +3277,25 @@ class WanVideoSampler:
 
                 if minimax_latents is not None:
                     z_pos = z_neg = torch.cat([z, minimax_latents, minimax_mask_latents], dim=0)
+                
+                if multitalk_audio_embedding is not None:
+                    audio_embedding = [multitalk_audio_embedding]
+                    audio_embs = []
+                    indices = (torch.arange(4 + 1) - 2) * 1 
+                    # split audio with window size
+                    for human_idx in range(1):   
+                        center_indices = torch.arange(
+                            0,
+                            latent_video_length * 4 + 1 if add_cond is not None else (latent_video_length-1) * 4 + 1,
+                            1,
+                        ).unsqueeze(
+                            1
+                        ) + indices.unsqueeze(0)
+                        center_indices = torch.clamp(center_indices, min=0, max=audio_embedding[human_idx].shape[0]-1)
+                        audio_emb = audio_embedding[human_idx][center_indices][None,...].to(device)
+                        audio_embs.append(audio_emb)
+                    audio_embs = torch.concat(audio_embs, dim=0).to(dtype)
+                    print("audio_embs: ", audio_embs.shape)
                  
                 base_params = {
                     'seq_len': seq_len,
@@ -3254,12 +3310,13 @@ class WanVideoSampler:
                     'fun_camera': control_camera_input if control_camera_latents is not None else None,
                     'audio_proj': audio_proj if fantasytalking_embeds is not None else None,
                     'audio_context_lens': audio_context_lens if fantasytalking_embeds is not None else None,
-                    'audio_scale': audio_scale if fantasytalking_embeds is not None else None,
+                    'audio_scale': audio_scale,
                     "pcd_data": pcd_data,
                     "controlnet": controlnet,
                     "add_cond": add_cond_input,
                     "nag_params": text_embeds.get("nag_params", {}),
                     "nag_context": text_embeds.get("nag_prompt_embeds", None),
+                    "multitalk_audio": audio_embs if multitalk_audio_embedding is not None else None,
                 }
 
                 batch_size = 1
@@ -3331,6 +3388,25 @@ class WanVideoSampler:
                                 noise_pred_uncond
                                 + cfg_scale * (noise_pred_no_audio - noise_pred_uncond)
                                 + audio_cfg_scale[idx] * (noise_pred_cond - noise_pred_no_audio)
+                                )
+                            return noise_pred, [cache_state_cond, cache_state_uncond, cache_state_audio]
+                    elif multitalk_audio_embedding is not None:
+                        if not math.isclose(audio_cfg_scale[idx], 1.0):
+                            if cache_state is not None and len(cache_state) != 3:
+                                cache_state.append(None)
+                            base_params['multitalk_audio'] = None
+                            noise_pred_no_audio, cache_state_audio = transformer(
+                                [z_pos], context=negative_embeds, y=[image_cond_input] if image_cond_input is not None else None,
+                                clip_fea=clip_fea, is_uncond=False, current_step_percentage=current_step_percentage,
+                                pred_id=cache_state[2] if cache_state else None,
+                                vace_data=vace_data,
+                                **base_params
+                            )
+                            noise_pred_no_audio = noise_pred_no_audio[0].to(intermediate_device)
+                            noise_pred = (
+                                noise_pred_uncond
+                                + cfg_scale * (noise_pred_cond - noise_pred_uncond)
+                                + audio_cfg_scale[idx] * (noise_pred_uncond - noise_pred_no_audio)
                                 )
                             return noise_pred, [cache_state_cond, cache_state_uncond, cache_state_audio]
 
@@ -3776,6 +3852,9 @@ class WanVideoDecode:
                     "tile_stride_x": ("INT", {"default": 144, "min": 32, "max": 2040, "step": 8, "tooltip": "Tile stride width in pixels. Smaller values use less VRAM but will introduce more seams."}),
                     "tile_stride_y": ("INT", {"default": 128, "min": 32, "max": 2040, "step": 8, "tooltip": "Tile stride height in pixels. Smaller values use less VRAM but will introduce more seams."}),
                     },
+                    "optional": {
+                        "normalization": (["default", "minmax"], {"advanced": True}),
+                    }
                 }
 
     @classmethod
@@ -3791,7 +3870,7 @@ class WanVideoDecode:
     FUNCTION = "decode"
     CATEGORY = "WanVideoWrapper"
 
-    def decode(self, vae, samples, enable_vae_tiling, tile_x, tile_y, tile_stride_x, tile_stride_y):
+    def decode(self, vae, samples, enable_vae_tiling, tile_x, tile_y, tile_stride_x, tile_stride_y, normalization="default"):
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
         mm.soft_empty_cache()
@@ -3825,9 +3904,11 @@ class WanVideoDecode:
             images = vae.decode(latents, device=device, end_=(end_image is not None), tiled=enable_vae_tiling, tile_size=(tile_x//8, tile_y//8), tile_stride=(tile_stride_x//8, tile_stride_y//8))[0]
             vae.model.clear_cache()
 
-        #images = (images - images.min()) / (images.max() - images.min())      
-        images = torch.clamp(images, -1.0, 1.0) 
-        images = (images + 1.0) / 2.0
+        if normalization == "minmax":
+            images = (images - images.min()) / (images.max() - images.min())
+        else:  
+            images = torch.clamp(images, -1.0, 1.0) 
+            images = (images + 1.0) / 2.0
         
         if is_looped:
             #images = images[:, warmup_latent_count * 4:]

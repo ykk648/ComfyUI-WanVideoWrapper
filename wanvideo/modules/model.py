@@ -26,6 +26,8 @@ import gc
 import comfy.model_management as mm
 from ...utils import log, get_module_memory_mb
 
+from ...multitalk.multitalk import get_attn_map_with_target
+
 from comfy.ldm.flux.math import apply_rope as apply_rope_comfy
 
 def rope_riflex(pos, dim, theta, L_test, k, temporal):
@@ -188,7 +190,7 @@ class WanSelfAttention(nn.Module):
         self.norm_q = WanRMSNorm(dim, eps=eps) if qk_norm else nn.Identity()
         self.norm_k = WanRMSNorm(dim, eps=eps) if qk_norm else nn.Identity()
 
-    def forward(self, x, seq_lens, grid_sizes, freqs, rope_func = "default", block_mask=None):
+    def forward(self, x, seq_lens, grid_sizes, freqs, rope_func = "default", block_mask=None, ref_target_masks=None):
         r"""
         Args:
             x(Tensor): Shape [B, L, num_heads, C / num_heads]
@@ -267,7 +269,12 @@ class WanSelfAttention(nn.Module):
         if is_enhance_enabled():
             x *= feta_scores
 
-        return x
+        #multitalk
+        x_ref_attn_map = None
+        if ref_target_masks is not None:
+            x_ref_attn_map = get_attn_map_with_target(q.type_as(x), k.type_as(x), grid_sizes[0], 
+                                                        ref_target_masks=ref_target_masks)
+        return x, x_ref_attn_map
     
     def forward_split(self, x, seq_lens, grid_sizes, freqs, seq_chunks=1,current_step=0, video_attention_split_steps = [], rope_func = "default"):
         r"""
@@ -586,7 +593,10 @@ class WanAttentionBlock(nn.Module):
         block_mask=None,
         nag_params={},
         nag_context=None,
-        is_uncond=False
+        is_uncond=False,
+        multitalk_audio_embedding=None,
+        ref_target_masks=None,
+        human_num=0
     ):
         r"""
         Args:
@@ -620,11 +630,12 @@ class WanAttentionBlock(nn.Module):
             video_attention_split_steps=video_attention_split_steps
             )
         else:
-            y = self.self_attn.forward(
+            y, x_ref_attn_map = self.self_attn.forward(
             input_x, 
             seq_lens, grid_sizes,
             freqs, rope_func=rope_func,
             block_mask=block_mask,
+            ref_target_masks=ref_target_masks,
             )
         #ReCamMaster
         if camera_embed is not None:
@@ -644,19 +655,26 @@ class WanAttentionBlock(nn.Module):
             else:
                 x = self.cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes, 
                                         audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, 
-                                        num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context, is_uncond=is_uncond)
+                                        num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context, is_uncond=is_uncond, 
+                                        multitalk_audio_embedding=multitalk_audio_embedding, x_ref_attn_map=x_ref_attn_map, human_num=human_num)
         else:
             y = self.ffn(self.norm2(x) * (1 + e[4]) + e[3])
             x = x + (y * e[5])
+
         del e
         return x
     #@torch.compiler.disable()
     def cross_attn_ffn(self, x, context, context_lens, e, clip_embed=None, grid_sizes=None, 
                        audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21, nag_params={}, 
-                       nag_context=None, is_uncond=False):
+                       nag_context=None, is_uncond=False, multitalk_audio_embedding=None, x_ref_attn_map=None, human_num=0):
             x = x + self.cross_attn(self.norm3(x), context, context_lens, clip_embed=clip_embed,
                                     audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, 
                                     num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context, is_uncond=is_uncond)
+            #multitalk
+            if multitalk_audio_embedding is not None:
+                x_audio = self.audio_cross_attn(self.norm_x(x), encoder_hidden_states=multitalk_audio_embedding,
+                                            shape=grid_sizes[0], x_ref_attn_map=x_ref_attn_map, human_num=human_num)
+                x = x + x_audio * audio_scale
             y = self.ffn(self.norm2(x) * (1 + e[4]) + e[3])
             x = x + (y * e[5])
             return x
@@ -1223,7 +1241,9 @@ class WanModel(ModelMixin, ConfigMixin):
         add_cond=None,
         attn_cond=None,
         nag_params={},
-        nag_context=None
+        nag_context=None,
+        multitalk_audio=None,
+        ref_target_masks=None
     ):
         r"""
         Forward pass through the diffusion model
@@ -1367,9 +1387,9 @@ class WanModel(ModelMixin, ConfigMixin):
         # time embeddings
         if t.dim() == 2:
             b, f = t.shape
-            _flag_df = True
+            diffusion_forcing = True
         else:
-            _flag_df = False
+            diffusion_forcing = False
 
         e = self.time_embedding(
             sinusoidal_embedding_1d(self.freq_dim, t.flatten()).to(x.dtype)
@@ -1380,12 +1400,12 @@ class WanModel(ModelMixin, ConfigMixin):
             fps_embeds = torch.tensor(fps_embeds, dtype=torch.long, device=device)
 
             fps_emb = self.fps_embedding(fps_embeds).to(e0.dtype)
-            if _flag_df:
+            if diffusion_forcing:
                 e0 = e0 + self.fps_projection(fps_emb).unflatten(1, (6, self.dim)).repeat(t.shape[1], 1, 1)
             else:
                 e0 = e0 + self.fps_projection(fps_emb).unflatten(1, (6, self.dim))
 
-        if _flag_df:
+        if diffusion_forcing:
             e = e.view(b, f, 1, 1, self.dim).expand(b, f, grid_sizes[0][1], grid_sizes[0][2], self.dim)
             e0 = e0.view(b, f, 1, 1, 6, self.dim).expand(b, f, grid_sizes[0][1], grid_sizes[0][2], 6, self.dim)
             
@@ -1398,9 +1418,9 @@ class WanModel(ModelMixin, ConfigMixin):
             
             e = e.to(self.offload_device, non_blocking=self.use_non_blocking)
 
-        # context (test embedding)
+        # context (text embedding)
         context_lens = None
-        if hasattr(self, "text_embedding"):
+        if hasattr(self, "text_embedding") and context != []:
             if self.offload_txt_emb:
                 self.text_embedding.to(self.main_device)
             context = self.text_embedding(
@@ -1432,6 +1452,34 @@ class WanModel(ModelMixin, ConfigMixin):
             #context = torch.concat([context_clip, context], dim=1)
             if self.offload_img_emb:
                 self.img_emb.to(self.offload_device, non_blocking=self.use_non_blocking)
+
+        # MultiTalk
+        if multitalk_audio is not None:
+            audio_cond = multitalk_audio.to(device=x.device, dtype=x.dtype)
+            first_frame_audio_emb_s = audio_cond[:, :1, ...] 
+            latter_frame_audio_emb = audio_cond[:, 1:, ...] 
+            latter_frame_audio_emb = rearrange(latter_frame_audio_emb, "b (n_t n) w s c -> b n_t n w s c", n=4) 
+            middle_index = self.audio_proj.seq_len // 2
+            latter_first_frame_audio_emb = latter_frame_audio_emb[:, :, :1, :middle_index+1, ...] 
+            latter_first_frame_audio_emb = rearrange(latter_first_frame_audio_emb, "b n_t n w s c -> b n_t (n w) s c") 
+            latter_last_frame_audio_emb = latter_frame_audio_emb[:, :, -1:, middle_index:, ...] 
+            latter_last_frame_audio_emb = rearrange(latter_last_frame_audio_emb, "b n_t n w s c -> b n_t (n w) s c") 
+            latter_middle_frame_audio_emb = latter_frame_audio_emb[:, :, 1:-1, middle_index:middle_index+1, ...] 
+            latter_middle_frame_audio_emb = rearrange(latter_middle_frame_audio_emb, "b n_t n w s c -> b n_t (n w) s c") 
+            latter_frame_audio_emb_s = torch.concat([latter_first_frame_audio_emb, latter_middle_frame_audio_emb, latter_last_frame_audio_emb], dim=2) 
+            multitalk_audio_embedding = self.audio_proj(first_frame_audio_emb_s, latter_frame_audio_emb_s) 
+            human_num = len(multitalk_audio_embedding)
+            multitalk_audio_embedding = torch.concat(multitalk_audio_embedding.split(1), dim=2).to(x.dtype)
+
+        # convert ref_target_masks to token_ref_target_masks
+        # !not implemented!
+        if ref_target_masks is not None:
+            ref_target_masks = ref_target_masks.unsqueeze(0).to(torch.float32) 
+            token_ref_target_masks = nn.functional.interpolate(ref_target_masks, size=(H // 2, W // 2), mode='nearest') 
+            token_ref_target_masks = token_ref_target_masks.squeeze(0)
+            token_ref_target_masks = (token_ref_target_masks > 0)
+            token_ref_target_masks = token_ref_target_masks.view(token_ref_target_masks.shape[0], -1) 
+            token_ref_target_masks = token_ref_target_masks.to(x.dtype)
 
         should_calc = True
         accumulated_rel_l1_distance = torch.tensor(0.0, dtype=torch.float32, device=device)
@@ -1540,7 +1588,10 @@ class WanModel(ModelMixin, ConfigMixin):
                 block_mask=self.block_mask,
                 nag_params=nag_params,
                 nag_context=nag_context,
-                is_uncond = is_uncond
+                is_uncond = is_uncond,
+                multitalk_audio_embedding=multitalk_audio_embedding if multitalk_audio is not None else None,
+                ref_target_masks=ref_target_masks if multitalk_audio is not None else None,
+                human_num=human_num if multitalk_audio is not None else 0
                 )
             
             if vace_data is not None:
