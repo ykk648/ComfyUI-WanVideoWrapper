@@ -1019,7 +1019,7 @@ class WanModel(ModelMixin, ConfigMixin):
             # blocks
             if model_type == 't2v':
                 cross_attn_type = 't2v_cross_attn'
-            elif model_type == 'i2v':
+            elif model_type == 'i2v' or model_type == 'fl2v':
                 cross_attn_type = 'i2v_cross_attn'
             else:
                 cross_attn_type = 'no_cross_attn'
