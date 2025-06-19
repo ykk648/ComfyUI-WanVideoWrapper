@@ -3,6 +3,7 @@ from einops import rearrange, repeat
 import torch
 import torch.nn as nn
 from functools import lru_cache
+from ..wanvideo.modules.attention import attention
 
 from comfy import model_management as mm
 
@@ -187,6 +188,7 @@ class AudioProjModel(ModelMixin, ConfigMixin):
 
         return context_tokens
 
+#@torch.compiler.disable()
 class SingleStreamAttention(nn.Module):
     def __init__(
         self,
@@ -199,6 +201,7 @@ class SingleStreamAttention(nn.Module):
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
         eps: float = 1e-6,
+        attention_mode: str = 'sdpa',
     ) -> None:
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
@@ -223,11 +226,12 @@ class SingleStreamAttention(nn.Module):
         self.add_q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
         self.add_k_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
 
+        self.attention_mode = attention_mode
+
     def forward(self, x: torch.Tensor, encoder_hidden_states: torch.Tensor, shape=None, enable_sp=False, kv_seq=None) -> torch.Tensor:
        
         N_t, N_h, N_w = shape
-        if not enable_sp:
-            x = rearrange(x, "B (N_t S) C -> (B N_t) S C", N_t=N_t)
+        x = rearrange(x, "B (N_t S) C -> (B N_t) S C", N_t=N_t)
 
         # get q for hidden_state
         B, N, C = x.shape
@@ -248,19 +252,23 @@ class SingleStreamAttention(nn.Module):
         if self.qk_norm:
             encoder_k = self.add_k_norm(encoder_k)
 
-        x = torch.nn.functional.scaled_dot_product_attention(
-            q, encoder_k, encoder_v, attn_mask=None, is_causal=False, dropout_p=0.0)
+        x = attention(
+            q.transpose(1, 2), 
+            encoder_k.transpose(1, 2), 
+            encoder_v.transpose(1, 2),
+            attention_mode=self.attention_mode
+            )
+        #x = torch.nn.functional.scaled_dot_product_attention(
+        #    q, encoder_k, encoder_v, attn_mask=None, is_causal=False, dropout_p=0.0)
 
         # linear transform
         x_output_shape = (B, N, C)
-        x = x.transpose(1, 2) 
+        #x = x.transpose(1, 2) 
         x = x.reshape(x_output_shape) 
         x = self.proj(x)
         x = self.proj_drop(x)
 
-        if not enable_sp:
-            # reshape x to origin shape
-            x = rearrange(x, "(B N_t) S C -> B (N_t S) C", N_t=N_t)
+        x = rearrange(x, "(B N_t) S C -> B (N_t S) C", N_t=N_t)
 
         return x
     
@@ -278,6 +286,7 @@ class SingleStreamMultiAttention(SingleStreamAttention):
         eps: float = 1e-6,
         class_range: int = 24,
         class_interval: int = 4,
+        attention_mode: str = 'sdpa',
     ) -> None:
         super().__init__(
             dim=dim,
@@ -289,6 +298,7 @@ class SingleStreamMultiAttention(SingleStreamAttention):
             attn_drop=attn_drop,
             proj_drop=proj_drop,
             eps=eps,
+            attention_mode=attention_mode,
         )
         self.class_interval = class_interval
         self.class_range = class_range
@@ -297,6 +307,8 @@ class SingleStreamMultiAttention(SingleStreamAttention):
         self.rope_bak = int(self.class_range // 2)
 
         self.rope_1d = RotaryPositionalEmbedding1D(self.head_dim)
+
+        self.attention_mode = attention_mode
 
     def forward(self, 
                 x: torch.Tensor, 

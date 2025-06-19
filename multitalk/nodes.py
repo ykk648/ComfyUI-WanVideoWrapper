@@ -138,7 +138,7 @@ class MultiTalkWav2VecEmbeds:
 
         # audio encoder
         audio_duration = len(audio_segment) / sr
-        video_length = audio_duration * 25 # Assume the video fps is 25
+        video_length = audio_duration * fps
         print("Audio duration:", audio_duration, "Video length:", video_length)
         embeddings = wav2vec(audio_feature.to(dtype), seq_len=int(video_length), output_hidden_states=True)
 

@@ -750,7 +750,8 @@ class WanVideoModelLoader:
                         eps=transformer.eps,
                         norm_layer=WanRMSNorm,
                         class_range=24,
-                        class_interval=4
+                        class_interval=4,
+                        attention_mode=attention_mode,
                     )
                 block.norm_x = WanLayerNorm(dim, transformer.eps, elementwise_affine=True) if norm_input_visual else nn.Identity()
             log.info("MultiTalk model detected, patching model...")
@@ -3183,7 +3184,8 @@ class WanVideoSampler:
 
         #region model pred
         def predict_with_cfg(z, cfg_scale, positive_embeds, negative_embeds, timestep, idx, image_cond=None, clip_fea=None, 
-                             control_latents=None, vace_data=None, unianim_data=None, audio_proj=None, control_camera_latents=None, add_cond=None, cache_state=None):
+                             control_latents=None, vace_data=None, unianim_data=None, audio_proj=None, control_camera_latents=None, 
+                             add_cond=None, cache_state=None, context_window=None):
             z = z.to(dtype)
             with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=("fp8" in model["quantization"])):
 
@@ -3283,18 +3285,29 @@ class WanVideoSampler:
                     audio_embs = []
                     indices = (torch.arange(4 + 1) - 2) * 1 
                     # split audio with window size
-                    for human_idx in range(1):   
-                        center_indices = torch.arange(
-                            0,
-                            latent_video_length * 4 + 1 if add_cond is not None else (latent_video_length-1) * 4 + 1,
-                            1,
-                        ).unsqueeze(
-                            1
-                        ) + indices.unsqueeze(0)
-                        center_indices = torch.clamp(center_indices, min=0, max=audio_embedding[human_idx].shape[0] - 1)
-                        audio_emb = audio_embedding[human_idx][center_indices].unsqueeze(0).to(device)
-                        audio_embs.append(audio_emb)
+                    if context_window is None:
+                        for human_idx in range(1):   
+                            center_indices = torch.arange(
+                                0,
+                                latent_video_length * 4 + 1 if add_cond is not None else (latent_video_length-1) * 4 + 1,
+                                1,
+                            ).unsqueeze(
+                                1
+                            ) + indices.unsqueeze(0)
+                            center_indices = torch.clamp(center_indices, min=0, max=audio_embedding[human_idx].shape[0] - 1)
+                            audio_emb = audio_embedding[human_idx][center_indices].unsqueeze(0).to(device)
+                            audio_embs.append(audio_emb)
+                    else:
+                        for human_idx in range(1):
+                            audio_start = context_window[0] * 4
+                            audio_end = context_window[-1] * 4 + 1
+                            print("audio_start: ", audio_start, "audio_end: ", audio_end)
+                            center_indices = torch.arange(audio_start, audio_end, 1).unsqueeze(1) + indices.unsqueeze(0)
+                            center_indices = torch.clamp(center_indices, min=0, max=audio_embedding[human_idx].shape[0] - 1)
+                            audio_emb = audio_embedding[human_idx][center_indices].unsqueeze(0).to(device)
+                            audio_embs.append(audio_emb)
                     audio_embs = torch.concat(audio_embs, dim=0).to(dtype)
+
                  
                 base_params = {
                     'seq_len': seq_len,
@@ -3714,8 +3727,7 @@ class WanVideoSampler:
                         cfg[idx], positive, 
                         text_embeds["negative_prompt_embeds"], 
                         timestep, idx, partial_img_emb, clip_fea, partial_control_latents, partial_vace_context, partial_unianim_data,partial_audio_proj,
-                        partial_control_camera_latents, partial_add_cond,
-                        current_teacache)
+                        partial_control_camera_latents, partial_add_cond, current_teacache, context_window=c)
 
                     if cache_args is not None:
                         self.window_tracker.cache_states[window_id] = new_teacache

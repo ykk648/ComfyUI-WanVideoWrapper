@@ -1313,7 +1313,7 @@ class WanModel(ModelMixin, ConfigMixin):
             x = [u + v for u, v in zip(x, fun_camera)]
 
         grid_sizes = torch.stack(
-            [torch.tensor(u.shape[2:], dtype=torch.long) for u in x])
+            [torch.tensor(u.shape[2:], device=device, dtype=torch.long) for u in x])
 
         x = [u.flatten(2).transpose(1, 2) for u in x]
 
