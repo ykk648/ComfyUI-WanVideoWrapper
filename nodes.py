@@ -3373,7 +3373,7 @@ class WanVideoSampler:
                             audio_embs.append(audio_emb)
                     audio_embs = torch.concat(audio_embs, dim=0).to(dtype)
                 
-                if context_window is not None and pcd_data is not None:
+                if context_window is not None and pcd_data is not None and pcd_data["render_latent"].shape[2] != context_frames:
                     pcd_data_input = {"render_latent": pcd_data["render_latent"][:, :, context_window]}
                     for k in pcd_data:
                         if k != "render_latent":
