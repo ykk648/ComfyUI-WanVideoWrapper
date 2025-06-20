@@ -3979,6 +3979,8 @@ class WanVideoDecode:
                 enable_vae_tiling = False
             images = vae.decode(latents, device=device, end_=(end_image is not None), tiled=enable_vae_tiling, tile_size=(tile_x//8, tile_y//8), tile_stride=(tile_stride_x//8, tile_stride_y//8))[0]
             vae.model.clear_cache()
+        
+        images = images.cpu()
 
         if normalization == "minmax":
             images = (images - images.min()) / (images.max() - images.min())
@@ -4004,7 +4006,7 @@ class WanVideoDecode:
         vae.to(offload_device)
         mm.soft_empty_cache()
 
-        images = torch.clamp(images.cpu(), 0.0, 1.0)
+        images = torch.clamp(images, 0.0, 1.0)
         images = images.permute(1, 2, 3, 0).float()
 
         return (images,)
