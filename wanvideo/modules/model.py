@@ -384,8 +384,8 @@ class WanSelfAttention(nn.Module):
 
         nag_guidance = x_positive * nag_scale - x_negative * (nag_scale - 1)
         
-        norm_positive = torch.norm(x_positive, p=1, dim=-1, keepdim=True).expand_as(x_positive)
-        norm_guidance = torch.norm(nag_guidance, p=1, dim=-1, keepdim=True).expand_as(nag_guidance)
+        norm_positive = torch.norm(x_positive, p=1, dim=-1, keepdim=True)
+        norm_guidance = torch.norm(nag_guidance, p=1, dim=-1, keepdim=True)
         
         scale = norm_guidance / norm_positive
         scale = torch.nan_to_num(scale, nan=10.0)
