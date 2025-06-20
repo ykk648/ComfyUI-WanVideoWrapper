@@ -3723,8 +3723,8 @@ class WanVideoSampler:
                 counter = torch.zeros_like(latent_model_input, device=intermediate_device)
                 noise_pred = torch.zeros_like(latent_model_input, device=intermediate_device)
                 context_queue = list(context(idx, steps, latent_video_length, context_frames, context_stride, context_overlap))
-                
-                for c in context_queue:
+                context_pbar = ProgressBar(len(context_queue))
+                for i, c in enumerate(context_queue):
                     window_id = self.window_tracker.get_window_id(c)
                     
                     if cache_args is not None:
@@ -3808,6 +3808,7 @@ class WanVideoSampler:
                     window_mask = create_window_mask(noise_pred_context, c, latent_video_length, context_overlap, looped=is_looped)                    
                     noise_pred[:, c] += noise_pred_context * window_mask
                     counter[:, c] += window_mask
+                    context_pbar.update(1)
                 noise_pred /= counter
             #region normal inference
             else:
