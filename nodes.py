@@ -3129,11 +3129,11 @@ class WanVideoSampler:
                 controlnet["controlnet_stride"] = controlnet["control_stride"]
 
         #uni3c
-        pcd_data = None
+        pcd_data = pcd_data_input = None
         if uni3c_embeds is not None:
             transformer.controlnet = uni3c_embeds["controlnet"]
             pcd_data = {
-                "render_latent": uni3c_embeds["render_latent"],
+                "render_latent": uni3c_embeds["render_latent"].to(dtype),
                 "render_mask": uni3c_embeds["render_mask"],
                 "camera_embedding": uni3c_embeds["camera_embedding"],
                 "controlnet_weight": uni3c_embeds["controlnet_weight"],
@@ -3372,6 +3372,14 @@ class WanVideoSampler:
                             audio_emb = audio_embedding[human_idx][center_indices].unsqueeze(0).to(device)
                             audio_embs.append(audio_emb)
                     audio_embs = torch.concat(audio_embs, dim=0).to(dtype)
+                
+                if context_window is not None and pcd_data is not None:
+                    pcd_data_input = {"render_latent": pcd_data["render_latent"][:, :, context_window]}
+                    for k in pcd_data:
+                        if k != "render_latent":
+                            pcd_data_input[k] = pcd_data[k]
+                else:
+                    pcd_data_input = pcd_data
 
                  
                 base_params = {
@@ -3388,7 +3396,7 @@ class WanVideoSampler:
                     'audio_proj': audio_proj if fantasytalking_embeds is not None else None,
                     'audio_context_lens': audio_context_lens if fantasytalking_embeds is not None else None,
                     'audio_scale': audio_scale,
-                    "pcd_data": pcd_data,
+                    "pcd_data": pcd_data_input,
                     "controlnet": controlnet,
                     "add_cond": add_cond_input,
                     "nag_params": text_embeds.get("nag_params", {}),
