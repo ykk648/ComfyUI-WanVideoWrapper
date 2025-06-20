@@ -4004,8 +4004,8 @@ class WanVideoDecode:
         vae.to(offload_device)
         mm.soft_empty_cache()
 
-        images = torch.clamp(images, 0.0, 1.0)
-        images = images.permute(1, 2, 3, 0).cpu().float()
+        images = torch.clamp(images.cpu(), 0.0, 1.0)
+        images = images.permute(1, 2, 3, 0).float()
 
         return (images,)
 
