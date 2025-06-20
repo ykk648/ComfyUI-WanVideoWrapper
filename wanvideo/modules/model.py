@@ -705,7 +705,7 @@ class WanAttentionBlock(nn.Module):
             x_segment = x[:, segment_indices, :]
             
             # Process segment with its prompt and clip embedding
-            processed_segment = self.cross_attn(self.norm3(x_segment), segment_context, segment_context_lens, clip_embed=segment_clip_embed, nag_scale=nag_scale)
+            processed_segment = self.cross_attn(self.norm3(x_segment), segment_context, segment_context_lens, clip_embed=segment_clip_embed)
             processed_segment = processed_segment.to(x.dtype)
             
             # Add to combined result
