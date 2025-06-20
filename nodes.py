@@ -459,6 +459,72 @@ class WanVideoLoraSelect:
         loras_list.append(lora)
         return (loras_list,)
     
+class WanVideoLoraSelectMulti:
+    @classmethod
+    def INPUT_TYPES(s):
+        lora_files = folder_paths.get_filename_list("loras")
+        lora_files = ["none"] + lora_files  # Add "none" as the first option
+        return {
+            "required": {
+               "lora_0": (lora_files, {"default": "none"}),
+                "strength_0": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.0001, "tooltip": "LORA strength, set to 0.0 to unmerge the LORA"}),
+                "lora_1": (lora_files, {"default": "none"}),
+                "strength_1": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.0001, "tooltip": "LORA strength, set to 0.0 to unmerge the LORA"}),
+                "lora_2": (lora_files, {"default": "none"}),
+                "strength_2": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.0001, "tooltip": "LORA strength, set to 0.0 to unmerge the LORA"}),
+                "lora_3": (lora_files, {"default": "none"}),
+                "strength_3": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.0001, "tooltip": "LORA strength, set to 0.0 to unmerge the LORA"}),
+                "lora_4": (lora_files, {"default": "none"}),
+                "strength_4": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.0001, "tooltip": "LORA strength, set to 0.0 to unmerge the LORA"}),
+            },
+            "optional": {
+                "prev_lora":("WANVIDLORA", {"default": None, "tooltip": "For loading multiple LoRAs"}),
+                "blocks":("SELECTEDBLOCKS", ),
+                "low_mem_load": ("BOOLEAN", {"default": False, "tooltip": "Load the LORA model with less VRAM usage, slower loading"}),
+            }
+        }
+
+    RETURN_TYPES = ("WANVIDLORA",)
+    RETURN_NAMES = ("lora", )
+    FUNCTION = "getlorapath"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Select a LoRA model from ComfyUI/models/loras"
+
+    def getlorapath(self, lora_0, strength_0, lora_1, strength_1, lora_2, strength_2, 
+                lora_3, strength_3, lora_4, strength_4, blocks={}, prev_lora=None, 
+                low_mem_load=False):
+        loras_list = []
+        
+        if prev_lora is not None:
+            loras_list.extend(prev_lora)
+        
+        # Process each LoRA
+        lora_inputs = [
+            (lora_0, strength_0), 
+            (lora_1, strength_1), 
+            (lora_2, strength_2), 
+            (lora_3, strength_3), 
+            (lora_4, strength_4)
+        ]
+        
+        for lora_name, strength in lora_inputs:
+            # Skip if the LoRA is empty
+            if not lora_name or lora_name == "none":
+                continue
+                
+            lora = {
+                "path": folder_paths.get_full_path("loras", lora_name),
+                "strength": strength,
+                "name": lora_name.split(".")[0],
+                "blocks": blocks.get("selected_blocks", {}),
+                "layer_filter": blocks.get("layer_filter", ""),
+                "low_mem_load": low_mem_load,
+            }
+            
+            loras_list.append(lora)
+        
+        return (loras_list,)
+    
 class WanVideoVACEModelSelect:
     @classmethod
     def INPUT_TYPES(s):
@@ -1044,9 +1110,8 @@ class WanVideoTinyVAELoader:
                 "model_name": (folder_paths.get_filename_list("vae_approx"), {"tooltip": "These models are loaded from 'ComfyUI/models/vae_approx'"}),
             },
             "optional": {
-                "precision": (["fp16", "fp32", "bf16"],
-                    {"default": "fp16"}
-                ),
+                "precision": (["fp16", "fp32", "bf16"], {"default": "fp16"}), 
+                "parallel": ("BOOLEAN", {"default": False, "tooltip": "uses more memory but is faster"}),
             }
         }
 
@@ -1056,7 +1121,7 @@ class WanVideoTinyVAELoader:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "Loads Wan VAE model from 'ComfyUI/models/vae'"
 
-    def loadmodel(self, model_name, precision):
+    def loadmodel(self, model_name, precision, parallel=False):
         from .taehv import TAEHV
 
         device = mm.get_torch_device()
@@ -1066,7 +1131,7 @@ class WanVideoTinyVAELoader:
         model_path = folder_paths.get_full_path("vae_approx", model_name)
         vae_sd = load_torch_file(model_path, safe_load=True)
         
-        vae = TAEHV(vae_sd)
+        vae = TAEHV(vae_sd, parallel=parallel)
        
         vae.to(device = offload_device, dtype = dtype)
 
@@ -4061,7 +4126,8 @@ NODE_CLASS_MAPPINGS = {
     "CreateCFGScheduleFloatList": CreateCFGScheduleFloatList,
     "WanVideoRealisDanceLatents": WanVideoRealisDanceLatents,
     "WanVideoApplyNAG": WanVideoApplyNAG,
-    "WanVideoMiniMaxRemoverEmbeds": WanVideoMiniMaxRemoverEmbeds
+    "WanVideoMiniMaxRemoverEmbeds": WanVideoMiniMaxRemoverEmbeds,
+    "WanVideoLoraSelectMulti": WanVideoLoraSelectMulti
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -4103,5 +4169,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "CreateCFGScheduleFloatList": "WanVideo CFG Schedule Float List",
     "WanVideoRealisDanceLatents": "WanVideo RealisDance Latents",
     "WanVideoApplyNAG": "WanVideo Apply NAG",
-    "WanVideoMiniMaxRemoverEmbeds": "WanVideo MiniMax Remover Embeds"
+    "WanVideoMiniMaxRemoverEmbeds": "WanVideo MiniMax Remover Embeds",
+    "WanVideoLoraSelectMulti": "WanVideo Lora Select Multi"
     }
