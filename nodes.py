@@ -2333,6 +2333,41 @@ class WanVideoVACEEncode:
     def vace_latent(self, z, m):
         return [torch.cat([zz, mm], dim=0) for zz, mm in zip(z, m)]
 
+class ExtractStartFramesForContinuations:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "input_video_frames": ("IMAGE", {"tooltip": "Input video frames to extract the start frames from."}),
+                "num_frames": ("INT", {"default": 10, "min": 1, "max": 1024, "step": 1, "tooltip": "Number of frames to get from the start of the video."}),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("start_frames",)
+    FUNCTION = "get_start_frames"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Extracts the first N frames from a video sequence for continuations."
+
+    def get_start_frames(self, input_video_frames, num_frames):
+        if input_video_frames is None or input_video_frames.shape[0] == 0:
+            log.warning("Input video frames are empty. Returning an empty tensor.")
+            if input_video_frames is not None:
+                return (torch.empty((0,) + input_video_frames.shape[1:], dtype=input_video_frames.dtype),)
+            else:
+                # Return a tensor with 4 dimensions, as expected for an IMAGE type.
+                return (torch.empty((0, 64, 64, 3), dtype=torch.float32),)
+
+        total_frames = input_video_frames.shape[0]
+        num_to_get = min(num_frames, total_frames)
+
+        if num_to_get < num_frames:
+            log.warning(f"Requested {num_frames} frames, but input video only has {total_frames} frames. Returning first {num_to_get} frames.")
+
+        start_frames = input_video_frames[:num_to_get]
+
+        return (start_frames.cpu().float(),)
+
 class WanVideoVACEStartToEndFrame:
     @classmethod
     def INPUT_TYPES(s):
@@ -4028,6 +4063,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoSetBlockSwap": WanVideoSetBlockSwap,
     "WanVideoExperimentalArgs": WanVideoExperimentalArgs,
     "WanVideoVACEEncode": WanVideoVACEEncode,
+    "ExtractStartFramesForContinuations": ExtractStartFramesForContinuations,
     "WanVideoVACEStartToEndFrame": WanVideoVACEStartToEndFrame,
     "WanVideoVACEModelSelect": WanVideoVACEModelSelect,
     "WanVideoPhantomEmbeds": WanVideoPhantomEmbeds,
@@ -4071,6 +4107,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSetBlockSwap": "WanVideo Set BlockSwap",
     "WanVideoExperimentalArgs": "WanVideo Experimental Args",
     "WanVideoVACEEncode": "WanVideo VACE Encode",
+    "ExtractStartFramesForContinuations": "Extract Start Frames For Continuations",
     "WanVideoVACEStartToEndFrame": "WanVideo VACE Start To End Frame",
     "WanVideoVACEModelSelect": "WanVideo VACE Model Select",
     "WanVideoPhantomEmbeds": "WanVideo Phantom Embeds",
