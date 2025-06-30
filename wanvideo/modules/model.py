@@ -671,7 +671,7 @@ class WanAttentionBlock(nn.Module):
                                     audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, 
                                     num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context, is_uncond=is_uncond)
             #multitalk
-            if multitalk_audio_embedding is not None:
+            if multitalk_audio_embedding is not None and not isinstance(self, VaceWanAttentionBlock):
                 x_audio = self.audio_cross_attn(self.norm_x(x), encoder_hidden_states=multitalk_audio_embedding,
                                             shape=grid_sizes[0], x_ref_attn_map=x_ref_attn_map, human_num=human_num)
                 x = x + x_audio * audio_scale
