@@ -2722,14 +2722,12 @@ class WanVideoSampler:
                 denoising_step_list = torch.tensor([999, 750, 500, 250] , dtype=torch.long)
                 temp_timesteps = torch.cat((sample_scheduler.timesteps.cpu(), torch.tensor([0], dtype=torch.float32)))
                 denoising_step_list = temp_timesteps[1000 - denoising_step_list]
-                print("denoising_step_list: ", denoising_step_list)
+                #print("denoising_step_list: ", denoising_step_list)
                 
-
-                #denoising_step_list = [999, 750, 500, 250]
                 if steps != 4:
                     raise ValueError("This scheduler is only for 4 steps")
-                #sample_scheduler = FlowMatchScheduler(num_inference_steps=steps, shift=shift, sigma_min=0, extra_one_step=True)
-                sample_scheduler.timesteps = torch.tensor(denoising_step_list)[:steps].to(device)
+                
+                sample_scheduler.timesteps = denoising_step_list[:steps].clone().detach().to(device)
                 sample_scheduler.sigmas = torch.cat([sample_scheduler.timesteps / 1000, torch.tensor([0.0], device=device)])
             return sample_scheduler, timesteps
         
@@ -3839,6 +3837,7 @@ class WanVideoSampler:
                 # start video generation iteratively
                 estimated_iterations = max(1, min(max_frames_num, len(multitalk_audio_embedding)) // (frame_num - motion_frame) + 1)
                 loop_pbar = tqdm(total=estimated_iterations, desc="Generating video clips")
+                comfy_pbar = ProgressBar(estimated_iterations)
                 iteration_count = 0
 
                 audio_embedding = [multitalk_audio_embedding]
@@ -3964,9 +3963,7 @@ class WanVideoSampler:
 
                         if callback is not None:
                             callback_latent = (latent_model_input.to(device) - noise_pred.to(device) * t.to(device) / 1000).detach().permute(1,0,2,3)
-                            callback(idx, callback_latent, None, steps)
-                        else:
-                            pbar.update(1)
+                            callback(idx, callback_latent, None, None)                            
 
                         # update latent
                         if scheduler == "multitalk":
@@ -4041,6 +4038,7 @@ class WanVideoSampler:
                     # Update progress bar
                     iteration_count += 1
                     loop_pbar.update(1)
+                    comfy_pbar.update(1)
 
                     # Repeat audio emb
                     if audio_end_idx >= min(max_frames_num, len(audio_embedding[0])):
