@@ -3837,6 +3837,10 @@ class WanVideoSampler:
                 indices = (torch.arange(4 + 1) - 2) * 1
 
                 # start video generation iteratively
+                estimated_iterations = max(1, min(max_frames_num, len(multitalk_audio_embedding)) // (frame_num - motion_frame) + 1)
+                loop_pbar = tqdm(total=estimated_iterations, desc="Generating video clips")
+                iteration_count = 0
+
                 audio_embedding = [multitalk_audio_embedding]
                 while True:
                     audio_embs = []
@@ -3949,7 +3953,6 @@ class WanVideoSampler:
                     for i in tqdm(range(len(timesteps)-1)):
                         timestep = timesteps[i]
                         latent_model_input = latent.to(device)
-                        print("latent_model_input shape: ", latent_model_input.shape)
 
                         noise_pred, self.cache_state = predict_with_cfg(
                             latent_model_input, 
@@ -4022,7 +4025,10 @@ class WanVideoSampler:
                         gen_video_list.append(videos[:, :, cur_motion_frames_num:])
 
                     # decide whether is done
-                    if arrive_last_frame: break
+                    if arrive_last_frame: 
+                        loop_pbar.update(estimated_iterations - iteration_count)
+                        loop_pbar.close()
+                        break
 
                     # update next condition frames
                     is_first_clip = False
@@ -4031,6 +4037,10 @@ class WanVideoSampler:
                     cond_image = videos[:, :, -cur_motion_frames_num:].to(torch.float32).to(device)
                     audio_start_idx += (frame_num - cur_motion_frames_num)
                     audio_end_idx = audio_start_idx + clip_length
+
+                    # Update progress bar
+                    iteration_count += 1
+                    loop_pbar.update(1)
 
                     # Repeat audio emb
                     if audio_end_idx >= min(max_frames_num, len(audio_embedding[0])):
@@ -4048,8 +4058,10 @@ class WanVideoSampler:
                             else:
                                 miss_lengths.append(0)
                     
-                    if max_frames_num <= frame_num: break
-                    
+                    if max_frames_num <= frame_num: 
+                        loop_pbar.update(estimated_iterations - iteration_count)
+                        loop_pbar.close()
+                        break
                 
                 gen_video_samples = torch.cat(gen_video_list, dim=2)[:, :, :int(max_frames_num)] 
                 gen_video_samples = gen_video_samples.to(torch.float32)
