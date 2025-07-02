@@ -98,9 +98,9 @@ def prepare_callback(model, steps, x0_output_dict=None):
         preview_format = "JPEG"
 
     previewer = get_previewer(model.load_device, model.model.latent_format)
-    print("previewer: ", previewer)
 
-    pbar = comfy.utils.ProgressBar(steps)
+    if steps is not None:
+        pbar = comfy.utils.ProgressBar(steps)
     def callback(step, x0, x, total_steps):
         if x0_output_dict is not None:
             x0_output_dict["x0"] = x0

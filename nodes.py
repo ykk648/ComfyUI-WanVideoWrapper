@@ -3838,6 +3838,7 @@ class WanVideoSampler:
                 estimated_iterations = max(1, min(max_frames_num, len(multitalk_audio_embedding)) // (frame_num - motion_frame) + 1)
                 loop_pbar = tqdm(total=estimated_iterations, desc="Generating video clips")
                 comfy_pbar = ProgressBar(estimated_iterations)
+                callback = prepare_callback(patcher, None)
                 iteration_count = 0
 
                 audio_embedding = [multitalk_audio_embedding]
@@ -3958,7 +3959,7 @@ class WanVideoSampler:
                             cfg[idx], 
                             text_embeds["prompt_embeds"], 
                             text_embeds["negative_prompt_embeds"], 
-                            timestep, idx, y.squeeze(0), clip_embeds, control_latents, vace_data, unianim_data, audio_proj, control_camera_latents, add_cond,
+                            timestep, idx, y.squeeze(0), clip_embeds.to(dtype), control_latents, vace_data, unianim_data, audio_proj, control_camera_latents, add_cond,
                             cache_state=self.cache_state, multitalk_audio_embeds=audio_embs)
 
                         if callback is not None:
