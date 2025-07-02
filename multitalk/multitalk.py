@@ -7,6 +7,30 @@ from ..wanvideo.modules.attention import attention
 
 from comfy import model_management as mm
 
+def timestep_transform(
+    t,
+    shift=5.0,
+    num_timesteps=1000,
+):
+    t = t / num_timesteps
+    # shift the timestep based on ratio
+    new_t = shift * t / (1 + (shift - 1) * t)
+    new_t = new_t * num_timesteps
+    return new_t
+
+def add_noise(
+    original_samples: torch.FloatTensor,
+    noise: torch.FloatTensor,
+    timesteps: torch.IntTensor,
+) -> torch.FloatTensor:
+    """
+    compatible with diffusers add_noise()
+    """
+    timesteps = timesteps.float() / 1000
+    timesteps = timesteps.view(timesteps.shape + (1,) * (len(noise.shape)-1))
+
+    return (1 - timesteps) * original_samples + timesteps * noise
+
 def normalize_and_scale(column, source_range, target_range, epsilon=1e-8):
 
     source_min, source_max = source_range

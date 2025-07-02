@@ -1,9 +1,10 @@
 import folder_paths
 from comfy import model_management as mm
-from comfy.utils import load_torch_file
+from comfy.utils import load_torch_file, common_upscale
 from accelerate import init_empty_weights
 from accelerate.utils import set_module_tensor_to_device
 import torch
+
 
 class MultiTalkModelLoader:
     @classmethod
@@ -161,14 +162,86 @@ class MultiTalkWav2VecEmbeds:
         }
     
         return (multitalk_embeds, audio_output)
+
+class WanVideoImageToVideoMultiTalk:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "vae": ("WANVAE",),
+            "width": ("INT", {"default": 832, "min": 64, "max": 2048, "step": 8, "tooltip": "Width of the image to encode"}),
+            "height": ("INT", {"default": 480, "min": 64, "max": 29048, "step": 8, "tooltip": "Height of the image to encode"}),
+            "frame_window_size": ("INT", {"default": 81, "min": 1, "max": 10000, "step": 4, "tooltip": "Number of frames to encode"}),
+            "motion_frame": ("INT", {"default": 25, "min": 1, "max": 10000, "step": 1, "tooltip": "Driven frame length used in the long video generation."}),
+            "force_offload": ("BOOLEAN", {"default": True}),
+            "colormatch": (
+            [   
+                'disabled',
+                'mkl',
+                'hm', 
+                'reinhard', 
+                'mvgd', 
+                'hm-mvgd-hm', 
+                'hm-mkl-hm',
+            ], {
+               "default": 'disabled'
+            }),
+            },
+            "optional": {
+                "start_image": ("IMAGE", {"tooltip": "Image to encode"}),
+                "tiled_vae": ("BOOLEAN", {"default": False, "tooltip": "Use tiled VAE encoding for reduced memory use"}),
+                "clip_embeds": ("WANVIDIMAGE_CLIPEMBEDS", {"tooltip": "Clip vision encoded image"}),
+            }
+        }
+
+    RETURN_TYPES = ("WANVIDIMAGE_EMBEDS",)
+    RETURN_NAMES = ("image_embeds",)
+    FUNCTION = "process"
+    CATEGORY = "WanVideoWrapper"
+
+    def process(self, vae, width, height, frame_window_size, motion_frame, force_offload, colormatch, start_image=None, tiled_vae=False, clip_embeds=None):
+
+        H = height
+        W = width
+        VAE_STRIDE = (4, 8, 8)
+        
+        num_frames = ((frame_window_size - 1) // 4) * 4 + 1
+
+        # Resize and rearrange the input image dimensions
+        if start_image is not None:
+            resized_start_image = common_upscale(start_image.movedim(-1, 1), W, H, "lanczos", "disabled").movedim(0, 1)
+            resized_start_image = resized_start_image * 2 - 1
+            resized_start_image = resized_start_image.unsqueeze(0)
+        
+        target_shape = (16, (num_frames - 1) // VAE_STRIDE[0] + 1,
+                        height // VAE_STRIDE[1],
+                        width // VAE_STRIDE[2])
+
+        image_embeds = {
+            "multitalk_sampling": True,
+            "multitalk_start_image": resized_start_image if start_image is not None else None,
+            "num_frames": num_frames,
+            "motion_frame": motion_frame,
+            "target_h": H,
+            "target_w": W,
+            "tiled_vae": tiled_vae,
+            "force_offload": force_offload,
+            "vae": vae,
+            "target_shape": target_shape,
+            "clip_context": clip_embeds.get("clip_embeds", None) if clip_embeds is not None else None,
+            "colormatch": colormatch
+        }
+
+        return (image_embeds,)
     
 NODE_CLASS_MAPPINGS = {
     "MultiTalkModelLoader": MultiTalkModelLoader,
     "MultiTalkWav2VecEmbeds": MultiTalkWav2VecEmbeds,
+    "WanVideoImageToVideoMultiTalk": WanVideoImageToVideoMultiTalk
     
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "MultiTalkModelLoader": "MultiTalk Model Loader",
     "MultiTalkWav2VecEmbeds": "MultiTalk Wav2Vec Embeds",
+    "WanVideoImageToVideoMultiTalk": "WanVideo Image To Video MultiTalk"
 }
