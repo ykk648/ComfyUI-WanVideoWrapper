@@ -3964,7 +3964,7 @@ class WanVideoSampler:
 
                         if callback is not None:
                             callback_latent = (latent_model_input.to(device) - noise_pred.to(device) * t.to(device) / 1000).detach().permute(1,0,2,3)
-                            callback(idx, callback_latent, None, iteration_count)                            
+                            callback(iteration_count, callback_latent, None, estimated_iterations)
 
                         # update latent
                         if scheduler == "multitalk":
