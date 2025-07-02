@@ -3838,7 +3838,7 @@ class WanVideoSampler:
                 estimated_iterations = max(1, min(max_frames_num, len(multitalk_audio_embedding)) // (frame_num - motion_frame) + 1)
                 loop_pbar = tqdm(total=estimated_iterations, desc="Generating video clips")
                 comfy_pbar = ProgressBar(estimated_iterations)
-                callback = prepare_callback(patcher, None)
+                callback = prepare_callback(patcher, estimated_iterations)
                 iteration_count = 0
 
                 audio_embedding = [multitalk_audio_embedding]
@@ -3964,7 +3964,7 @@ class WanVideoSampler:
 
                         if callback is not None:
                             callback_latent = (latent_model_input.to(device) - noise_pred.to(device) * t.to(device) / 1000).detach().permute(1,0,2,3)
-                            callback(idx, callback_latent, None, None)                            
+                            callback(idx, callback_latent, None, iteration_count)                            
 
                         # update latent
                         if scheduler == "multitalk":
