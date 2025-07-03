@@ -4079,6 +4079,16 @@ class WanVideoSampler:
                     gen_video_samples = gen_video_samples[:, :, :-1*miss_lengths[0]]
                 
                 del noise, latent
+                if force_offload:
+                    if model["manual_offloading"]:
+                        transformer.to(offload_device)
+                        mm.soft_empty_cache()
+                        gc.collect()
+                try:
+                    print_memory(device)
+                    torch.cuda.reset_peak_memory_stats(device)
+                except:
+                    pass
                 return {"video": gen_video_samples[0].permute(1, 2, 3, 0).cpu()},
             
             #region normal inference

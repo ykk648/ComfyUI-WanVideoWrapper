@@ -1455,6 +1455,7 @@ class WanModel(ModelMixin, ConfigMixin):
 
         # MultiTalk
         if multitalk_audio is not None:
+            self.audio_proj.to(self.main_device)
             audio_cond = multitalk_audio.to(device=x.device, dtype=x.dtype)
             first_frame_audio_emb_s = audio_cond[:, :1, ...] 
             latter_frame_audio_emb = audio_cond[:, 1:, ...] 
@@ -1470,6 +1471,7 @@ class WanModel(ModelMixin, ConfigMixin):
             multitalk_audio_embedding = self.audio_proj(first_frame_audio_emb_s, latter_frame_audio_emb_s) 
             human_num = len(multitalk_audio_embedding)
             multitalk_audio_embedding = torch.concat(multitalk_audio_embedding.split(1), dim=2).to(x.dtype)
+            self.audio_proj.to(self.offload_device)
 
         # convert ref_target_masks to token_ref_target_masks
         token_ref_target_masks = None
