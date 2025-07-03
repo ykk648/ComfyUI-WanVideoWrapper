@@ -4,6 +4,7 @@ from comfy.utils import load_torch_file, common_upscale
 from accelerate import init_empty_weights
 from accelerate.utils import set_module_tensor_to_device
 import torch
+from ..utils import log
 
 
 class MultiTalkModelLoader:
@@ -81,13 +82,20 @@ class MultiTalkWav2VecEmbeds:
     def INPUT_TYPES(s):
         return {"required": {
             "wav2vec_model": ("WAV2VECMODEL",),
-            "audio": ("AUDIO",),
+            "audio_1": ("AUDIO",),
             "normalize_loudness": ("BOOLEAN", {"default": True}),
             "num_frames": ("INT", {"default": 81, "min": 1, "max": 1000, "step": 1}),
-            "fps": ("FLOAT", {"default": 23.0, "min": 1.0, "max": 60.0, "step": 0.1}),
+            "fps": ("FLOAT", {"default": 25.0, "min": 1.0, "max": 60.0, "step": 0.1}),
             "audio_scale": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 100.0, "step": 0.1, "tooltip": "Strength of the audio conditioning"}),
             "audio_cfg_scale": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 100.0, "step": 0.1, "tooltip": "When not 1.0, an extra model pass without audio conditioning is done: slower inference but more motion is allowed"}),
-            },
+            "multi_audio_type": (["para", "add"], {"default": "para", "tooltip": "'para' overlay speakers in parallel, 'add' concatenate sequentially"}),
+        },
+            "optional" : {
+                "audio_2": ("AUDIO",),
+                "audio_3": ("AUDIO",),
+                "audio_4": ("AUDIO",),
+                "ref_target_masks": ("MASK", {"tooltip": "Per-speaker semantic mask(s) in pixel space. Supply one mask per speaker (plus optional background) to guide mouth assignment"}),
+            }
         }
 
     RETURN_TYPES = ("MULTITALK_EMBEDS", "AUDIO", )
@@ -95,7 +103,7 @@ class MultiTalkWav2VecEmbeds:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, wav2vec_model, normalize_loudness, fps, num_frames, audio, audio_scale, audio_cfg_scale):
+    def process(self, wav2vec_model, normalize_loudness, fps, num_frames, audio_1, audio_scale, audio_cfg_scale, multi_audio_type, audio_2=None, audio_3=None, audio_4=None, ref_target_masks=None):
         import torchaudio
         import numpy as np
         from einops import rearrange
@@ -108,60 +116,208 @@ class MultiTalkWav2VecEmbeds:
 
         sr = 16000
 
-        audio_input = audio["waveform"]
-        sample_rate = audio["sample_rate"]
-        if sample_rate != sr:
-            audio_input = torchaudio.functional.resample(audio_input, sample_rate, sr)
-        audio_input = audio_input[0][0]
+        audio_inputs = [audio_1, audio_2, audio_3, audio_4]
+        audio_inputs = [a for a in audio_inputs if a is not None]
 
-        start_time = 0
-        end_time = num_frames / fps
+        multitalk_audio_features = []
+        seq_lengths = []
+        audio_outputs = []  # for debugging / optional saving – choose first as return
 
-        start_sample = int(start_time * sr)
-        end_sample = int(end_time * sr)
+        for audio in audio_inputs:
+            audio_input = audio["waveform"]
+            sample_rate = audio["sample_rate"]
 
-        try:
-            audio_segment = audio_input[start_sample:end_sample]
-        except:
-            audio_segment = audio_input
+            if sample_rate != 16000:
+                audio_input = torchaudio.functional.resample(audio_input, sample_rate, sr)
+            audio_input = audio_input[0][0]
 
-        audio_segment = audio_segment.numpy()
+            start_time = 0
+            end_time = num_frames / fps
 
-        if normalize_loudness:
-            audio_segment = loudness_norm(audio_segment, sr=sr)
+            start_sample = int(start_time * sr)
+            end_sample = int(end_time * sr)
 
-        audio_feature = np.squeeze(
-            wav2vec_feature_extractor(audio_segment, sampling_rate=sr).input_values
-        )
+            try:
+                audio_segment = audio_input[start_sample:end_sample]
+            except Exception:
+                audio_segment = audio_input
 
-        audio_feature = torch.from_numpy(audio_feature).float().to(device=device)
-        audio_feature = audio_feature.unsqueeze(0)
+            audio_segment = audio_segment.numpy()
 
-        # audio encoder
-        audio_duration = len(audio_segment) / sr
-        video_length = audio_duration * fps
-        print("Audio duration:", audio_duration, "Video length:", video_length)
-        embeddings = wav2vec(audio_feature.to(dtype), seq_len=int(video_length), output_hidden_states=True)
+            if normalize_loudness:
+                audio_segment = loudness_norm(audio_segment, sr=sr)
 
-        if len(embeddings) == 0:
-            print("Fail to extract audio embedding")
-            return None
+            audio_feature = np.squeeze(
+                wav2vec_feature_extractor(audio_segment, sampling_rate=sr).input_values
+            )
 
-        audio_emb = torch.stack(embeddings.hidden_states[1:], dim=1).squeeze(0)
-        audio_emb = rearrange(audio_emb, "b s d -> s b d")
+            audio_feature = torch.from_numpy(audio_feature).float().to(device=device)
+            audio_feature = audio_feature.unsqueeze(0)
+
+            # audio encoder
+            audio_duration = len(audio_segment) / sr
+            video_length = audio_duration * fps
+
+            embeddings = wav2vec(audio_feature.to(dtype), seq_len=int(video_length), output_hidden_states=True)
+
+            if len(embeddings) == 0:
+                print("Fail to extract audio embedding for one speaker")
+                continue
+
+            audio_emb = torch.stack(embeddings.hidden_states[1:], dim=1).squeeze(0)
+            audio_emb = rearrange(audio_emb, "b s d -> s b d")
+
+            multitalk_audio_features.append(audio_emb.cpu().detach())
+            seq_lengths.append(audio_emb.shape[0])
+
+            waveform_tensor = torch.from_numpy(audio_segment).float().cpu().unsqueeze(0).unsqueeze(0)  # (B, C, N)
+            audio_outputs.append({"waveform": waveform_tensor, "sample_rate": sr})
+
+        log.info("[MultiTalk] --- Raw speaker lengths (samples) ---")
+        for idx, ao in enumerate(audio_outputs):
+            log.info(f"  speaker {idx+1}: {ao['waveform'].shape[-1]} samples (shape: {ao['waveform'].shape})")
+
+        # Pad / combine depending on multi_audio_type
+        if len(multitalk_audio_features) > 1:
+            if multi_audio_type == "para":
+                max_len = max(seq_lengths)
+                padded = []
+                for emb in multitalk_audio_features:
+                    if emb.shape[0] < max_len:
+                        pad = torch.zeros(max_len - emb.shape[0], *emb.shape[1:], dtype=emb.dtype)
+                        emb = torch.cat([emb, pad], dim=0)
+                    padded.append(emb)
+                multitalk_audio_features = padded
+            elif multi_audio_type == "add":
+                total_len = sum(seq_lengths)
+                full_list = []
+                offset = 0
+                for emb, length in zip(multitalk_audio_features, seq_lengths):
+                    full = torch.zeros(total_len, *emb.shape[1:], dtype=emb.dtype)
+                    full[offset:offset+length] = emb
+                    full_list.append(full)
+                    offset += length
+                multitalk_audio_features = full_list
+
+        # fallback
+        if len(multitalk_audio_features) == 0:
+            raise RuntimeError("No valid audio embeddings extracted, please check inputs")
 
         multitalk_embeds = {
-            "audio_features": audio_emb,
+            "audio_features": multitalk_audio_features,
             "audio_scale": audio_scale,
-            "audio_cfg_scale": audio_cfg_scale
+            "audio_cfg_scale": audio_cfg_scale,
+            "ref_target_masks": ref_target_masks
         }
 
-        audio_output = {
-            "waveform": audio_feature.unsqueeze(0).cpu(),
-            "sample_rate": sr
-        }
+        if len(audio_outputs) == 1: # single speaker
+            out_audio = audio_outputs[0]
+        else: # multi speaker
+            if multi_audio_type == "para":
+                # Overlay speakers in parallel – mix waveforms to same length (max len)
+                max_len = max([a["waveform"].shape[-1] for a in audio_outputs])
+                mixed = torch.zeros(1, 1, max_len, dtype=audio_outputs[0]["waveform"].dtype)
+                for a in audio_outputs:
+                    w = a["waveform"]
+                    if w.shape[-1] < max_len:
+                        w = torch.nn.functional.pad(w, (0, max_len - w.shape[-1]))
+                    mixed += w
+                out_audio = {"waveform": mixed, "sample_rate": sr}
+            else:  # "add" – sequential concatenate with silent padding for other speakers
+                total_len = sum([a["waveform"].shape[-1] for a in audio_outputs])
+                mixed = torch.zeros(1, 1, total_len, dtype=audio_outputs[0]["waveform"].dtype)
+                offset = 0
+                for a in audio_outputs:
+                    w = a["waveform"]
+                    mixed[:, :, offset:offset + w.shape[-1]] += w
+                    offset += w.shape[-1]
+                out_audio = {"waveform": mixed, "sample_rate": sr}
+
+        # Debug: log final mixed audio length and mode
+        total_samples_raw = sum([ao["waveform"].shape[-1] for ao in audio_outputs])
+        log.info(f"[MultiTalk] total raw duration = {total_samples_raw/sr:.3f}s")
+        log.info(f"[MultiTalk] multi_audio_type={multi_audio_type} | final waveform shape={out_audio['waveform'].shape} | length={out_audio['waveform'].shape[-1]} samples | seconds={out_audio['waveform'].shape[-1]/sr:.3f}s (expected {'sum' if multi_audio_type=='add' else 'max'} of raw)")
+
+        return (multitalk_embeds, out_audio)
     
-        return (multitalk_embeds, audio_output)
+class MultiTalkReferenceMasks:
+    @classmethod
+    def INPUT_TYPES(s):
+        return{ 
+            "required" : {
+            "width": ("INT", {"default": 832, "min": 64, "max": 4096, "step": 16}),
+            "height": ("INT", {"default": 480, "min": 64, "max": 4096, "step": 16}),
+            "human_number": ("INT", {"default": 2, "min": 1, "max": 4, "step": 1, "tooltip": "Number of speakers (1-4)"}),
+        },
+
+        "optional" : {
+            # Bounding boxes as comma-separated string: "x_min,y_min,x_max,y_max" in pixel coordinates
+            "bbox_person1": ("STRING", {"default": "", "multiline": False, "tooltip": "Bounding box for speaker 1 (x_min,y_min,x_max,y_max). Leave empty to auto-split."}),
+            "bbox_person2": ("STRING", {"default": "", "multiline": False, "tooltip": "Bounding box for speaker 2."}),
+            "bbox_person3": ("STRING", {"default": "", "multiline": False, "tooltip": "Bounding box for speaker 3."}),
+            "bbox_person4": ("STRING", {"default": "", "multiline": False, "tooltip": "Bounding box for speaker 4."}),
+            "face_scale": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Used when bboxes are not provided, defines central face band height."}),
+            }
+        }
+
+    RETURN_TYPES = ("MASK",)
+    RETURN_NAMES = ("ref_target_masks",)
+    FUNCTION = "generate"
+    CATEGORY = "WanVideoWrapper"
+
+    def _parse_bbox(self, bbox_str):
+        try:
+            parts = [int(float(x.strip())) for x in bbox_str.split(',')]
+            if len(parts) == 4:
+                return parts  # x_min, y_min, x_max, y_max
+        except Exception:
+            pass
+        return None
+
+    def _build_mask_from_bbox(self, h, w, bbox):
+        x_min, y_min, x_max, y_max = bbox
+        mask = torch.zeros(h, w)
+        mask[x_min:x_max, y_min:y_max] = 1.0
+        return mask
+
+    def generate(self, width, height, human_number, bbox_person1="", bbox_person2="", bbox_person3="", bbox_person4="", face_scale=0.05):
+        device = mm.get_torch_device()
+        human_masks = []
+
+        # Build human masks based on inputs
+        if human_number == 1:
+            # Single speaker covers whole frame
+            human_masks.append(torch.ones(height, width))
+        elif 2 <= human_number <= 4:
+            # Gather bbox strings list up to human_number
+            bbox_strings = [bbox_person1, bbox_person2, bbox_person3, bbox_person4][:human_number]
+
+            # Pre-compute default vertical splits for fallback
+            segment_w = width // human_number
+            x_min_def = int(height * face_scale)
+            x_max_def = int(height * (1.0 - face_scale))
+
+            for idx in range(human_number):
+                bbox = self._parse_bbox(bbox_strings[idx])
+                if bbox is None:
+                    # create default bbox in segment idx
+                    y_start = idx * segment_w
+                    y_end = (idx + 1) * segment_w if idx < human_number - 1 else width
+                    y_min_def = int(y_start + segment_w * face_scale)
+                    y_max_def = int(y_end - segment_w * face_scale)
+                    bbox = [x_min_def, y_min_def, x_max_def, y_max_def]
+                human_masks.append(self._build_mask_from_bbox(height, width, bbox))
+        else:
+            raise ValueError("human_number must be between 1 and 4 for this node.")
+
+        # Background mask – 1 where no speaker mask, 0 where speaker present
+        combined = torch.stack(human_masks, 0).sum(dim=0).clamp_max(1)
+        bg_mask = (1.0 - combined)
+        human_masks.append(bg_mask)
+
+        ref_target_masks = torch.stack(human_masks, 0).float().to(device)  # (N, H, W)
+        return (ref_target_masks,)
+
 
 class WanVideoImageToVideoMultiTalk:
     @classmethod
@@ -236,12 +392,14 @@ class WanVideoImageToVideoMultiTalk:
 NODE_CLASS_MAPPINGS = {
     "MultiTalkModelLoader": MultiTalkModelLoader,
     "MultiTalkWav2VecEmbeds": MultiTalkWav2VecEmbeds,
-    "WanVideoImageToVideoMultiTalk": WanVideoImageToVideoMultiTalk
+    "WanVideoImageToVideoMultiTalk": WanVideoImageToVideoMultiTalk,
+    "MultiTalkReferenceMasks": MultiTalkReferenceMasks
     
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "MultiTalkModelLoader": "MultiTalk Model Loader",
     "MultiTalkWav2VecEmbeds": "MultiTalk Wav2Vec Embeds",
-    "WanVideoImageToVideoMultiTalk": "WanVideo Image To Video MultiTalk"
+    "WanVideoImageToVideoMultiTalk": "WanVideo Image To Video MultiTalk",
+    "MultiTalkReferenceMasks": "MultiTalk Reference Masks"
 }

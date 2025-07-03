@@ -1472,14 +1472,14 @@ class WanModel(ModelMixin, ConfigMixin):
             multitalk_audio_embedding = torch.concat(multitalk_audio_embedding.split(1), dim=2).to(x.dtype)
 
         # convert ref_target_masks to token_ref_target_masks
-        # !not implemented!
+        token_ref_target_masks = None
         if ref_target_masks is not None:
             ref_target_masks = ref_target_masks.unsqueeze(0).to(torch.float32) 
             token_ref_target_masks = nn.functional.interpolate(ref_target_masks, size=(H // 2, W // 2), mode='nearest') 
             token_ref_target_masks = token_ref_target_masks.squeeze(0)
             token_ref_target_masks = (token_ref_target_masks > 0)
             token_ref_target_masks = token_ref_target_masks.view(token_ref_target_masks.shape[0], -1) 
-            token_ref_target_masks = token_ref_target_masks.to(x.dtype)
+            token_ref_target_masks = token_ref_target_masks.to(x.dtype).to(device)
 
         should_calc = True
         accumulated_rel_l1_distance = torch.tensor(0.0, dtype=torch.float32, device=device)
@@ -1590,7 +1590,7 @@ class WanModel(ModelMixin, ConfigMixin):
                 nag_context=nag_context,
                 is_uncond = is_uncond,
                 multitalk_audio_embedding=multitalk_audio_embedding if multitalk_audio is not None else None,
-                ref_target_masks=ref_target_masks if multitalk_audio is not None else None,
+                ref_target_masks=token_ref_target_masks if multitalk_audio is not None else None,
                 human_num=human_num if multitalk_audio is not None else 0
                 )
             

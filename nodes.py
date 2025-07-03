@@ -2960,12 +2960,25 @@ class WanVideoSampler:
                 audio_cfg_scale = [audio_cfg_scale] * (steps +1)
             log.info(f"Audio proj shape: {audio_proj.shape}, audio context lens: {audio_context_lens}")
         elif multitalk_embeds is not None:
-            multitalk_audio_embedding = multitalk_embeds["audio_features"].to(device, dtype)
-            audio_scale = multitalk_embeds["audio_scale"]
-            audio_cfg_scale = multitalk_embeds["audio_cfg_scale"]
+            # Handle single or multiple speaker embeddings
+            audio_features_in = multitalk_embeds.get("audio_features", None)
+            if audio_features_in is None:
+                multitalk_audio_embedding = None
+            else:
+                if isinstance(audio_features_in, list):
+                    multitalk_audio_embedding = [emb.to(device, dtype) for emb in audio_features_in]
+                else:
+                    # keep backward-compatibility with single tensor input
+                    multitalk_audio_embedding = [audio_features_in.to(device, dtype)]
+
+            audio_scale = multitalk_embeds.get("audio_scale", 1.0)
+            audio_cfg_scale = multitalk_embeds.get("audio_cfg_scale", 1.0)
+            ref_target_masks = multitalk_embeds.get("ref_target_masks", None)
             if not isinstance(audio_cfg_scale, list):
-                audio_cfg_scale = [audio_cfg_scale] * (steps +1)
-            log.info(f"Multitalk audio features shape: {multitalk_audio_embedding.shape}")
+                audio_cfg_scale = [audio_cfg_scale] * (steps + 1)
+
+            shapes = [tuple(e.shape) for e in multitalk_audio_embedding]
+            log.info(f"Multitalk audio features shapes (per speaker): {shapes}")
     
         
         minimax_latents = minimax_mask_latents = None
@@ -3346,12 +3359,13 @@ class WanVideoSampler:
                     z_pos = z_neg = torch.cat([z, minimax_latents, minimax_mask_latents], dim=0)
                 
                 if not multitalk_sampling and multitalk_audio_embedding is not None:
-                    audio_embedding = [multitalk_audio_embedding]
+                    audio_embedding = multitalk_audio_embedding
                     audio_embs = []
-                    indices = (torch.arange(4 + 1) - 2) * 1 
+                    indices = (torch.arange(4 + 1) - 2) * 1
+                    human_num = len(audio_embedding)
                     # split audio with window size
                     if context_window is None:
-                        for human_idx in range(1):   
+                        for human_idx in range(human_num):   
                             center_indices = torch.arange(
                                 0,
                                 latent_video_length * 4 + 1 if add_cond is not None else (latent_video_length-1) * 4 + 1,
@@ -3363,7 +3377,7 @@ class WanVideoSampler:
                             audio_emb = audio_embedding[human_idx][center_indices].unsqueeze(0).to(device)
                             audio_embs.append(audio_emb)
                     else:
-                        for human_idx in range(1):
+                        for human_idx in range(human_num):
                             audio_start = context_window[0] * 4
                             audio_end = context_window[-1] * 4 + 1
                             print("audio_start: ", audio_start, "audio_end: ", audio_end)
@@ -3405,6 +3419,7 @@ class WanVideoSampler:
                     "nag_params": text_embeds.get("nag_params", {}),
                     "nag_context": text_embeds.get("nag_prompt_embeds", None),
                     "multitalk_audio": multitalk_audio_input if multitalk_audio_embedding is not None else None,
+                    "ref_target_masks": ref_target_masks if multitalk_audio_embedding is not None else None
                 }
 
                 batch_size = 1
