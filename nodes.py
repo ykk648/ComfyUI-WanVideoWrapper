@@ -3369,10 +3369,7 @@ class WanVideoSampler:
                             center_indices = torch.arange(
                                 0,
                                 latent_video_length * 4 + 1 if add_cond is not None else (latent_video_length-1) * 4 + 1,
-                                1,
-                            ).unsqueeze(
-                                1
-                            ) + indices.unsqueeze(0)
+                                1).unsqueeze(1) + indices.unsqueeze(0)
                             center_indices = torch.clamp(center_indices, min=0, max=audio_embedding[human_idx].shape[0] - 1)
                             audio_emb = audio_embedding[human_idx][center_indices].unsqueeze(0).to(device)
                             audio_embs.append(audio_emb)
@@ -3848,7 +3845,7 @@ class WanVideoSampler:
                 audio_start_idx = 0
                 audio_end_idx = audio_start_idx + clip_length
                 indices = (torch.arange(4 + 1) - 2) * 1
-
+                
                 # start video generation iteratively
                 estimated_iterations = max(1, min(max_frames_num, len(multitalk_audio_embedding)) // (frame_num - motion_frame) + 1)
                 loop_pbar = tqdm(total=estimated_iterations, desc="Generating video clips")
@@ -3856,11 +3853,12 @@ class WanVideoSampler:
                 callback = prepare_callback(patcher, estimated_iterations)
                 iteration_count = 0
 
-                audio_embedding = [multitalk_audio_embedding]
+                audio_embedding = multitalk_audio_embedding
+                human_num = len(audio_embedding)
                 while True:
                     audio_embs = []
                     # split audio with window size
-                    for human_idx in range(1):   
+                    for human_idx in range(human_num):   
                         center_indices = torch.arange(audio_start_idx, audio_end_idx, 1).unsqueeze(1) + indices.unsqueeze(0)
                         center_indices = torch.clamp(center_indices, min=0, max=audio_embedding[human_idx].shape[0]-1)
                         audio_emb = audio_embedding[human_idx][center_indices].unsqueeze(0).to(device)
