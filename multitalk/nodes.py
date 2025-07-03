@@ -104,6 +104,9 @@ class MultiTalkWav2VecEmbeds:
     CATEGORY = "WanVideoWrapper"
 
     def process(self, wav2vec_model, normalize_loudness, fps, num_frames, audio_1, audio_scale, audio_cfg_scale, multi_audio_type, audio_2=None, audio_3=None, audio_4=None, ref_target_masks=None):
+        model_type = wav2vec_model["model_type"]
+        if not "tencent" in model_type.lower():
+            raise ValueError("Only tencent wav2vec models supported by MultiTalk")
         import torchaudio
         import numpy as np
         from einops import rearrange
@@ -158,7 +161,9 @@ class MultiTalkWav2VecEmbeds:
             audio_duration = len(audio_segment) / sr
             video_length = audio_duration * fps
 
+            wav2vec.to(device)
             embeddings = wav2vec(audio_feature.to(dtype), seq_len=int(video_length), output_hidden_states=True)
+            wav2vec.to(offload_device)
 
             if len(embeddings) == 0:
                 print("Fail to extract audio embedding for one speaker")
@@ -239,84 +244,6 @@ class MultiTalkWav2VecEmbeds:
         log.info(f"[MultiTalk] multi_audio_type={multi_audio_type} | final waveform shape={out_audio['waveform'].shape} | length={out_audio['waveform'].shape[-1]} samples | seconds={out_audio['waveform'].shape[-1]/sr:.3f}s (expected {'sum' if multi_audio_type=='add' else 'max'} of raw)")
 
         return (multitalk_embeds, out_audio)
-    
-class MultiTalkReferenceMasks:
-    @classmethod
-    def INPUT_TYPES(s):
-        return{ 
-            "required" : {
-            "width": ("INT", {"default": 832, "min": 64, "max": 4096, "step": 16}),
-            "height": ("INT", {"default": 480, "min": 64, "max": 4096, "step": 16}),
-            "human_number": ("INT", {"default": 2, "min": 1, "max": 4, "step": 1, "tooltip": "Number of speakers (1-4)"}),
-        },
-
-        "optional" : {
-            # Bounding boxes as comma-separated string: "x_min,y_min,x_max,y_max" in pixel coordinates
-            "bbox_person1": ("STRING", {"default": "", "multiline": False, "tooltip": "Bounding box for speaker 1 (x_min,y_min,x_max,y_max). Leave empty to auto-split."}),
-            "bbox_person2": ("STRING", {"default": "", "multiline": False, "tooltip": "Bounding box for speaker 2."}),
-            "bbox_person3": ("STRING", {"default": "", "multiline": False, "tooltip": "Bounding box for speaker 3."}),
-            "bbox_person4": ("STRING", {"default": "", "multiline": False, "tooltip": "Bounding box for speaker 4."}),
-            "face_scale": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Used when bboxes are not provided, defines central face band height."}),
-            }
-        }
-
-    RETURN_TYPES = ("MASK",)
-    RETURN_NAMES = ("ref_target_masks",)
-    FUNCTION = "generate"
-    CATEGORY = "WanVideoWrapper"
-
-    def _parse_bbox(self, bbox_str):
-        try:
-            parts = [int(float(x.strip())) for x in bbox_str.split(',')]
-            if len(parts) == 4:
-                return parts  # x_min, y_min, x_max, y_max
-        except Exception:
-            pass
-        return None
-
-    def _build_mask_from_bbox(self, h, w, bbox):
-        x_min, y_min, x_max, y_max = bbox
-        mask = torch.zeros(h, w)
-        mask[x_min:x_max, y_min:y_max] = 1.0
-        return mask
-
-    def generate(self, width, height, human_number, bbox_person1="", bbox_person2="", bbox_person3="", bbox_person4="", face_scale=0.05):
-        device = mm.get_torch_device()
-        human_masks = []
-
-        # Build human masks based on inputs
-        if human_number == 1:
-            # Single speaker covers whole frame
-            human_masks.append(torch.ones(height, width))
-        elif 2 <= human_number <= 4:
-            # Gather bbox strings list up to human_number
-            bbox_strings = [bbox_person1, bbox_person2, bbox_person3, bbox_person4][:human_number]
-
-            # Pre-compute default vertical splits for fallback
-            segment_w = width // human_number
-            x_min_def = int(height * face_scale)
-            x_max_def = int(height * (1.0 - face_scale))
-
-            for idx in range(human_number):
-                bbox = self._parse_bbox(bbox_strings[idx])
-                if bbox is None:
-                    # create default bbox in segment idx
-                    y_start = idx * segment_w
-                    y_end = (idx + 1) * segment_w if idx < human_number - 1 else width
-                    y_min_def = int(y_start + segment_w * face_scale)
-                    y_max_def = int(y_end - segment_w * face_scale)
-                    bbox = [x_min_def, y_min_def, x_max_def, y_max_def]
-                human_masks.append(self._build_mask_from_bbox(height, width, bbox))
-        else:
-            raise ValueError("human_number must be between 1 and 4 for this node.")
-
-        # Background mask – 1 where no speaker mask, 0 where speaker present
-        combined = torch.stack(human_masks, 0).sum(dim=0).clamp_max(1)
-        bg_mask = (1.0 - combined)
-        human_masks.append(bg_mask)
-
-        ref_target_masks = torch.stack(human_masks, 0).float().to(device)  # (N, H, W)
-        return (ref_target_masks,)
 
 
 class WanVideoImageToVideoMultiTalk:
@@ -392,14 +319,11 @@ class WanVideoImageToVideoMultiTalk:
 NODE_CLASS_MAPPINGS = {
     "MultiTalkModelLoader": MultiTalkModelLoader,
     "MultiTalkWav2VecEmbeds": MultiTalkWav2VecEmbeds,
-    "WanVideoImageToVideoMultiTalk": WanVideoImageToVideoMultiTalk,
-    "MultiTalkReferenceMasks": MultiTalkReferenceMasks
-    
+    "WanVideoImageToVideoMultiTalk": WanVideoImageToVideoMultiTalk    
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "MultiTalkModelLoader": "MultiTalk Model Loader",
     "MultiTalkWav2VecEmbeds": "MultiTalk Wav2Vec Embeds",
-    "WanVideoImageToVideoMultiTalk": "WanVideo Image To Video MultiTalk",
-    "MultiTalkReferenceMasks": "MultiTalk Reference Masks"
+    "WanVideoImageToVideoMultiTalk": "WanVideo Image To Video MultiTalk"
 }

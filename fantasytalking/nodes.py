@@ -74,7 +74,9 @@ class DownloadAndLoadWav2VecModel:
             "processor": wav2vec_processor if model == "facebook/wav2vec2-base-960h" else None,
             "feature_extractor": wav2vec_feature_extractor if model == "TencentGameMate/chinese-wav2vec2-base" else None,
             "model": wav2vec,
-            "dtype": base_dtype,}
+            "dtype": base_dtype,
+            "model_type": model,
+        }
 
         return (wav2vec_processor_model,)
 

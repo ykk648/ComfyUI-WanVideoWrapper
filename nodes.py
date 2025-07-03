@@ -3829,6 +3829,7 @@ class WanVideoSampler:
             elif multitalk_sampling:
                 original_image = cond_image = image_embeds.get("multitalk_start_image", None)
                 offload = image_embeds.get("force_offload", False)
+                tiled_vae = image_embeds.get("tiled_vae", False)
                 frame_num = clip_length = image_embeds.get("num_frames", 81)
                 vae = image_embeds.get("vae", None)
                 clip_embeds = image_embeds.get("clip_context", None)
@@ -3849,7 +3850,6 @@ class WanVideoSampler:
                 # start video generation iteratively
                 estimated_iterations = max(1, min(max_frames_num, len(multitalk_audio_embedding)) // (frame_num - motion_frame) + 1)
                 loop_pbar = tqdm(total=estimated_iterations, desc="Generating video clips")
-                comfy_pbar = ProgressBar(estimated_iterations)
                 callback = prepare_callback(patcher, estimated_iterations)
                 iteration_count = 0
 
@@ -3871,18 +3871,14 @@ class WanVideoSampler:
 
                     noise = torch.randn(
                         16, (frame_num - 1) // 4 + 1,
-                        lat_h,
-                        lat_w,
-                        dtype=torch.float32,
-                        device=device) 
+                        lat_h, lat_w, dtype=torch.float32, device=device) 
 
                     # get mask
                     msk = torch.ones(1, frame_num, lat_h, lat_w, device=device)
                     msk[:, cur_motion_frames_num:] = 0
                     msk = torch.concat([
                         torch.repeat_interleave(msk[:, 0:1], repeats=4, dim=1), msk[:, 1:]
-                    ],
-                                    dim=1)
+                    ], dim=1)
                     msk = msk.view(1, msk.shape[1] // 4, 4, lat_h, lat_w)
                     msk = msk.transpose(1, 2).to(dtype) # B 4 T H W
 
@@ -3893,7 +3889,7 @@ class WanVideoSampler:
                     padding_frames_pixels_values = torch.concat([cond_image.to(device, vae.dtype), video_frames], dim=2)
 
                     vae.to(device)
-                    y = vae.encode(padding_frames_pixels_values, device=device).to(dtype)
+                    y = vae.encode(padding_frames_pixels_values, device=device, tiled=tiled_vae).to(dtype)
                     vae.to(offload_device)
 
                     cur_motion_frames_latent_num = int(1 + (cur_motion_frames_num-1) // 4)
@@ -3963,6 +3959,7 @@ class WanVideoSampler:
                         elif model["manual_offloading"]:
                             transformer.to(device)
 
+                    comfy_pbar = ProgressBar(len(timesteps)-1)
                     for i in tqdm(range(len(timesteps)-1)):
                         timestep = timesteps[i]
                         latent_model_input = latent.to(device)
@@ -4010,11 +4007,12 @@ class WanVideoSampler:
 
                         x0 = latent.to(device)
                         del latent_model_input, timestep
+                        comfy_pbar.update(1)
 
                     if offload:
                         transformer.to(offload_device)
                     vae.to(device)
-                    videos = vae.decode(x0.unsqueeze(0).to(vae.dtype), device=device)
+                    videos = vae.decode(x0.unsqueeze(0).to(vae.dtype), device=device, tiled=tiled_vae)
                     vae.to(offload_device)
                     
                     # cache generated samples
@@ -4052,7 +4050,6 @@ class WanVideoSampler:
                     # Update progress bar
                     iteration_count += 1
                     loop_pbar.update(1)
-                    comfy_pbar.update(1)
 
                     # Repeat audio emb
                     if audio_end_idx >= min(max_frames_num, len(audio_embedding[0])):
