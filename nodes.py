@@ -2458,9 +2458,6 @@ class WanVideoContextOptions:
             "freenoise": ("BOOLEAN", {"default": True, "tooltip": "Shuffle the noise"}),
             "verbose": ("BOOLEAN", {"default": False, "tooltip": "Print debug output"}),
             },
-            "optional": {
-               "vae": ("WANVAE",),
-            }
         }
 
     RETURN_TYPES = ("WANVIDCONTEXT", )
@@ -2477,7 +2474,6 @@ class WanVideoContextOptions:
             "context_overlap":context_overlap,
             "freenoise":freenoise,
             "verbose":verbose,
-            "vae": vae,
         }
 
         return (context_options,)
