@@ -3880,15 +3880,17 @@ class WanVideoSampler:
 
                 audio_embedding = multitalk_audio_embedding
                 human_num = len(audio_embedding)
+                audio_embs = None
                 while True:
-                    audio_embs = []
-                    # split audio with window size
-                    for human_idx in range(human_num):   
-                        center_indices = torch.arange(audio_start_idx, audio_end_idx, 1).unsqueeze(1) + indices.unsqueeze(0)
-                        center_indices = torch.clamp(center_indices, min=0, max=audio_embedding[human_idx].shape[0]-1)
-                        audio_emb = audio_embedding[human_idx][center_indices].unsqueeze(0).to(device)
-                        audio_embs.append(audio_emb)
-                    audio_embs = torch.concat(audio_embs, dim=0).to(dtype)
+                    if multitalk_embeds is not None:
+                        audio_embs = []
+                        # split audio with window size
+                        for human_idx in range(human_num):   
+                            center_indices = torch.arange(audio_start_idx, audio_end_idx, 1).unsqueeze(1) + indices.unsqueeze(0)
+                            center_indices = torch.clamp(center_indices, min=0, max=audio_embedding[human_idx].shape[0]-1)
+                            audio_emb = audio_embedding[human_idx][center_indices].unsqueeze(0).to(device)
+                            audio_embs.append(audio_emb)
+                        audio_embs = torch.concat(audio_embs, dim=0).to(dtype)
 
                     h, w = cond_image.shape[-2], cond_image.shape[-1]
                     lat_h, lat_w = h // VAE_STRIDE[1], w // VAE_STRIDE[2]
@@ -4069,28 +4071,29 @@ class WanVideoSampler:
                     cur_motion_frames_num = motion_frame
 
                     cond_image = videos[:, :, -cur_motion_frames_num:].to(torch.float32).to(device)
-                    audio_start_idx += (frame_num - cur_motion_frames_num)
-                    audio_end_idx = audio_start_idx + clip_length
 
                     # Update progress bar
                     iteration_count += 1
                     loop_pbar.update(1)
 
                     # Repeat audio emb
-                    if audio_end_idx >= min(max_frames_num, len(audio_embedding[0])):
-                        arrive_last_frame = True
-                        miss_lengths = []
-                        source_frames = []
-                        for human_inx in range(1):
-                            source_frame = len(audio_embedding[human_inx])
-                            source_frames.append(source_frame)
-                            if audio_end_idx >= len(audio_embedding[human_inx]):
-                                miss_length   = audio_end_idx - len(audio_embedding[human_inx]) + 3 
-                                add_audio_emb = torch.flip(audio_embedding[human_inx][-1*miss_length:], dims=[0])
-                                audio_embedding[human_inx] = torch.cat([audio_embedding[human_inx], add_audio_emb], dim=0)
-                                miss_lengths.append(miss_length)
-                            else:
-                                miss_lengths.append(0)
+                    if multitalk_embeds is not None:
+                        audio_start_idx += (frame_num - cur_motion_frames_num)
+                        audio_end_idx = audio_start_idx + clip_length
+                        if audio_end_idx >= min(max_frames_num, len(audio_embedding[0])):
+                            arrive_last_frame = True
+                            miss_lengths = []
+                            source_frames = []
+                            for human_inx in range(1):
+                                source_frame = len(audio_embedding[human_inx])
+                                source_frames.append(source_frame)
+                                if audio_end_idx >= len(audio_embedding[human_inx]):
+                                    miss_length   = audio_end_idx - len(audio_embedding[human_inx]) + 3 
+                                    add_audio_emb = torch.flip(audio_embedding[human_inx][-1*miss_length:], dims=[0])
+                                    audio_embedding[human_inx] = torch.cat([audio_embedding[human_inx], add_audio_emb], dim=0)
+                                    miss_lengths.append(miss_length)
+                                else:
+                                    miss_lengths.append(0)
                     
                     if max_frames_num <= frame_num: 
                         loop_pbar.update(estimated_iterations - iteration_count)
