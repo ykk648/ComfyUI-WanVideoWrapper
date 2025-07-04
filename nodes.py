@@ -3759,7 +3759,10 @@ class WanVideoSampler:
                 counter = torch.zeros_like(latent_model_input, device=intermediate_device)
                 noise_pred = torch.zeros_like(latent_model_input, device=intermediate_device)
                 context_queue = list(context(idx, steps, latent_video_length, context_frames, context_stride, context_overlap))
-                context_pbar = ProgressBar(len(context_queue))
+                fraction_per_context = 1.0 / len(context_queue)
+                context_pbar = ProgressBar(steps)
+                step_start_progress = idx
+
                 for i, c in enumerate(context_queue):
                     window_id = self.window_tracker.get_window_id(c)
                     
@@ -3844,7 +3847,7 @@ class WanVideoSampler:
                     window_mask = create_window_mask(noise_pred_context, c, latent_video_length, context_overlap, looped=is_looped)                    
                     noise_pred[:, c] += noise_pred_context * window_mask
                     counter[:, c] += window_mask
-                    context_pbar.update(1)
+                    context_pbar.update_absolute(step_start_progress + (i + 1) * fraction_per_context, steps)
                 noise_pred /= counter
             #region multitalk
             elif multitalk_sampling:
@@ -3859,25 +3862,25 @@ class WanVideoSampler:
                 target_w = image_embeds.get("target_w", None)
                 target_h = image_embeds.get("target_h", None)
 
-                max_frames_num = 1000
                 gen_video_list = []
                 is_first_clip = True
                 arrive_last_frame = False
                 cur_motion_frames_num = 1
-                audio_start_idx = 0
+                audio_start_idx = iteration_count = 0
                 audio_end_idx = audio_start_idx + clip_length
                 indices = (torch.arange(4 + 1) - 2) * 1
                 
-                # start video generation iteratively
-                estimated_iterations = max(1, min(max_frames_num, len(multitalk_audio_embedding)) // (frame_num - motion_frame) + 1)
+                if multitalk_embeds is not None:
+                    total_frames = len(multitalk_audio_embedding)
+
+                estimated_iterations = total_frames // (frame_num - motion_frame) + 1
                 loop_pbar = tqdm(total=estimated_iterations, desc="Generating video clips")
                 callback = prepare_callback(patcher, estimated_iterations)
-                iteration_count = 0
 
                 audio_embedding = multitalk_audio_embedding
                 human_num = len(audio_embedding)
                 audio_embs = None
-                while True:
+                while True: # start video generation iteratively
                     if multitalk_embeds is not None:
                         audio_embs = []
                         # split audio with window size
@@ -4076,7 +4079,7 @@ class WanVideoSampler:
                     if multitalk_embeds is not None:
                         audio_start_idx += (frame_num - cur_motion_frames_num)
                         audio_end_idx = audio_start_idx + clip_length
-                        if audio_end_idx >= min(max_frames_num, len(audio_embedding[0])):
+                        if audio_end_idx >= len(audio_embedding[0]):
                             arrive_last_frame = True
                             miss_lengths = []
                             source_frames = []
@@ -4090,17 +4093,8 @@ class WanVideoSampler:
                                     miss_lengths.append(miss_length)
                                 else:
                                     miss_lengths.append(0)
-                    
-                    if max_frames_num <= frame_num: 
-                        loop_pbar.update(estimated_iterations - iteration_count)
-                        loop_pbar.close()
-                        break
                 
-                gen_video_samples = torch.cat(gen_video_list, dim=2)[:, :, :int(max_frames_num)] 
-                gen_video_samples = gen_video_samples.to(torch.float32)
-                if max_frames_num > frame_num and sum(miss_lengths) > 0:
-                    # split video frames
-                    gen_video_samples = gen_video_samples[:, :, :-1*miss_lengths[0]]
+                gen_video_samples = torch.cat(gen_video_list, dim=2).to(torch.float32)
                 
                 del noise, latent
                 if force_offload:
