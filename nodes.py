@@ -3550,7 +3550,7 @@ class WanVideoSampler:
                         if not math.isclose(audio_cfg_scale[idx], 1.0):
                             if cache_state is not None and len(cache_state) != 3:
                                 cache_state.append(None)
-                            base_params['multitalk_audio'] = torch.zeros_like(audio_embs)[-1:]
+                            base_params['multitalk_audio'] = torch.zeros_like(multitalk_audio_input)[-1:]
                             noise_pred_no_audio, cache_state_audio = transformer(
                                 [z_pos], context=negative_embeds, y=[image_cond_input] if image_cond_input is not None else None,
                                 clip_fea=clip_fea, is_uncond=False, current_step_percentage=current_step_percentage,
