@@ -166,29 +166,30 @@ class WanLayerNorm(nn.LayerNorm):
 class WanSelfAttention(nn.Module):
 
     def __init__(self,
-                 dim,
+                 in_features,
+                 out_features,
                  num_heads,
                  window_size=(-1, -1),
                  qk_norm=True,
                  eps=1e-6,
                  attention_mode='sdpa'):
-        assert dim % num_heads == 0
+        assert out_features % num_heads == 0
         super().__init__()
-        self.dim = dim
+        self.dim = out_features
         self.num_heads = num_heads
-        self.head_dim = dim // num_heads
+        self.head_dim = out_features // num_heads
         self.window_size = window_size
         self.qk_norm = qk_norm
         self.eps = eps
         self.attention_mode = attention_mode
 
         # layers
-        self.q = nn.Linear(dim, dim)
-        self.k = nn.Linear(dim, dim)
-        self.v = nn.Linear(dim, dim)
-        self.o = nn.Linear(dim, dim)
-        self.norm_q = WanRMSNorm(dim, eps=eps) if qk_norm else nn.Identity()
-        self.norm_k = WanRMSNorm(dim, eps=eps) if qk_norm else nn.Identity()
+        self.q = nn.Linear(in_features, out_features)
+        self.k = nn.Linear(in_features, out_features)
+        self.v = nn.Linear(in_features, out_features)
+        self.o = nn.Linear(in_features, out_features)
+        self.norm_q = WanRMSNorm(out_features, eps=eps) if qk_norm else nn.Identity()
+        self.norm_k = WanRMSNorm(out_features, eps=eps) if qk_norm else nn.Identity()
 
     def forward(self, x, seq_lens, grid_sizes, freqs, rope_func = "default", block_mask=None, ref_target_masks=None):
         r"""
@@ -407,8 +408,8 @@ class WanSelfAttention(nn.Module):
 #region T2V crossattn
 class WanT2VCrossAttention(WanSelfAttention):
 
-    def __init__(self, dim, num_heads, window_size=(-1, -1), qk_norm=True, eps=1e-6, attention_mode='sdpa'):
-        super().__init__(dim, num_heads, window_size, qk_norm, eps)
+    def __init__(self, in_features, out_features, num_heads, window_size=(-1, -1), qk_norm=True, eps=1e-6, attention_mode='sdpa'):
+        super().__init__(in_features, out_features, num_heads, window_size, qk_norm, eps)
         self.attention_mode = attention_mode
 
     def forward(self, x, context, context_lens, clip_embed=None, audio_proj=None, audio_context_lens=None, audio_scale=1.0, 
@@ -450,11 +451,11 @@ class WanT2VCrossAttention(WanSelfAttention):
 
 class WanI2VCrossAttention(WanSelfAttention):
 
-    def __init__(self, dim, num_heads, window_size=(-1, -1), qk_norm=True, eps=1e-6, attention_mode='sdpa'):
-        super().__init__(dim, num_heads, window_size, qk_norm, eps)
-        self.k_img = nn.Linear(dim, dim)
-        self.v_img = nn.Linear(dim, dim)
-        self.norm_k_img = WanRMSNorm(dim, eps=eps) if qk_norm else nn.Identity()
+    def __init__(self, in_features, out_features, num_heads, window_size=(-1, -1), qk_norm=True, eps=1e-6, attention_mode='sdpa'):
+        super().__init__(in_features, out_features, num_heads, window_size, qk_norm, eps)
+        self.k_img = nn.Linear(in_features, out_features)
+        self.v_img = nn.Linear(in_features, out_features)
+        self.norm_k_img = WanRMSNorm(out_features, eps=eps) if qk_norm else nn.Identity()
         self.attention_mode = attention_mode
 
     def forward(self, x, context, context_lens, clip_embed, audio_proj=None, audio_context_lens=None, 
@@ -517,8 +518,10 @@ class WanAttentionBlock(nn.Module):
 
     def __init__(self,
                  cross_attn_type,
-                 dim,
+                 in_features,
+                 out_features,
                  ffn_dim,
+                 ffn2_dim,
                  num_heads,
                  window_size=(-1, -1),
                  qk_norm=True,
@@ -526,7 +529,7 @@ class WanAttentionBlock(nn.Module):
                  eps=1e-6,
                  attention_mode='sdpa'):
         super().__init__()
-        self.dim = dim
+        self.dim = out_features
         self.ffn_dim = ffn_dim
         self.num_heads = num_heads
         self.window_size = window_size
@@ -536,26 +539,27 @@ class WanAttentionBlock(nn.Module):
         self.attention_mode = attention_mode
 
         # layers
-        self.norm1 = WanLayerNorm(dim, eps)
-        self.self_attn = WanSelfAttention(dim, num_heads, window_size, qk_norm,
+        self.norm1 = WanLayerNorm(out_features, eps)
+        self.self_attn = WanSelfAttention(in_features, out_features, num_heads, window_size, qk_norm,
                                           eps, self.attention_mode)
         if cross_attn_type != "no_cross_attn":
             self.norm3 = WanLayerNorm(
-                dim, eps,
+                out_features, eps,
                 elementwise_affine=True) if cross_attn_norm else nn.Identity()
-            self.cross_attn = WAN_CROSSATTENTION_CLASSES[cross_attn_type](dim,
+            self.cross_attn = WAN_CROSSATTENTION_CLASSES[cross_attn_type](in_features,
+                                                                          out_features,
                                                                           num_heads,
                                                                           (-1, -1),
                                                                           qk_norm,
                                                                           eps,#attention_mode=attention_mode sageattn doesn't seem faster here
                                                                           )
-        self.norm2 = WanLayerNorm(dim, eps)
+        self.norm2 = WanLayerNorm(out_features, eps)
         self.ffn = nn.Sequential(
-            nn.Linear(dim, ffn_dim), nn.GELU(approximate='tanh'),
-            nn.Linear(ffn_dim, dim))
+            nn.Linear(in_features, ffn_dim), nn.GELU(approximate='tanh'),
+            nn.Linear(ffn2_dim, out_features))
 
         # modulation
-        self.modulation = nn.Parameter(torch.randn(1, 6, dim) / dim**0.5)
+        self.modulation = nn.Parameter(torch.randn(1, 6, out_features) / in_features**0.5)
 
     @torch.compiler.disable()
     def get_mod(self, e):
@@ -739,8 +743,10 @@ class VaceWanAttentionBlock(WanAttentionBlock):
     def __init__(
             self,
             cross_attn_type,
-            dim,
+            in_features,
+            out_features,
             ffn_dim,
+            ffn2_dim,
             num_heads,
             window_size=(-1, -1),
             qk_norm=True,
@@ -748,15 +754,11 @@ class VaceWanAttentionBlock(WanAttentionBlock):
             eps=1e-6,
             block_id=0
     ):
-        super().__init__(cross_attn_type, dim, ffn_dim, num_heads, window_size, qk_norm, cross_attn_norm, eps)
+        super().__init__(cross_attn_type, in_features, out_features, ffn_dim, ffn2_dim, num_heads, window_size, qk_norm, cross_attn_norm, eps)
         self.block_id = block_id
         if block_id == 0:
-            self.before_proj = nn.Linear(self.dim, self.dim)
-            nn.init.zeros_(self.before_proj.weight)
-            nn.init.zeros_(self.before_proj.bias)
-        self.after_proj = nn.Linear(self.dim, self.dim)
-        nn.init.zeros_(self.after_proj.weight)
-        nn.init.zeros_(self.after_proj.bias)
+            self.before_proj = nn.Linear(in_features, out_features)
+        self.after_proj = nn.Linear(in_features, out_features)
 
     def forward(self, c_list, x, intermediate_device=None, nonblocking=True, **kwargs):
         if self.block_id == 0:
@@ -776,8 +778,10 @@ class BaseWanAttentionBlock(WanAttentionBlock):
     def __init__(
         self,
         cross_attn_type,
-        dim,
+        in_features,
+        out_features,
         ffn_dim,
+        ffn2_dim,
         num_heads,
         window_size=(-1, -1),
         qk_norm=True,
@@ -786,7 +790,7 @@ class BaseWanAttentionBlock(WanAttentionBlock):
         block_id=None,
         attention_mode='sdpa'
     ):
-        super().__init__(cross_attn_type, dim, ffn_dim, num_heads, window_size, qk_norm, cross_attn_norm, eps, attention_mode)
+        super().__init__(cross_attn_type, in_features, out_features, ffn_dim, ffn2_dim, num_heads, window_size, qk_norm, cross_attn_norm, eps, attention_mode)
         self.block_id = block_id
 
     def forward(self, x, vace_hints=None, vace_context_scale=[1.0], **kwargs):
@@ -878,7 +882,10 @@ class WanModel(ModelMixin, ConfigMixin):
                  text_len=512,
                  in_dim=16,
                  dim=2048,
+                 in_features=5120,
+                 out_features=5120,
                  ffn_dim=8192,
+                 ffn2_dim=8192,
                  freq_dim=256,
                  text_dim=4096,
                  out_dim=16,
@@ -945,7 +952,10 @@ class WanModel(ModelMixin, ConfigMixin):
         self.text_len = text_len
         self.in_dim = in_dim
         self.dim = dim
+        self.in_features = in_features
+        self.out_features = out_features
         self.ffn_dim = ffn_dim
+        self.ffn2_dim = ffn2_dim
         self.freq_dim = freq_dim
         self.text_dim = text_dim
         self.out_dim = out_dim
@@ -1017,7 +1027,7 @@ class WanModel(ModelMixin, ConfigMixin):
 
             # vace blocks
             self.vace_blocks = nn.ModuleList([
-                VaceWanAttentionBlock('t2v_cross_attn', self.dim, self.ffn_dim, self.num_heads, self.window_size, self.qk_norm,
+                VaceWanAttentionBlock('t2v_cross_attn', self.in_features, self.out_features, self.ffn_dim, self.ffn2_dim,self.num_heads, self.window_size, self.qk_norm,
                                         self.cross_attn_norm, self.eps, block_id=i)
                 for i in self.vace_layers
             ])
@@ -1027,7 +1037,7 @@ class WanModel(ModelMixin, ConfigMixin):
                 self.vace_in_dim, self.dim, kernel_size=self.patch_size, stride=self.patch_size
             )
             self.blocks = nn.ModuleList([
-            BaseWanAttentionBlock('t2v_cross_attn', dim, ffn_dim, num_heads,
+            BaseWanAttentionBlock('t2v_cross_attn', self.in_features, self.out_features, ffn_dim, self.ffn2_dim, num_heads,
                               window_size, qk_norm, cross_attn_norm, eps,
                               attention_mode=self.attention_mode,
                               block_id=self.vace_layers_mapping[i] if i in self.vace_layers else None)
@@ -1043,7 +1053,7 @@ class WanModel(ModelMixin, ConfigMixin):
                 cross_attn_type = 'no_cross_attn'
 
             self.blocks = nn.ModuleList([
-                WanAttentionBlock(cross_attn_type, dim, ffn_dim, num_heads,
+                WanAttentionBlock(cross_attn_type, self.in_features, self.out_features, ffn_dim, ffn2_dim, num_heads,
                                 window_size, qk_norm, cross_attn_norm, eps,
                                 attention_mode=self.attention_mode)
                 for _ in range(num_layers)
