@@ -38,11 +38,15 @@ def _replace_with_gguf_linear(model, compute_dtype, state_dict, prefix="", modul
             
             #print("lora_diff", lora_diff)
 
+            #print(state_dict[module_prefix + "weight"].shape)
+            in_features = state_dict[module_prefix + "weight"].shape[1]
+            out_features = state_dict[module_prefix + "weight"].shape[0]
+
             ctx = init_empty_weights if is_accelerate_available() else nullcontext
             with ctx():
                 model._modules[name] = GGUFLinear(
-                    module.in_features,
-                    module.out_features,
+                    in_features,
+                    out_features,
                     module.bias is not None,
                     compute_dtype=compute_dtype,
                     lora_diffs=lora_diffs,
