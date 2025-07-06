@@ -454,6 +454,9 @@ class WanVideoModelLoader:
 
         gguf = False
         if model.endswith(".gguf"):
+            if quantization != "disabled":
+                raise ValueError("Quantization should be disabled when loading GGUF models.")
+            quantization = "gguf"
             gguf = True
 
                 
@@ -493,7 +496,12 @@ class WanVideoModelLoader:
             raise ValueError("You are attempting to load a VACE module as a WanVideo model, instead you should use the vace_model input and matching T2V base model")
 
         if vace_model is not None:
-            vace_sd = load_torch_file(vace_model["path"], device=transformer_load_device, safe_load=True)
+            if gguf:
+                if not vace_model["path"].endswith(".gguf"):
+                    raise ValueError("With GGUF main model the VACE model must also be a GGUF model")
+                vace_sd = load_gguf_checkpoint(model_path)
+            else:
+                vace_sd = load_torch_file(vace_model["path"], device=transformer_load_device, safe_load=True)
             sd.update(vace_sd)
 
         first_key = next(iter(sd))
