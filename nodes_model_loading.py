@@ -828,6 +828,8 @@ class WanVideoModelLoader:
             transformer.audio_proj = multitalk_model["proj_model"]
 
         if vram_management_args is not None:
+            if gguf:
+                raise ValueError("GGUF models don't support vram management")
             from .diffsynth.vram_management import enable_vram_management, AutoWrappedModule, AutoWrappedLinear
             from .wanvideo.modules.model import WanLayerNorm, WanRMSNorm
 
