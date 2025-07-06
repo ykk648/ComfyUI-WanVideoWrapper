@@ -10,7 +10,7 @@ from accelerate.utils import set_module_tensor_to_device
 
 import folder_paths
 import comfy.model_management as mm
-from comfy.utils import load_torch_file
+from comfy.utils import load_torch_file, ProgressBar
 import comfy.model_base
 from comfy.sd import load_lora_for_models
 
@@ -712,6 +712,7 @@ class WanVideoModelLoader:
             if not lora_low_mem_load:
                 log.info("Using accelerate to load and assign model weights to device...")
                 param_count = sum(1 for _ in transformer.named_parameters())
+                pbar = ProgressBar(param_count)
                 for name, param in tqdm(transformer.named_parameters(), 
                         desc=f"Loading transformer parameters to {transformer_load_device}", 
                         total=param_count,
@@ -719,7 +720,8 @@ class WanVideoModelLoader:
                     dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
                     if "patch_embedding" in name:
                         dtype_to_use = torch.float32
-                    set_module_tensor_to_device(transformer, name, device=transformer_load_device, dtype=dtype_to_use, value=sd[name])                  
+                    set_module_tensor_to_device(transformer, name, device=transformer_load_device, dtype=dtype_to_use, value=sd[name])
+                    pbar.update(1)              
 
         comfy_model.diffusion_model = transformer
         comfy_model.load_device = transformer_load_device
@@ -786,10 +788,16 @@ class WanVideoModelLoader:
             #from diffusers.quantizers.gguf.utils import _replace_with_gguf_linear, GGUFParameter
             from .gguf.gguf import _replace_with_gguf_linear, GGUFParameter
             log.info("Using GGUF to load and assign model weights to device...")
+            param_count = sum(1 for _ in transformer.named_parameters())
+            
             out_features = sd["blocks.0.self_attn.k.weight"].shape[1]
         
             patcher.model.diffusion_model = _replace_with_gguf_linear(patcher.model.diffusion_model, base_dtype, sd, patches=patcher.patches)
-            for name, param in patcher.model.diffusion_model.named_parameters():
+            pbar = ProgressBar(param_count)
+            for name, param in tqdm(patcher.model.diffusion_model.named_parameters(), 
+                    desc=f"Loading transformer parameters to {transformer_load_device}", 
+                    total=param_count,
+                    leave=True):
                 #print(name, param.dtype, param.device, param.shape)
                 if isinstance(param, GGUFParameter):
                     dtype_to_use = torch.uint8
@@ -798,6 +806,7 @@ class WanVideoModelLoader:
                 else:
                     dtype_to_use = base_dtype
                 set_module_tensor_to_device(patcher.model.diffusion_model, name, device=transformer_load_device, dtype=dtype_to_use, value=sd[name])
+                pbar.update(1)
             #for name, param in transformer.named_parameters():
             #    print(name, param.dtype, param.device, param.shape)
             #patcher.load(device, full_load=True)

@@ -1631,12 +1631,13 @@ class WanModel(ModelMixin, ConfigMixin):
                 if (pcd_data["start"] <= current_step_percentage <= pcd_data["end"]) or \
                             (pcd_data["end"] > 0 and current_step == 0 and current_step_percentage >= pcd_data["start"]):
                     self.controlnet.to(self.main_device)
-                    pdc_controlnet_states = self.controlnet(
-                        render_latent=render_latent.to(self.main_device, self.controlnet.dtype), 
-                        render_mask=pcd_data["render_mask"], 
-                        camera_embedding=pcd_data["camera_embedding"], 
-                        temb=e.to(self.main_device),
-                        device=self.offload_device)
+                    with torch.autocast(device_type=mm.get_autocast_device(device), dtype=x.dtype, enabled=True):
+                        pdc_controlnet_states = self.controlnet(
+                            render_latent=render_latent.to(self.main_device, self.controlnet.dtype), 
+                            render_mask=pcd_data["render_mask"], 
+                            camera_embedding=pcd_data["camera_embedding"], 
+                            temb=e.to(self.main_device),
+                            device=self.offload_device)
                     self.controlnet.to(self.offload_device)
 
             for b, block in enumerate(self.blocks):
