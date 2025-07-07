@@ -3432,9 +3432,7 @@ class WanVideoDecode:
             temp_latents = torch.cat([latents[:, :, -3:]] + [latents[:, :, :2]], dim=2)
             temp_images = vae.decode(temp_latents, device=device, end_=(end_image is not None), tiled=enable_vae_tiling, tile_size=(tile_x//8, tile_y//8), tile_stride=(tile_stride_x//8, tile_stride_y//8))[0]
             temp_images = (temp_images - temp_images.min()) / (temp_images.max() - temp_images.min())
-            out = temp_images[:, 9:]
-            out = torch.cat([out, images[:, 5:]], dim=1)
-            images = out
+            images = torch.cat([temp_images[:, 9:].to(images), images[:, 5:]], dim=1)
 
         if end_image is not None: 
             #end_image = (end_image - end_image.min()) / (end_image.max() - end_image.min())
