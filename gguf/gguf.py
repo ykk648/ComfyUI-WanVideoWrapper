@@ -8,6 +8,10 @@ if is_accelerate_available():
     import accelerate
     from accelerate import init_empty_weights
 
+@torch.compiler.disable()
+def dequantize_without_compile(tensor):
+    return dequantize_gguf_tensor(tensor)
+
 #based on https://github.com/huggingface/diffusers/blob/main/src/diffusers/quantizers/gguf/utils.py
 def _replace_with_gguf_linear(model, compute_dtype, state_dict, prefix="", modules_to_not_convert=[], patches=None):
     def _should_convert_to_gguf(state_dict, prefix):
@@ -79,7 +83,7 @@ class GGUFLinear(nn.Linear):
         self.lora_alphas = lora_alphas
 
     def forward(self, inputs):
-        weight = dequantize_gguf_tensor(self.weight)
+        weight = dequantize_without_compile(self.weight)
         weight = weight.to(self.compute_dtype)
         bias = self.bias.to(self.compute_dtype) if self.bias is not None else None
 
