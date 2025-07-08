@@ -34,11 +34,10 @@ def _replace_with_gguf_linear(model, compute_dtype, state_dict, prefix="", modul
             key = "diffusion_model." + module_prefix + "weight"
             patch = patches.get(key, [])
             
-            lora_diffs = lora_strengths = lora_alphas = None
+            lora_diffs = lora_strengths = None
             if len(patch) != 0:
                 lora_diffs = [p[1].weights for p in patch]
                 lora_strengths = [p[0] for p in patch]
-                lora_alphas = [p[2] for p in patch]
             
             #print("lora_diff", lora_diff)
 
@@ -54,8 +53,7 @@ def _replace_with_gguf_linear(model, compute_dtype, state_dict, prefix="", modul
                     module.bias is not None,
                     compute_dtype=compute_dtype,
                     lora_diffs=lora_diffs,
-                    lora_strengths = lora_strengths,
-                    lora_alphas = lora_alphas
+                    lora_strengths = lora_strengths
                 )
             model._modules[name].source_cls = type(module)
             # Force requires_grad to False to avoid unexpected errors
@@ -88,15 +86,21 @@ class GGUFLinear(nn.Linear):
 
         if self.lora_diffs is not None:
             # Apply all LoRA patches
-            for lora_diff, lora_strength, lora_alpha in zip(self.lora_diffs, self.lora_strengths, self.lora_alphas):
+            for lora_diff, lora_strength in zip(self.lora_diffs, self.lora_strengths):
                 # Calculate the diff for this patch
                 patch_diff = torch.mm(
                     lora_diff[0].flatten(start_dim=1).to(weight.device), 
                     lora_diff[1].flatten(start_dim=1).to(weight.device)
                 ).reshape(weight.shape)
+
+                if lora_diff[2] is not None:
+                    alpha = lora_diff[2] / lora_diff[1].shape[0]
+                else:
+                    alpha = 1.0
                 
                 # Apply the patch with its strength
-                weight = weight + ((lora_strength * lora_alpha) * patch_diff).to(self.compute_dtype)
+                scale = lora_strength * alpha
+                weight.add_(patch_diff, alpha=scale).to(self.compute_dtype)
 
         output = torch.nn.functional.linear(inputs, weight, bias)
         return output
