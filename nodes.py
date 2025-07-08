@@ -2793,7 +2793,7 @@ class WanVideoSampler:
                 current_latent = current_latent.to(dtype)
 
             # Store initial noise for first iteration
-            if iter_idx == 0:
+            if freeinit_args is not None and iter_idx == 0:
                 initial_noise_saved = current_latent.detach().clone()
                 if samples is not None:
                     current_latent = input_samples.to(device)
