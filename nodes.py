@@ -2809,8 +2809,6 @@ class WanVideoSampler:
             # Set latent for denoising
             latent = current_latent
 
-            print(latent)
-
             #region main loop start
             for idx, t in enumerate(tqdm(timesteps)):
                 if flowedit_args is not None:
