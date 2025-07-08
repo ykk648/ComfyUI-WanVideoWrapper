@@ -36,6 +36,7 @@ def _replace_with_gguf_linear(model, compute_dtype, state_dict, prefix="", modul
             
             lora_diffs = None
             lora_strengths = None
+            lora_alphas = None
             if len(patch) != 0:
                 lora_diffs = [p[1].weights for p in patch]
                 lora_strengths = [p[0] for p in patch]
@@ -97,7 +98,7 @@ class GGUFLinear(nn.Linear):
                 ).reshape(weight.shape)
                 
                 # Apply the patch with its strength
-                weight = weight + patch_diff.to(weight.device, self.compute_dtype) * (lora_strength * lora_alpha)
+                weight = weight + ((lora_strength * lora_alpha) * patch_diff).to(self.compute_dtype)
 
         output = torch.nn.functional.linear(inputs, weight, bias)
         return output
