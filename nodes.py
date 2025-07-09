@@ -1548,12 +1548,12 @@ class WanVideoVACEStartToEndFrame:
             # Create a mask of frames that are still empty (mask == 1)
             empty_frames = masks.sum(dim=(1, 2)) > 0.5 * H * W
             
-            # Only process frames that are empty and within control_images range
-            valid_frames = torch.arange(num_frames, device=device)
-            valid_indices = (empty_frames & (valid_frames < control_images.shape[0]))
-            
-            if valid_indices.any():
-                out_batch[valid_indices] = control_images[:num_frames][valid_indices]
+            if empty_frames.any():
+                # Only apply control images where they exist
+                control_length = control_images.shape[0]
+                for frame_idx in range(num_frames):
+                    if empty_frames[frame_idx] and frame_idx < control_length:
+                        out_batch[frame_idx] = control_images[frame_idx]
         
         # Apply inpaint mask if provided
         if inpaint_mask is not None:
