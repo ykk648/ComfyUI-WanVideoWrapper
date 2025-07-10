@@ -363,7 +363,11 @@ class WanVideoLoraSelectMulti:
                 low_mem_load=False):
         loras_list = []
 
-        strength = round(strength, 4)
+        strength_0 = round(strength_0, 4)
+        strength_1 = round(strength_1, 4)
+        strength_2 = round(strength_2, 4)
+        strength_3 = round(strength_3, 4)
+        strength_4 = round(strength_4, 4)
         
         if prev_lora is not None:
             loras_list.extend(prev_lora)
