@@ -1777,7 +1777,7 @@ class WanVideoSampler:
                 "flowedit_args": ("FLOWEDITARGS", ),
                 "batched_cfg": ("BOOLEAN", {"default": False, "tooltip": "Batch cond and uncond for faster sampling, possibly faster on some hardware, uses more memory"}),
                 "slg_args": ("SLGARGS", ),
-                "rope_function": (["default", "comfy"], {"default": "comfy", "tooltip": "Comfy's RoPE implementation doesn't use complex numbers and can thus be compiled, that should be a lot faster when using torch.compile"}),
+                "rope_function": (["default", "comfy", "comfy_chunked"], {"default": "comfy", "tooltip": "Comfy's RoPE implementation doesn't use complex numbers and can thus be compiled, that should be a lot faster when using torch.compile. Chunked version has reduced peak VRAM usage when not using torch.compile"}),
                 "loop_args": ("LOOPARGS", ),
                 "experimental_args": ("EXPERIMENTALARGS", ),
                 "sigmas": ("SIGMAS", ),
@@ -2260,7 +2260,7 @@ class WanVideoSampler:
         freqs = None
         transformer.rope_embedder.k = None
         transformer.rope_embedder.num_frames = None
-        if rope_function=="comfy":
+        if "comfy" in rope_function:
             transformer.rope_embedder.k = riflex_freq_index
             transformer.rope_embedder.num_frames = latent_video_length
         else:
@@ -2604,7 +2604,8 @@ class WanVideoSampler:
                     "nag_params": text_embeds.get("nag_params", {}),
                     "nag_context": text_embeds.get("nag_prompt_embeds", None),
                     "multitalk_audio": multitalk_audio_input if multitalk_audio_embedding is not None else None,
-                    "ref_target_masks": ref_target_masks if multitalk_audio_embedding is not None else None
+                    "ref_target_masks": ref_target_masks if multitalk_audio_embedding is not None else None,
+                    "rope_func": rope_function
                 }
 
                 batch_size = 1
@@ -2762,6 +2763,7 @@ class WanVideoSampler:
         gc.collect()
         try:
             torch.cuda.reset_peak_memory_stats(device)
+            #torch.cuda.memory._record_memory_history(max_entries=100000)
         except:
             pass
 
@@ -3403,6 +3405,8 @@ class WanVideoSampler:
 
         try:
             print_memory(device)
+            #torch.cuda.memory._dump_snapshot("wanvideowrapper_memory_dump.pt")
+            #torch.cuda.memory._record_memory_history(enabled=None)
             torch.cuda.reset_peak_memory_stats(device)
         except:
             pass

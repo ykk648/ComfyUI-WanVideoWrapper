@@ -30,6 +30,50 @@ from ...multitalk.multitalk import get_attn_map_with_target
 
 from comfy.ldm.flux.math import apply_rope as apply_rope_comfy
 
+def apply_rope_comfy_chunked(xq, xk, freqs_cis, chunk_size=4096):    
+    seq_dim = 1
+    
+    # Check if chunking is needed
+    if len(xq.shape) <= seq_dim or xq.shape[seq_dim] <= chunk_size:
+        return apply_rope_comfy(xq, xk, freqs_cis)
+    
+    # Initialize output tensors
+    xq_out = torch.empty_like(xq)
+    xk_out = torch.empty_like(xk)
+    
+    # Process in chunks
+    for i in range(0, xq.shape[seq_dim], chunk_size):
+        end_idx = min(i + chunk_size, xq.shape[seq_dim])
+        
+        # Create slices for indexing
+        slices = [slice(None)] * len(xq.shape)
+        slices[seq_dim] = slice(i, end_idx)
+        
+        # Extract chunks
+        xq_chunk = xq[tuple(slices)]
+        xk_chunk = xk[tuple(slices)]
+        
+        # Extract corresponding frequency chunk
+        freq_slices = [slice(None)] * len(freqs_cis.shape)
+        if seq_dim < len(freqs_cis.shape):
+            freq_slices[seq_dim] = slice(i, end_idx)
+        freqs_chunk = freqs_cis[tuple(freq_slices)]
+        
+        # Apply RoPE to chunks
+        xq_chunk_ = xq_chunk.to(dtype=freqs_cis.dtype).reshape(*xq_chunk.shape[:-1], -1, 1, 2)
+        xk_chunk_ = xk_chunk.to(dtype=freqs_cis.dtype).reshape(*xk_chunk.shape[:-1], -1, 1, 2)
+        xq_chunk_out = freqs_chunk[..., 0] * xq_chunk_[..., 0] + freqs_chunk[..., 1] * xq_chunk_[..., 1]
+        xk_chunk_out = freqs_chunk[..., 0] * xk_chunk_[..., 0] + freqs_chunk[..., 1] * xk_chunk_[..., 1]
+        
+        # Store results
+        xq_out[tuple(slices)] = xq_chunk_out.reshape(*xq_chunk.shape).type_as(xq)
+        xk_out[tuple(slices)] = xk_chunk_out.reshape(*xk_chunk.shape).type_as(xk)
+        
+        # Free memory
+        del xq_chunk, xk_chunk, xq_chunk_, xk_chunk_, xq_chunk_out, xk_chunk_out, freqs_chunk
+        
+    return xq_out, xk_out
+
 def rope_riflex(pos, dim, theta, L_test, k, temporal):
     assert dim % 2 == 0
     if mm.is_device_mps(pos.device) or mm.is_intel_xpu() or mm.is_directml_enabled():
@@ -246,6 +290,8 @@ class WanSelfAttention(nn.Module):
         else:
             if rope_func == "comfy":
                 q, k = apply_rope_comfy(q, k, freqs)
+            elif rope_func == "comfy_chunked":
+                q, k = apply_rope_comfy_chunked(q, k, freqs)
             else:
                 q=rope_apply(q, grid_sizes, freqs)
                 k=rope_apply(k, grid_sizes, freqs)
@@ -1252,7 +1298,8 @@ class WanModel(ModelMixin, ConfigMixin):
         nag_params={},
         nag_context=None,
         multitalk_audio=None,
-        ref_target_masks=None
+        ref_target_masks=None,
+        rope_func="comfy",
     ):
         r"""
         Forward pass through the diffusion model
@@ -1361,9 +1408,7 @@ class WanModel(ModelMixin, ConfigMixin):
                 self.cached_shape == current_shape and 
                 self.cached_cond == has_cond):
                 freqs = self.cached_freqs
-                rope_func = "comfy"
             else:
-                rope_func = "comfy"
                 f_len = ((F + (self.patch_size[0] // 2)) // self.patch_size[0])
                 h_len = ((H + (self.patch_size[1] // 2)) // self.patch_size[1])
                 w_len = ((W + (self.patch_size[2] // 2)) // self.patch_size[2])
@@ -1401,8 +1446,6 @@ class WanModel(ModelMixin, ConfigMixin):
                 self.cached_freqs = freqs
                 self.cached_shape = current_shape
                 self.cached_cond = has_cond
-        else:
-            rope_func = "default"
 
         # time embeddings
         if t.dim() == 2:
