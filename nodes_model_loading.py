@@ -272,7 +272,10 @@ class WanVideoLoraSelect:
 
         strength = round(strength, 4)
 
-        lora_path = folder_paths.get_full_path("loras", lora)
+        try:
+            lora_path = folder_paths.get_full_path("loras", lora)
+        except:
+            lora_path = lora
 
         # Load metadata from the safetensors file
         metadata = {}
