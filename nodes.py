@@ -3294,7 +3294,7 @@ class WanVideoSampler:
                                 arrive_last_frame = True
                                 miss_lengths = []
                                 source_frames = []
-                                for human_inx in range(1):
+                                for human_inx in range(human_num):
                                     source_frame = len(audio_embedding[human_inx])
                                     source_frames.append(source_frame)
                                     if audio_end_idx >= len(audio_embedding[human_inx]):
