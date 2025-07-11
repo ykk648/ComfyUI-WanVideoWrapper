@@ -668,6 +668,7 @@ class WanVideoModelLoader:
             "num_heads": num_heads,
             "num_layers": num_layers,
             "attention_mode": attention_mode,
+            "rope_func": "comfy",
             "main_device": device,
             "offload_device": offload_device,
             "teacache_coefficients": teacache_coefficients_map[model_variant],

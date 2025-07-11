@@ -19,7 +19,7 @@ from .wanvideo.utils.scheduling_flow_match_lcm import FlowMatchLCMScheduler
 
 from .multitalk.multitalk import timestep_transform, add_noise
 
-from .enhance_a_video.globals import enable_enhance, disable_enhance, set_enhance_weight, set_num_frames
+from .enhance_a_video.globals import set_enhance_weight, set_num_frames
 from .taehv import TAEHV
 
 from einops import rearrange
@@ -2308,6 +2308,12 @@ class WanVideoSampler:
                 rope_params(1024, 2 * (d // 6))
             ],
             dim=1)
+        transformer.rope_func = rope_function
+        for block in transformer.blocks:
+            block.rope_func = rope_function
+        if transformer.vace_layers is not None:
+            for block in transformer.vace_blocks:
+                block.rope_func = rope_function
 
         if not isinstance(cfg, list):
             cfg = [cfg] * (steps +1)
@@ -2388,10 +2394,10 @@ class WanVideoSampler:
                 set_num_frames(context_frames)
             else:
                 set_num_frames(latent_video_length)
-            enable_enhance()
+            enhance_enabled = True
         else:
             feta_args = None
-            disable_enhance()
+            enhance_enabled = False
 
         # Initialize Cache if enabled
         transformer.enable_teacache = transformer.enable_magcache = False
@@ -2628,6 +2634,7 @@ class WanVideoSampler:
                     't': timestep,
                     'current_step': idx,
                     'control_lora_enabled': control_lora_enabled,
+                    'enhance_enabled': enhance_enabled,
                     'camera_embed': camera_embed,
                     'unianim_data': unianim_data,
                     'fun_ref': fun_ref_input if fun_ref_image is not None else None,
@@ -2642,7 +2649,6 @@ class WanVideoSampler:
                     "nag_context": text_embeds.get("nag_prompt_embeds", None),
                     "multitalk_audio": multitalk_audio_input if multitalk_audio_embedding is not None else None,
                     "ref_target_masks": ref_target_masks if multitalk_audio_embedding is not None else None,
-                    "rope_func": rope_function
                 }
 
                 batch_size = 1
@@ -2877,10 +2883,9 @@ class WanVideoSampler:
                         latent_model_input = torch.cat([latent_model_input[:, shift_idx:]] + [latent_model_input[:, :shift_idx]], dim=1)
 
                 #enhance-a-video
+                enhance_enabled = False
                 if feta_args is not None and feta_start_percent <= current_step_percentage <= feta_end_percent:
-                    enable_enhance()
-                else:
-                    disable_enhance()
+                    enhance_enabled = True                    
 
                 #flow-edit
                 if flowedit_args is not None:
