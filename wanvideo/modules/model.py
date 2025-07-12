@@ -29,48 +29,60 @@ from ...multitalk.multitalk import get_attn_map_with_target
 
 from comfy.ldm.flux.math import apply_rope as apply_rope_comfy
 
-def apply_rope_comfy_chunked(xq, xk, freqs_cis, chunk_size=4096):    
+def apply_rope_comfy_chunked(xq, xk, freqs_cis, num_chunks=4):
     seq_dim = 1
-    
-    # Check if chunking is needed
-    if len(xq.shape) <= seq_dim or xq.shape[seq_dim] <= chunk_size:
-        return apply_rope_comfy(xq, xk, freqs_cis)
     
     # Initialize output tensors
     xq_out = torch.empty_like(xq)
     xk_out = torch.empty_like(xk)
     
-    # Process in chunks
-    for i in range(0, xq.shape[seq_dim], chunk_size):
-        end_idx = min(i + chunk_size, xq.shape[seq_dim])
+    # Calculate chunks
+    seq_len = xq.shape[seq_dim]
+    chunk_sizes = [seq_len // num_chunks + (1 if i < seq_len % num_chunks else 0) 
+                  for i in range(num_chunks)]
+    
+    # First pass: process xq completely
+    start_idx = 0
+    for size in chunk_sizes:
+        end_idx = start_idx + size
         
-        # Create slices for indexing
         slices = [slice(None)] * len(xq.shape)
-        slices[seq_dim] = slice(i, end_idx)
+        slices[seq_dim] = slice(start_idx, end_idx)
         
-        # Extract chunks
-        xq_chunk = xq[tuple(slices)]
-        xk_chunk = xk[tuple(slices)]
-        
-        # Extract corresponding frequency chunk
         freq_slices = [slice(None)] * len(freqs_cis.shape)
         if seq_dim < len(freqs_cis.shape):
-            freq_slices[seq_dim] = slice(i, end_idx)
+            freq_slices[seq_dim] = slice(start_idx, end_idx)
         freqs_chunk = freqs_cis[tuple(freq_slices)]
         
-        # Apply RoPE to chunks
+        xq_chunk = xq[tuple(slices)]
         xq_chunk_ = xq_chunk.to(dtype=freqs_cis.dtype).reshape(*xq_chunk.shape[:-1], -1, 1, 2)
+        xq_out[tuple(slices)] = (freqs_chunk[..., 0] * xq_chunk_[..., 0] + 
+                                freqs_chunk[..., 1] * xq_chunk_[..., 1]).reshape(*xq_chunk.shape).type_as(xq)
+        
+        del xq_chunk, xq_chunk_, freqs_chunk
+        start_idx = end_idx
+    
+    # Second pass: process xk completely
+    start_idx = 0
+    for size in chunk_sizes:
+        end_idx = start_idx + size
+        
+        slices = [slice(None)] * len(xk.shape)
+        slices[seq_dim] = slice(start_idx, end_idx)
+        
+        freq_slices = [slice(None)] * len(freqs_cis.shape)
+        if seq_dim < len(freqs_cis.shape):
+            freq_slices[seq_dim] = slice(start_idx, end_idx)
+        freqs_chunk = freqs_cis[tuple(freq_slices)]
+        
+        xk_chunk = xk[tuple(slices)]
         xk_chunk_ = xk_chunk.to(dtype=freqs_cis.dtype).reshape(*xk_chunk.shape[:-1], -1, 1, 2)
-        xq_chunk_out = freqs_chunk[..., 0] * xq_chunk_[..., 0] + freqs_chunk[..., 1] * xq_chunk_[..., 1]
-        xk_chunk_out = freqs_chunk[..., 0] * xk_chunk_[..., 0] + freqs_chunk[..., 1] * xk_chunk_[..., 1]
+        xk_out[tuple(slices)] = (freqs_chunk[..., 0] * xk_chunk_[..., 0] + 
+                                freqs_chunk[..., 1] * xk_chunk_[..., 1]).reshape(*xk_chunk.shape).type_as(xk)
         
-        # Store results
-        xq_out[tuple(slices)] = xq_chunk_out.reshape(*xq_chunk.shape).type_as(xq)
-        xk_out[tuple(slices)] = xk_chunk_out.reshape(*xk_chunk.shape).type_as(xk)
-        
-        # Free memory
-        del xq_chunk, xk_chunk, xq_chunk_, xk_chunk_, xq_chunk_out, xk_chunk_out, freqs_chunk
-        
+        del xk_chunk, xk_chunk_, freqs_chunk
+        start_idx = end_idx
+    
     return xq_out, xk_out
 
 def rope_riflex(pos, dim, theta, L_test, k, temporal):
@@ -182,15 +194,38 @@ class WanRMSNorm(nn.Module):
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
 
-    def forward(self, x):
+    def forward(self, x, num_chunks=1):
         r"""
         Args:
             x(Tensor): Shape [B, L, C]
         """
-        return self._norm(x)* self.weight
+        use_chunked = num_chunks > 1
+        if use_chunked:
+            return self.forward_chunked(x, num_chunks)
+        else:
+            return self._norm(x) * self.weight
 
     def _norm(self, x):
         return x * torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps).to(x.dtype)
+
+    def forward_chunked(self, x, num_chunks=4):
+        output = torch.empty_like(x)
+        
+        chunk_sizes = [x.shape[1] // num_chunks + (1 if i < x.shape[1] % num_chunks else 0) 
+                    for i in range(num_chunks)]
+        
+        start_idx = 0
+        for size in chunk_sizes:
+            end_idx = start_idx + size
+            
+            chunk = x[:, start_idx:end_idx, :]
+            
+            norm_factor = torch.rsqrt(chunk.pow(2).mean(dim=-1, keepdim=True) + self.eps)
+            output[:, start_idx:end_idx, :] = chunk * norm_factor.to(chunk.dtype) * self.weight
+
+            start_idx = end_idx
+            
+        return output
 
 
 class WanLayerNorm(nn.LayerNorm):
@@ -411,10 +446,10 @@ class WanT2VCrossAttention(WanSelfAttention):
         self.attention_mode = attention_mode
 
     def forward(self, x, context, context_lens, clip_embed=None, audio_proj=None, audio_context_lens=None, audio_scale=1.0, 
-                num_latent_frames=21, nag_params={}, nag_context=None, is_uncond=False):
+                num_latent_frames=21, nag_params={}, nag_context=None, is_uncond=False, rope_func="comfy"):
         b, n, d = x.size(0), self.num_heads, self.head_dim
         # compute query
-        q = self.norm_q(self.q(x)).view(b, -1, n, d)
+        q = self.norm_q(self.q(x),num_chunks=2 if rope_func == "comfy_chunked" else 1).view(b, -1, n, d)
 
         if nag_context is not None and not is_uncond:
             x_text = self.normalized_attention_guidance(b, n, d, q, context, nag_context, nag_params)
@@ -457,7 +492,7 @@ class WanI2VCrossAttention(WanSelfAttention):
         self.attention_mode = attention_mode
 
     def forward(self, x, context, context_lens, clip_embed, audio_proj=None, audio_context_lens=None, 
-                audio_scale=1.0, num_latent_frames=21, nag_params={}, nag_context=None, is_uncond=False):
+                audio_scale=1.0, num_latent_frames=21, nag_params={}, nag_context=None, is_uncond=False, rope_func="comfy"):
         r"""
         Args:
             x(Tensor): Shape [B, L1, C]
@@ -466,7 +501,7 @@ class WanI2VCrossAttention(WanSelfAttention):
         """
         b, n, d = x.size(0), self.num_heads, self.head_dim
         # compute query
-        q = self.norm_q(self.q(x)).view(b, -1, n, d)
+        q = self.norm_q(self.q(x),num_chunks=2 if rope_func == "comfy_chunked" else 1).view(b, -1, n, d)
 
         if nag_context is not None and not is_uncond:
             x_text = self.normalized_attention_guidance(b, n, d, q, context, nag_context, nag_params)
@@ -570,8 +605,26 @@ class WanAttentionBlock(nn.Module):
             e = [ei.squeeze(1) for ei in e]
         return e
     
-    def modulate(self, x, e):
-        return x.mul_(1 + e[1]).add_(e[0])
+    def modulate(self, x, shift_msa, scale_msa):
+        return torch.addcmul(shift_msa, x, 1 + scale_msa)
+    
+    def ffn_chunked(self, x, shift_mlp, scale_mlp, num_chunks=4):
+        modulated_input = torch.addcmul(shift_mlp, self.norm2(x), 1 + scale_mlp)
+        
+        result = torch.empty_like(x)
+        seq_len = modulated_input.shape[1]
+        
+        chunk_sizes = [seq_len // num_chunks + (1 if i < seq_len % num_chunks else 0) 
+                    for i in range(num_chunks)]
+        
+        start_idx = 0
+        for size in chunk_sizes:
+            end_idx = start_idx + size
+            chunk = modulated_input[:, start_idx:end_idx, :]
+            result[:, start_idx:end_idx, :] = self.ffn(chunk)
+            start_idx = end_idx
+        
+        return result
 
     #region attention forward
     def forward(
@@ -609,9 +662,8 @@ class WanAttentionBlock(nn.Module):
             freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
         """
         #e = (self.modulation.to(e.device) + e).chunk(6, dim=1)
-        e = self.get_mod(e)
-
-        input_x = self.modulate(self.norm1(x), e)
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.get_mod(e)
+        input_x = self.modulate(self.norm1(x), shift_msa, scale_msa)
 
         if camera_embed is not None:
             # encode ReCamMaster camera
@@ -626,7 +678,6 @@ class WanAttentionBlock(nn.Module):
 
         #query, key, value
         q, k, v = self.self_attn.qkv_fn(input_x)
-        del input_x
 
         # FETA
         if enhance_enabled:
@@ -664,46 +715,51 @@ class WanAttentionBlock(nn.Module):
         if camera_embed is not None:
             y = self.projector(y)        
 
-        x.add_(y.mul_(e[2]))
-        del y
+        x = x.addcmul(y, gate_msa)
 
         # cross-attention & ffn function
+        
         if context is not None:
             if split_attn:
                 if nag_context is not None:
                     raise NotImplementedError("nag_context is not supported in split_cross_attn_ffn")
-                x = self.split_cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes)
+                x = self.split_cross_attn_ffn(x, context, context_lens, shift_mlp, scale_mlp, gate_mlp, clip_embed=clip_embed, grid_sizes=grid_sizes)
             else:
-                x = self.cross_attn_ffn(x, context, context_lens, e, clip_embed=clip_embed, grid_sizes=grid_sizes, 
+                x = self.cross_attn_ffn(x, context, context_lens, shift_mlp, scale_mlp, gate_mlp, clip_embed=clip_embed, grid_sizes=grid_sizes, 
                                         audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, 
                                         num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context, is_uncond=is_uncond, 
                                         multitalk_audio_embedding=multitalk_audio_embedding, x_ref_attn_map=x_ref_attn_map, human_num=human_num)
         else:
-            y = self.ffn(self.norm2(x).mul_(1 + e[4]).add_(e[3]))
-            x.add_(y.mul_(e[5]))
-            del y
+            if self.rope_func == "comfy_chunked":
+                y = self.ffn_chunked(x, shift_mlp, scale_mlp)
+            else:
+                y = self.ffn(torch.addcmul(shift_mlp, self.norm2(x), 1 + scale_mlp))
+            x = x.addcmul(y, gate_mlp)
 
-        del e
         return x
-    #@torch.compiler.disable()
-    def cross_attn_ffn(self, x, context, context_lens, e, clip_embed=None, grid_sizes=None, 
+
+    
+    def cross_attn_ffn(self, x, context, context_lens, shift_mlp, scale_mlp, gate_mlp, clip_embed=None, grid_sizes=None, 
                        audio_proj=None, audio_context_lens=None, audio_scale=1.0, num_latent_frames=21, nag_params={}, 
                        nag_context=None, is_uncond=False, multitalk_audio_embedding=None, x_ref_attn_map=None, human_num=0):
             x = x + self.cross_attn(self.norm3(x), context, context_lens, clip_embed=clip_embed,
                                     audio_proj=audio_proj, audio_context_lens=audio_context_lens, audio_scale=audio_scale, 
-                                    num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context, is_uncond=is_uncond)
+                                    num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context, is_uncond=is_uncond, rope_func=self.rope_func)
             #multitalk
             if multitalk_audio_embedding is not None and not isinstance(self, VaceWanAttentionBlock):
                 x_audio = self.audio_cross_attn(self.norm_x(x), encoder_hidden_states=multitalk_audio_embedding,
                                             shape=grid_sizes[0], x_ref_attn_map=x_ref_attn_map, human_num=human_num)
                 x = x + x_audio * audio_scale
-            y = self.ffn(self.norm2(x).mul_(1 + e[4]).add_(e[3]))
-            x.add_(y.mul_(e[5]))
-            del y
+
+            if self.rope_func == "comfy_chunked":
+                y = self.ffn_chunked(x, shift_mlp, scale_mlp)
+            else:
+                y = self.ffn(torch.addcmul(shift_mlp, self.norm2(x), 1 + scale_mlp))
+            x = x.addcmul(y, gate_mlp)
             return x
     
     @torch.compiler.disable()
-    def split_cross_attn_ffn(self, x, context, context_lens, e, clip_embed=None, grid_sizes=None):
+    def split_cross_attn_ffn(self, x, context, context_lens, shift_mlp, scale_mlp, gate_mlp, clip_embed=None, grid_sizes=None):
         # Get number of prompts
         num_prompts = context.shape[0]
         num_clip_embeds = 0 if clip_embed is None else clip_embed.shape[0]
@@ -754,8 +810,8 @@ class WanAttentionBlock(nn.Module):
         
         # Continue with FFN
         x = x + x_combined
-        y = self.ffn(self.norm2(x) * (1 + e[4]) + e[3])
-        x = x + (y * e[5])
+        y = self.ffn_chunked(x, shift_mlp, scale_mlp)
+        x = x.addcmul(y, gate_mlp)
         return x
 
 class VaceWanAttentionBlock(WanAttentionBlock):
