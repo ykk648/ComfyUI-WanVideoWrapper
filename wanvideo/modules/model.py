@@ -284,6 +284,21 @@ class WanSelfAttention(nn.Module):
 
         return x
     
+    def forward_multitalk(self, q, k, v, seq_lens, grid_sizes, ref_target_masks):
+        x = attention(
+            q, k, v,
+            k_lens=seq_lens,
+            attention_mode=self.attention_mode
+            )
+
+        # output
+        x = x.flatten(2)
+        x = self.o(x)
+
+        x_ref_attn_map = get_attn_map_with_target(q.type_as(x), k.type_as(x), grid_sizes[0], ref_target_masks=ref_target_masks)
+
+        return x, x_ref_attn_map
+    
     def forward_split(self, q, k, v, seq_lens, grid_sizes, freqs, seq_chunks=1,current_step=0, video_attention_split_steps = []):
         r"""
         Args:
@@ -636,12 +651,10 @@ class WanAttentionBlock(nn.Module):
             current_step=current_step,
             video_attention_split_steps=video_attention_split_steps
             )
+        elif ref_target_masks is not None:
+            y, x_ref_attn_map = self.self_attn.forward_multitalk(q, k, v, seq_lens, grid_sizes, ref_target_masks)
         else:
             y = self.self_attn.forward(q, k, v, seq_lens, block_mask=block_mask)
-            
-        #multitalk mask
-        if ref_target_masks is not None:
-            x_ref_attn_map = get_attn_map_with_target(q.type_as(x), k.type_as(x), grid_sizes[0], ref_target_masks=ref_target_masks)
 
         # FETA
         if enhance_enabled:
