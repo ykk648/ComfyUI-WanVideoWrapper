@@ -3397,8 +3397,6 @@ class WanVideoSampler:
                     latent = temp_x0.squeeze(0)
 
                     x0 = latent.to(device)
-
-                    generator_state = seed_g.get_state()
                     
                     if freeinit_args is not None:
                         current_latent = x0.clone()
@@ -3459,7 +3457,7 @@ class WanVideoSampler:
             "end_image": end_image if not fun_or_fl2v_model else None, 
             "has_ref": has_ref, 
             "drop_last": drop_last,
-            "generator_state": generator_state,
+            "generator_state": seed_g.get_state(),
         }, )
     
 class WindowTracker:
