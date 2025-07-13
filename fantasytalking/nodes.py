@@ -174,7 +174,9 @@ class FantasyTalkingWav2VecEmbeds:
             audio_segment.numpy(), sampling_rate=sr, return_tensors="pt"
         ).input_values.to(dtype).to(device)
 
+        wav2vec.to(device)
         audio_features = wav2vec(input_values).last_hidden_state
+        wav2vec.to(offload_device)
 
         audio_proj_model.proj_model.to(device)
         audio_proj_fea = audio_proj_model.get_proj_fea(audio_features)
