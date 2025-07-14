@@ -888,11 +888,11 @@ class WanVideoRealisDanceLatents:
     def INPUT_TYPES(s):
         return {"required": {
             "ref_latent": ("LATENT", {"tooltip": "Reference image to encode"}),
-            "smpl_latent": ("LATENT", {"tooltip": "SMPL pose image to encode"}),
             "pose_cond_start_percent": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Start percent of the SMPL model"}),
             "pose_cond_end_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "End percent of the SMPL model"}),
             },
             "optional": {
+                "smpl_latent": ("LATENT", {"tooltip": "SMPL pose image to encode"}),
                 "hamer_latent": ("LATENT", {"tooltip": "Hamer hand pose image to encode"}),
             },
         }
@@ -902,13 +902,19 @@ class WanVideoRealisDanceLatents:
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
 
-    def process(self, ref_latent, smpl_latent, pose_cond_start_percent, pose_cond_end_percent, hamer_latent=None):
+    def process(self, ref_latent, pose_cond_start_percent, pose_cond_end_percent, hamer_latent=None, smpl_latent=None):
+        if smpl_latent is None and hamer_latent is None:
+            raise Exception("At least one of smpl_latent or hamer_latent must be provided")
+        if smpl_latent is None:
+            smpl = torch.zeros_like(hamer_latent["samples"])
+        else:
+            smpl = smpl_latent["samples"]
         if hamer_latent is None:
             hamer = torch.zeros_like(smpl_latent["samples"])
         else:
             hamer = hamer_latent["samples"]
 
-        pose_latent = torch.cat((smpl_latent["samples"], hamer), dim=1)
+        pose_latent = torch.cat((smpl, hamer), dim=1)
         
         add_cond_latents = {
             "ref_latent": ref_latent["samples"],
@@ -3009,7 +3015,7 @@ class WanVideoSampler:
                     v_delta = v_delta.to(torch.float32)
                     x_tgt = x_tgt + (sigma_prev - sigma) * v_delta
                     x0 = x_tgt
-                #context windowing
+                #region context windowing
                 elif context_options is not None:
                     counter = torch.zeros_like(latent_model_input, device=intermediate_device)
                     noise_pred = torch.zeros_like(latent_model_input, device=intermediate_device)
@@ -3152,7 +3158,7 @@ class WanVideoSampler:
 
                         noise = torch.randn(
                             16, (frame_num - 1) // 4 + 1,
-                            lat_h, lat_w, dtype=torch.float32, device=device) 
+                            lat_h, lat_w, dtype=torch.float32, device=torch.device("cpu"), generator=seed_g).to(device)
 
                         # get mask
                         msk = torch.ones(1, frame_num, lat_h, lat_w, device=device)
@@ -3202,7 +3208,7 @@ class WanVideoSampler:
                         # injecting motion frames
                         if not is_first_clip:
                             latent_motion_frames = latent_motion_frames.to(latent.dtype).to(device)
-                            motion_add_noise = torch.randn_like(latent_motion_frames).contiguous()
+                            motion_add_noise = torch.randn(latent_motion_frames.shape, device=torch.device("cpu"), generator=seed_g).to(device).contiguous()
                             add_latent = add_noise(latent_motion_frames, motion_add_noise, timesteps[0])
                             _, T_m, _, _ = add_latent.shape
                             latent[:, :T_m] = add_latent
@@ -3281,7 +3287,7 @@ class WanVideoSampler:
                             # injecting motion frames
                             if not is_first_clip:
                                 latent_motion_frames = latent_motion_frames.to(latent.dtype).to(device)
-                                motion_add_noise = torch.randn_like(latent_motion_frames).contiguous()
+                                motion_add_noise = torch.randn(latent_motion_frames.shape, device=torch.device("cpu"), generator=seed_g).to(device).contiguous()
                                 add_latent = add_noise(latent_motion_frames, motion_add_noise, timesteps[i+1])
                                 _, T_m, _, _ = add_latent.shape
                                 latent[:, :T_m] = add_latent
