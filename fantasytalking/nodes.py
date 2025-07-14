@@ -56,6 +56,8 @@ class DownloadAndLoadWav2VecModel:
             ignore_patterns = None
             if model == "facebook/wav2vec2-base-960h":
                 ignore_patterns = ["*.bin", "*.h5"]
+            elif model == "TencentGameMate/chinese-wav2vec2-base":
+                ignore_patterns = ["*.pt"]
             snapshot_download(
                 repo_id=model,
                 ignore_patterns=ignore_patterns,
