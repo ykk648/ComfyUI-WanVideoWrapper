@@ -2339,10 +2339,10 @@ class WanVideoSampler:
             if mask is not None:
                 if mask.shape[2] != noise.shape[1]:
                     mask = torch.cat([torch.zeros(1, noise.shape[0], noise.shape[1] - mask.shape[2], noise.shape[2], noise.shape[3]), mask], dim=2)
-            
-        if (extra_latents := image_embeds.get("extra_latents"), None) is not None:
+        
+        if (extra_latents := image_embeds.get("extra_latents", None)) is not None:
             encoded_image_latents = extra_latents["samples"].squeeze(0).to(noise)
-            if (empty_latent_indices := extra_latents.get("empty_latent_indices"), None) is not None and len(empty_latent_indices) > 0:
+            if (empty_latent_indices := extra_latents.get("empty_latent_indices", None)) is not None and len(empty_latent_indices) > 0:
                 noise_out = encoded_image_latents.clone()
                 for idx in empty_latent_indices:
                     #print(f"Adding noise to Empty latent index: {idx}")
@@ -2496,6 +2496,11 @@ class WanVideoSampler:
             transformer.slg_end_percent = slg_args["end_percent"]
         else:
             transformer.slg_blocks = None
+
+        if transformer.attention_mode == "radial_sage_attention":
+            from .wanvideo.radial_attention.attn_mask import MaskMap
+            for block in transformer.blocks:
+                block.self_attn.mask_map = MaskMap(video_token_num=seq_len)
 
         self.cache_state = [None, None]
         if phantom_latents is not None:

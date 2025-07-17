@@ -249,7 +249,8 @@ class WanSelfAttention(nn.Module):
                  num_heads,
                  qk_norm=True,
                  eps=1e-6,
-                 attention_mode='sdpa'):
+                 attention_mode='sdpa',
+                 layer_idx=0):
         assert out_features % num_heads == 0
         super().__init__()
         self.dim = out_features
@@ -258,6 +259,15 @@ class WanSelfAttention(nn.Module):
         self.qk_norm = qk_norm
         self.eps = eps
         self.attention_mode = attention_mode
+
+        #radial attention
+        self.layer_idx = layer_idx
+        self.dense_timestep = 0
+        self.dense_block = 0
+        self.decay_factor = 1
+        self.sparse_type = "radial"
+        self.mask_map = None
+
 
         # layers
         self.q = nn.Linear(in_features, out_features)
@@ -274,7 +284,7 @@ class WanSelfAttention(nn.Module):
         v = self.v(x).view(b, s, n, d)
         return q, k, v
 
-    def forward(self, q, k, v, seq_lens, block_mask=None):
+    def forward(self, q, k, v, seq_lens, block_mask=None, timestep=0, numeral_timestep=0):
         r"""
         Args:
             x(Tensor): Shape [B, L, num_heads, C / num_heads]
@@ -306,6 +316,24 @@ class WanSelfAttention(nn.Module):
                 value=padded_v.transpose(2, 1),
                 block_mask=block_mask
             )[:, :, :-padded_length].transpose(2, 1)
+        elif self.attention_mode == 'radial_sage_attention':
+            from ..radial_attention.attn_mask import RadialAttention
+            batch_size = q.shape[0]
+            q = rearrange(q, "b s h d -> (b s) h d")
+            k = rearrange(k, "b s h d -> (b s) h d")
+            v = rearrange(v, "b s h d -> (b s) h d")
+            if numeral_timestep < self.dense_timestep or self.layer_idx < self.dense_block or self.sparse_type == "dense":
+                x = RadialAttention(
+                    query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="dense", block_size=128, decay_factor=self.decay_factor, model_type="wan", pre_defined_mask=None, use_sage_attention=True
+                )
+            else:
+                # apply radial attention
+                x = RadialAttention(
+                    query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="radial", block_size=128, decay_factor=self.decay_factor, model_type="wan", pre_defined_mask=None, use_sage_attention=True
+                )
+            # transform back to (batch_size, num_heads, seq_len, head_dim)
+            x = rearrange(x, "(b s) h d -> b s h d", b=batch_size)
+
         else:                
             x = attention(
                 q, k, v,
@@ -560,7 +588,8 @@ class WanAttentionBlock(nn.Module):
                  cross_attn_norm=False,
                  eps=1e-6,
                  attention_mode='sdpa',
-                 rope_func="comfy"
+                 rope_func="comfy",
+                 block_idx=0
                  ):
         super().__init__()
         self.dim = out_features
@@ -571,11 +600,12 @@ class WanAttentionBlock(nn.Module):
         self.eps = eps
         self.attention_mode = attention_mode
         self.rope_func = rope_func
+        self.block_idx = block_idx
 
         # layers
         self.norm1 = WanLayerNorm(out_features, eps)
         self.self_attn = WanSelfAttention(in_features, out_features, num_heads, qk_norm,
-                                          eps, self.attention_mode)
+                                          eps, self.attention_mode, self.block_idx)
         if cross_attn_type != "no_cross_attn":
             self.norm3 = WanLayerNorm(
                 out_features, eps,
@@ -637,6 +667,8 @@ class WanAttentionBlock(nn.Module):
         context,
         context_lens,
         current_step,
+        timestep=0,
+        numeral_stimestep=0,
         video_attention_split_steps=[],
         clip_embed=None,
         camera_embed=None,
@@ -705,7 +737,7 @@ class WanAttentionBlock(nn.Module):
         elif ref_target_masks is not None:
             y, x_ref_attn_map = self.self_attn.forward_multitalk(q, k, v, seq_lens, grid_sizes, ref_target_masks)
         else:
-            y = self.self_attn.forward(q, k, v, seq_lens, block_mask=block_mask)
+            y = self.self_attn.forward(q, k, v, seq_lens, block_mask=block_mask, timestep=timestep, numeral_stimestep=numeral_stimestep)
 
         # FETA
         if enhance_enabled:
@@ -1121,8 +1153,8 @@ class WanModel(ModelMixin, ConfigMixin):
             self.blocks = nn.ModuleList([
                 WanAttentionBlock(cross_attn_type, self.in_features, self.out_features, ffn_dim, ffn2_dim, num_heads,
                                 qk_norm, cross_attn_norm, eps,
-                                attention_mode=self.attention_mode, rope_func=self.rope_func)
-                for _ in range(num_layers)
+                                attention_mode=self.attention_mode, rope_func=self.rope_func, block_idx=i)
+                for i in range(num_layers)
             ])
 
         # head
@@ -1707,6 +1739,8 @@ class WanModel(ModelMixin, ConfigMixin):
                 context=context,
                 context_lens=context_lens,
                 clip_embed=clip_embed,
+                timestep=t,
+                numera_timestep=10,
                 current_step=current_step,
                 video_attention_split_steps=self.video_attention_split_steps,
                 camera_embed=camera_embed,
