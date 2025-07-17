@@ -270,6 +270,7 @@ class WanSelfAttention(nn.Module):
         self.dense_block = 1
         self.decay_factor = 0.2
         self.sparse_type = "radial"
+        self.dense_attention_mode = "sageattn"
         self.mask_map = None
 
 
@@ -323,7 +324,14 @@ class WanSelfAttention(nn.Module):
         elif self.attention_mode == 'radial_sage_attention':
             dense_step = current_step < self.dense_timestep or self.layer_idx < self.dense_block or self.sparse_type == "dense"
             if dense_step:
-                x = RadialAttention(query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="dense", block_size=128, decay_factor=self.decay_factor)
+                if self.dense_attention_mode == "sparse_sage_attn":
+                    x = RadialAttention(query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="dense", block_size=128, decay_factor=self.decay_factor)
+                else:
+                    x = attention(
+                        q, k, v,
+                        k_lens=seq_lens,
+                        attention_mode=self.dense_attention_mode
+                        )
             else:
                 x = RadialAttention(query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="radial", block_size=128, decay_factor=self.decay_factor)
         else:                

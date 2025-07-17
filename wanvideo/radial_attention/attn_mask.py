@@ -191,6 +191,7 @@ def SpargeSageAttnBackend(query, key, value, mask_map=None, video_mask=None, blo
     
     return output.transpose(1, 2).contiguous()
 
+@torch.compiler.disable()
 def RadialAttention(query, key, value, mask_map=None, sparsity_type="radial", block_size=128, decay_factor=1, use_sage_attention=False):
     if sparsity_type == "dense":
         video_mask = torch.ones((mask_map.video_token_num // block_size, mask_map.video_token_num // block_size), device=device, dtype=torch.bool)
