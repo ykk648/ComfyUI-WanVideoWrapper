@@ -15,6 +15,10 @@ try:
 except:
     BlockMask = create_block_mask = flex_attention = None
     pass
+try:
+    from ..radial_attention.attn_mask import RadialAttention
+except:
+    pass
 
 from .attention import attention
 import numpy as np
@@ -262,7 +266,7 @@ class WanSelfAttention(nn.Module):
 
         #radial attention
         self.layer_idx = layer_idx
-        self.dense_timestep = 12
+        self.dense_timestep = 10
         self.dense_block = 1
         self.decay_factor = 0.2
         self.sparse_type = "radial"
@@ -317,22 +321,11 @@ class WanSelfAttention(nn.Module):
                 block_mask=block_mask
             )[:, :, :-padded_length].transpose(2, 1)
         elif self.attention_mode == 'radial_sage_attention':
-            from ..radial_attention.attn_mask import RadialAttention
-            batch_size = q.shape[0]
-            q = rearrange(q, "b s h d -> (b s) h d")
-            k = rearrange(k, "b s h d -> (b s) h d")
-            v = rearrange(v, "b s h d -> (b s) h d")
-            if current_step < self.dense_timestep or self.layer_idx < self.dense_block or self.sparse_type == "dense":
-                x = RadialAttention(
-                    query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="dense", block_size=128, decay_factor=self.decay_factor, model_type="wan", pre_defined_mask=None
-                )
+            dense_step = current_step < self.dense_timestep or self.layer_idx < self.dense_block or self.sparse_type == "dense"
+            if dense_step:
+                x = RadialAttention(query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="dense", block_size=128, decay_factor=self.decay_factor)
             else:
-                # apply radial attention
-                x = RadialAttention(
-                    query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="radial", block_size=128, decay_factor=self.decay_factor, model_type="wan", pre_defined_mask=None
-                )
-            x = rearrange(x, "(b s) h d -> b s h d", b=batch_size)
-
+                x = RadialAttention(query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="radial", block_size=128, decay_factor=self.decay_factor)
         else:                
             x = attention(
                 q, k, v,
