@@ -280,8 +280,8 @@ class WanVideoSetRadialAttention:
                     "sageattn",
                     "sparse_sage_attention",
                     ], {"default": "sageattn", "tooltip": "The attention mode for dense attention"}),
-                "dense_block": ("INT",  {"default": 1, "min": 0, "max": 8, "step": 1, "tooltip": "Number of blocks to apply normal attention to"}),
-                "dense_timestep": ("INT",  {"default": 10, "min": 0, "max": 100, "step": 1, "tooltip": "The step to start applying sparse attention"}),
+                "dense_blocks": ("INT",  {"default": 1, "min": 0, "max": 8, "step": 1, "tooltip": "Number of blocks to apply normal attention to"}),
+                "dense_timesteps": ("INT",  {"default": 10, "min": 0, "max": 100, "step": 1, "tooltip": "The step to start applying sparse attention"}),
                 "decay_factor": ("FLOAT",  {"default": 0.2, "min": 0, "max": 1, "step": 0.01, "tooltip": "Controls how quickly the attention window shrinks as the distance between frames increases in the sparse attention mask."}),
                }
         }
@@ -291,7 +291,7 @@ class WanVideoSetRadialAttention:
     FUNCTION = "loadmodel"
     CATEGORY = "WanVideoWrapper"
 
-    def loadmodel(self, model, dense_attention_mode, dense_block, dense_timestep, decay_factor):
+    def loadmodel(self, model, dense_attention_mode, dense_blocks, dense_timesteps, decay_factor):
         if "radial" not in model.model.diffusion_model.attention_mode:
             raise Exception("Enable radial attention first in the model loader.")
             
@@ -300,8 +300,8 @@ class WanVideoSetRadialAttention:
             patcher.model_options['transformer_options'] = {}
 
         patcher.model_options["transformer_options"]["dense_attention_mode"] = dense_attention_mode
-        patcher.model_options["transformer_options"]["dense_block"] = dense_block
-        patcher.model_options["transformer_options"]["dense_timestep"] = dense_timestep
+        patcher.model_options["transformer_options"]["dense_blocks"] = dense_blocks
+        patcher.model_options["transformer_options"]["dense_timesteps"] = dense_timesteps
         patcher.model_options["transformer_options"]["decay_factor"] = decay_factor
 
         return (patcher,)
@@ -2537,22 +2537,24 @@ class WanVideoSampler:
 
         # Radial attention setup
         if transformer.attention_mode == "radial_sage_attention":
+            if latent.shape[2] % 16 != 0 or latent.shape[3] % 16 != 0:
+                raise Exception(f"Radial attention mode only supports image size divisible by 128.")
             if transformer_options is not None:
-                dense_timestep = transformer_options.get("dense_timestep", 10)
-                dense_block = transformer_options.get("dense_block", 1)
+                dense_timesteps = transformer_options.get("dense_timesteps", 10)
+                dense_blocks = transformer_options.get("dense_blocks", 1)
                 decay_factor = transformer_options.get("decay_factor", 0.2)
                 dense_attention_mode = transformer_options.get("dense_attention_mode", "sageattn")
 
             from .wanvideo.radial_attention.attn_mask import MaskMap
             for i, block in enumerate(transformer.blocks):
-                block.self_attn.mask_map = block.dense_attention_mode = block.dense_timestep = block.self_attn.decay_factor = None
-                block.dense_block = True if i < dense_block else False
+                block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
+                block.dense_block = True if i < dense_blocks else False
                 block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length)
                 block.dense_attention_mode = dense_attention_mode
-                block.dense_timestep = dense_timestep
+                block.dense_timesteps = dense_timesteps
                 block.self_attn.decay_factor = decay_factor
                     
-            log.info(f"Radial attention mode enabled. dense_attention_mode: {dense_attention_mode}, dense_timestep: {dense_timestep}, dense_block: {dense_block}, decay_factor: {decay_factor}")
+            log.info(f"Radial attention mode enabled. dense_attention_mode: {dense_attention_mode}, dense_timesteps: {dense_timesteps}, dense_blocks: {dense_blocks}, decay_factor: {decay_factor}")
 
         self.cache_state = [None, None]
         if phantom_latents is not None:

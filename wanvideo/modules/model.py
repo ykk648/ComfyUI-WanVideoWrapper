@@ -600,7 +600,7 @@ class WanAttentionBlock(nn.Module):
         self.attention_mode = attention_mode
         self.rope_func = rope_func
         #radial attn
-        self.dense_timestep = 10
+        self.dense_timesteps = 10
         self.dense_block = False
         self.dense_attention_mode = "sageattn"
 
@@ -738,7 +738,7 @@ class WanAttentionBlock(nn.Module):
         elif ref_target_masks is not None:
             y, x_ref_attn_map = self.self_attn.forward_multitalk(q, k, v, seq_lens, grid_sizes, ref_target_masks)
         elif self.attention_mode == "radial_sage_attention":
-            if self.dense_block and self.dense_timestep is not None and current_step < self.dense_timestep:
+            if self.dense_block or self.dense_timesteps is not None and current_step < self.dense_timesteps:
                 if self.dense_attention_mode == "sparse_sage_attn":
                     y = self.self_attn.forward_radial(q, k, v, dense_step=True)
                 else:
