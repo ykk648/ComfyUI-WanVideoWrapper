@@ -1,5 +1,5 @@
 import torch
-import flashinfer
+#import flashinfer
 import matplotlib.pyplot as plt
 try:
     from sparse_sageattn import sparse_sageattn
@@ -252,49 +252,9 @@ def SpargeSageAttnBackend(query, key, value, mask_map=None, video_mask=None, pre
     # )
     
     # return torch.cat([output_video, output_text], dim=0)
-    
-
-def FlashInferBackend(query, key, value, mask_map=None, pre_defined_mask=None, bsr_wrapper=None):
-    if pre_defined_mask is not None:
-        video_video_o, video_video_o_lse = bsr_wrapper.run(
-            query[:mask_map.video_token_num, :, :], 
-            key[:mask_map.video_token_num, :, :],
-            value[:mask_map.video_token_num, :, :],
-            return_lse=True
-        ) 
-        # perform non-causal flashinfer on the text tokens
-        video_text_o, video_text_o_lse = flashinfer.single_prefill_with_kv_cache(
-            q=query[:mask_map.video_token_num, :, :],
-            k=key[mask_map.video_token_num:, :, :],
-            v=value[mask_map.video_token_num:, :, :],
-            causal=False,
-            return_lse=True,
-            custom_mask=pre_defined_mask[:mask_map.video_token_num, mask_map.video_token_num:]
-        )
-        
-        # merge the two results
-        o_video, _ = flashinfer.merge_state(v_a=video_video_o, s_a=video_video_o_lse, v_b=video_text_o, s_b=video_text_o_lse)
-        
-        o_text = flashinfer.single_prefill_with_kv_cache(
-            q=query[mask_map.video_token_num:, :, :],
-            k=key,
-            v=value,
-            causal=False,
-            return_lse=False,
-            custom_mask=pre_defined_mask[mask_map.video_token_num:, :]
-        )
-        
-        return torch.cat([o_video, o_text], dim=0)
-    else:
-        o = bsr_wrapper.run(
-            query[:mask_map.video_token_num, :, :],
-            key[:mask_map.video_token_num, :, :],
-            value[:mask_map.video_token_num, :, :]
-        )
-        return o
 
 def RadialAttention(query, key, value, mask_map=None, sparsity_type="radial", block_size=128, decay_factor=1, model_type=None, pre_defined_mask=None, use_sage_attention=False):
-    orig_seqlen, num_head, hidden_dim = query.shape
+    #orig_seqlen, num_head, hidden_dim = query.shape
 
     if sparsity_type == "dense":
         video_mask = torch.ones((mask_map.video_token_num // block_size, mask_map.video_token_num // block_size), device=query.device, dtype=torch.bool)
@@ -331,35 +291,35 @@ def RadialAttention(query, key, value, mask_map=None, sparsity_type="radial", bl
     # elif backend == "sparse_sageattn":
     return SpargeSageAttnBackend(query, key, value, mask_map, video_mask, pre_defined_mask, block_size=block_size)
         
-if __name__ == "__main__":
-    query = torch.randn(1, 2, 4, 64).cuda()
-    # mask = torch.tensor([
-    #     [True, False, True, False],
-    #     [False, True, False, True],
-    #     [True, False, False, True],
-    #     [False, True, True, False]
-    # ], dtype=torch.bool)
-    # indices = get_indices_from_mask(mask, query)
-    # indptr = get_indptr_from_mask(mask, query)
-    # print("Indices: ", indices)
-    # print("Indptr: ", indptr)
-    video_token_num = 3840 * 30
-    num_frame = 30
-    token_per_frame = video_token_num / num_frame
-    padded_video_token_num = ((video_token_num + 1) // 128 + 1) * 128
-    print("padded: ", padded_video_token_num)
-    temporal_mask = gen_log_mask_shrinked(query, padded_video_token_num, video_token_num, num_frame, sparse_type="radial", decay_factor=1, model_type="hunyuan")
-    plt.figure(figsize=(10, 8), dpi=500)
+# if __name__ == "__main__":
+#     query = torch.randn(1, 2, 4, 64).cuda()
+#     # mask = torch.tensor([
+#     #     [True, False, True, False],
+#     #     [False, True, False, True],
+#     #     [True, False, False, True],
+#     #     [False, True, True, False]
+#     # ], dtype=torch.bool)
+#     # indices = get_indices_from_mask(mask, query)
+#     # indptr = get_indptr_from_mask(mask, query)
+#     # print("Indices: ", indices)
+#     # print("Indptr: ", indptr)
+#     video_token_num = 3840 * 30
+#     num_frame = 30
+#     token_per_frame = video_token_num / num_frame
+#     padded_video_token_num = ((video_token_num + 1) // 128 + 1) * 128
+#     print("padded: ", padded_video_token_num)
+#     temporal_mask = gen_log_mask_shrinked(query, padded_video_token_num, video_token_num, num_frame, sparse_type="radial", decay_factor=1, model_type="hunyuan")
+#     plt.figure(figsize=(10, 8), dpi=500)
 
-    plt.imshow(temporal_mask.cpu().numpy()[:, :], cmap='hot')
-    plt.colorbar()
-    plt.title("Temporal Mask")
+#     plt.imshow(temporal_mask.cpu().numpy()[:, :], cmap='hot')
+#     plt.colorbar()
+#     plt.title("Temporal Mask")
 
-    plt.savefig("temporal_mask.png",
-                dpi=300,
-                bbox_inches='tight',
-                pad_inches=0.1)
+#     plt.savefig("temporal_mask.png",
+#                 dpi=300,
+#                 bbox_inches='tight',
+#                 pad_inches=0.1)
 
-    plt.close()
-    # save the mask tensor
-    torch.save(temporal_mask, "temporal_mask.pt")
+#     plt.close()
+#     # save the mask tensor
+#     torch.save(temporal_mask, "temporal_mask.pt")

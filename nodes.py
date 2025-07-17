@@ -2500,7 +2500,7 @@ class WanVideoSampler:
         if transformer.attention_mode == "radial_sage_attention":
             from .wanvideo.radial_attention.attn_mask import MaskMap
             for block in transformer.blocks:
-                block.self_attn.mask_map = MaskMap(video_token_num=seq_len)
+                block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length)
 
         self.cache_state = [None, None]
         if phantom_latents is not None:
