@@ -253,8 +253,7 @@ class WanSelfAttention(nn.Module):
                  num_heads,
                  qk_norm=True,
                  eps=1e-6,
-                 attention_mode='sdpa',
-                 layer_idx=0):
+                 attention_mode='sdpa'):
         assert out_features % num_heads == 0
         super().__init__()
         self.dim = out_features
@@ -265,14 +264,8 @@ class WanSelfAttention(nn.Module):
         self.attention_mode = attention_mode
 
         #radial attention
-        self.layer_idx = layer_idx
-        self.dense_timestep = 10
-        self.dense_block = 1
-        self.decay_factor = 0.2
-        self.sparse_type = "radial"
-        self.dense_attention_mode = "sageattn"
         self.mask_map = None
-
+        self.decay_factor = 0.2
 
         # layers
         self.q = nn.Linear(in_features, out_features)
@@ -289,7 +282,7 @@ class WanSelfAttention(nn.Module):
         v = self.v(x).view(b, s, n, d)
         return q, k, v
 
-    def forward(self, q, k, v, seq_lens, block_mask=None, current_step=0):
+    def forward(self, q, k, v, seq_lens, block_mask=None):
         r"""
         Args:
             x(Tensor): Shape [B, L, num_heads, C / num_heads]
@@ -321,25 +314,32 @@ class WanSelfAttention(nn.Module):
                 value=padded_v.transpose(2, 1),
                 block_mask=block_mask
             )[:, :, :-padded_length].transpose(2, 1)
-        elif self.attention_mode == 'radial_sage_attention':
-            dense_step = current_step < self.dense_timestep or self.layer_idx < self.dense_block or self.sparse_type == "dense"
-            if dense_step:
-                if self.dense_attention_mode == "sparse_sage_attn":
-                    x = RadialAttention(query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="dense", block_size=128, decay_factor=self.decay_factor)
-                else:
-                    x = attention(
-                        q, k, v,
-                        k_lens=seq_lens,
-                        attention_mode=self.dense_attention_mode
-                        )
-            else:
-                x = RadialAttention(query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="radial", block_size=128, decay_factor=self.decay_factor)
         else:                
             x = attention(
                 q, k, v,
                 k_lens=seq_lens,
                 attention_mode=self.attention_mode
                 )
+
+        # output
+        x = x.flatten(2)
+        x = self.o(x)
+
+        return x
+    
+    def forward_radial(self, q, k, v, dense_step=False):
+        r"""
+        Args:
+            x(Tensor): Shape [B, L, num_heads, C / num_heads]
+            seq_lens(Tensor): Shape [B]
+            grid_sizes(Tensor): Shape [B, 3], the second dimension contains (F, H, W)
+            freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
+        """
+
+        if dense_step:
+            x = RadialAttention(query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="dense", block_size=128, decay_factor=self.decay_factor)
+        else:
+            x = RadialAttention(query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="radial", block_size=128, decay_factor=self.decay_factor)
 
         # output
         x = x.flatten(2)
@@ -589,7 +589,6 @@ class WanAttentionBlock(nn.Module):
                  eps=1e-6,
                  attention_mode='sdpa',
                  rope_func="comfy",
-                 block_idx=0
                  ):
         super().__init__()
         self.dim = out_features
@@ -600,12 +599,15 @@ class WanAttentionBlock(nn.Module):
         self.eps = eps
         self.attention_mode = attention_mode
         self.rope_func = rope_func
-        self.block_idx = block_idx
+        #radial attn
+        self.dense_timestep = 10
+        self.dense_block = False
+        self.dense_attention_mode = "sageattn"
 
         # layers
         self.norm1 = WanLayerNorm(out_features, eps)
         self.self_attn = WanSelfAttention(in_features, out_features, num_heads, qk_norm,
-                                          eps, self.attention_mode, self.block_idx)
+                                          eps, self.attention_mode)
         if cross_attn_type != "no_cross_attn":
             self.norm3 = WanLayerNorm(
                 out_features, eps,
@@ -660,6 +662,7 @@ class WanAttentionBlock(nn.Module):
     def forward(
         self,
         x,
+        block_idx,
         e,
         seq_lens,
         grid_sizes,
@@ -734,8 +737,16 @@ class WanAttentionBlock(nn.Module):
             )
         elif ref_target_masks is not None:
             y, x_ref_attn_map = self.self_attn.forward_multitalk(q, k, v, seq_lens, grid_sizes, ref_target_masks)
+        elif self.attention_mode == "radial_sage_attention":
+            if self.dense_block and self.dense_timestep is not None and current_step < self.dense_timestep:
+                if self.dense_attention_mode == "sparse_sage_attn":
+                    y = self.self_attn.forward_radial(q, k, v, dense_step=True)
+                else:
+                    y = self.self_attn.forward(q, k, v, seq_lens, block_mask=block_mask)
+            else:
+                y = self.self_attn.forward_radial(q, k, v, dense_step=False)
         else:
-            y = self.self_attn.forward(q, k, v, seq_lens, block_mask=block_mask, current_step=current_step)
+            y = self.self_attn.forward(q, k, v, seq_lens, block_mask=block_mask)
 
         # FETA
         if enhance_enabled:
@@ -1151,8 +1162,8 @@ class WanModel(ModelMixin, ConfigMixin):
             self.blocks = nn.ModuleList([
                 WanAttentionBlock(cross_attn_type, self.in_features, self.out_features, ffn_dim, ffn2_dim, num_heads,
                                 qk_norm, cross_attn_norm, eps,
-                                attention_mode=self.attention_mode, rope_func=self.rope_func, block_idx=i)
-                for i in range(num_layers)
+                                attention_mode=self.attention_mode, rope_func=self.rope_func)
+                for _ in range(num_layers)
             ])
 
         # head
@@ -1796,7 +1807,7 @@ class WanModel(ModelMixin, ConfigMixin):
                             continue
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.main_device)
-                x = block(x, **kwargs)
+                x = block(x, b, **kwargs)
 
                 #uni3c controlnet
                 if pdc_controlnet_states is not None and b < len(pdc_controlnet_states):
