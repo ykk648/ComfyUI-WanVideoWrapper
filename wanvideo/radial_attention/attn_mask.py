@@ -109,6 +109,13 @@ def gen_log_mask_shrinked(device, s, video_token_num, num_frame, block_size=128,
     A more memory friendly version, we generate the attention mask of each frame pair at a time,
     shrinks it, and stores it into the final result
     """
+    # Simple cache based on function arguments
+    if not hasattr(gen_log_mask_shrinked, "_cache"):
+        gen_log_mask_shrinked._cache = {}
+    cache_key = (str(device), s, video_token_num, num_frame, block_size, sparse_type, decay_factor)
+    if cache_key in gen_log_mask_shrinked._cache:
+        return gen_log_mask_shrinked._cache[cache_key]
+
     final_log_mask = torch.zeros((s // block_size, s // block_size), device=device, dtype=torch.bool)
     token_per_frame = video_token_num // num_frame
     video_text_border = video_token_num // block_size
@@ -145,6 +152,7 @@ def gen_log_mask_shrinked(device, s, video_token_num, num_frame, block_size=128,
             final_log_mask[block_row_start:block_row_end, block_col_start:block_col_end] = torch.logical_or(
                 final_log_mask[block_row_start:block_row_end, block_col_start:block_col_end], block_mask)
     #print(f"mask sparsity: {1 - final_log_mask.sum() / final_log_mask.numel()}")
+    gen_log_mask_shrinked._cache[cache_key] = final_log_mask
     return final_log_mask
 
 class MaskMap:
