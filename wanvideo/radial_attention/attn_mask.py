@@ -138,7 +138,7 @@ def RadialSpargeSageAttn(query, key, value, mask_map, block_size=128, decay_fact
     if cache_key in RadialSpargeSageAttn._cache:
         input_mask = RadialSpargeSageAttn._cache[cache_key]
     else:
-        print("generating input mask")
+        print("Radial Attention: Generating block mask")
         video_mask = mask_map.queryLogMask(query.shape[0] * query.shape[1], "radial", block_size=block_size, decay_factor=decay_factor) 
         mask = torch.repeat_interleave(video_mask, 2, dim=1) #s, t
         input_mask = mask.unsqueeze(0).unsqueeze(1).expand(1, query.shape[-2], mask.shape[0], mask.shape[1]) # b, h, s, t

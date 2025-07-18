@@ -2540,11 +2540,13 @@ class WanVideoSampler:
         if transformer.attention_mode == "radial_sage_attention":
             if latent.shape[2] % 16 != 0 or latent.shape[3] % 16 != 0:
                 raise Exception(f"Radial attention mode only supports image size divisible by 128.")
-            if transformer_options is not None:
-                dense_timesteps = transformer_options.get("dense_timesteps", 10)
-                dense_blocks = transformer_options.get("dense_blocks", 1)
-                decay_factor = transformer_options.get("decay_factor", 0.2)
-                dense_attention_mode = transformer_options.get("dense_attention_mode", "sageattn")
+            
+            dense_timesteps = transformer_options.get("dense_timesteps", None)
+            dense_blocks = transformer_options.get("dense_blocks", None)
+            decay_factor = transformer_options.get("decay_factor", None)
+            dense_attention_mode = transformer_options.get("dense_attention_mode", None)
+            if dense_timesteps is None:
+                raise Exception("Radial attention mode is enabled, but no parameters are provided. Add the `WanVideoSetRadialAttention` node to the model to set the parameters.")
 
             from .wanvideo.radial_attention.attn_mask import MaskMap
             for i, block in enumerate(transformer.blocks):
@@ -2554,13 +2556,14 @@ class WanVideoSampler:
                 block.dense_attention_mode = dense_attention_mode
                 block.dense_timesteps = dense_timesteps
                 block.self_attn.decay_factor = decay_factor
-            for i, block in enumerate(transformer.vace_blocks):
-                block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
-                block.dense_block = True if i < dense_blocks else False
-                block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length)
-                block.dense_attention_mode = dense_attention_mode
-                block.dense_timesteps = dense_timesteps
-                block.self_attn.decay_factor = decay_factor
+            if transformer.vace_layers is not None:
+                for i, block in enumerate(transformer.vace_blocks):
+                    block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
+                    block.dense_block = True if i < dense_blocks else False
+                    block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length)
+                    block.dense_attention_mode = dense_attention_mode
+                    block.dense_timesteps = dense_timesteps
+                    block.self_attn.decay_factor = decay_factor
                     
             log.info(f"Radial attention mode enabled. dense_attention_mode: {dense_attention_mode}, dense_timesteps: {dense_timesteps}, dense_blocks: {dense_blocks}, decay_factor: {decay_factor}")
 
