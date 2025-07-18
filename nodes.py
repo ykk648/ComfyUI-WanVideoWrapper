@@ -290,6 +290,7 @@ class WanVideoSetRadialAttention:
     RETURN_NAMES = ("model", )
     FUNCTION = "loadmodel"
     CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Sets radial attention parameters, dense attention refers to normal attention"
 
     def loadmodel(self, model, dense_attention_mode, dense_blocks, dense_timesteps, decay_factor):
         if "radial" not in model.model.diffusion_model.attention_mode:
@@ -2547,6 +2548,13 @@ class WanVideoSampler:
 
             from .wanvideo.radial_attention.attn_mask import MaskMap
             for i, block in enumerate(transformer.blocks):
+                block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
+                block.dense_block = True if i < dense_blocks else False
+                block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length)
+                block.dense_attention_mode = dense_attention_mode
+                block.dense_timesteps = dense_timesteps
+                block.self_attn.decay_factor = decay_factor
+            for i, block in enumerate(transformer.vace_blocks):
                 block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
                 block.dense_block = True if i < dense_blocks else False
                 block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length)

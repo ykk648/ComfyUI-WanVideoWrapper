@@ -652,7 +652,6 @@ class WanAttentionBlock(nn.Module):
     def forward(
         self,
         x,
-        block_idx,
         e,
         seq_lens,
         grid_sizes,
@@ -1797,7 +1796,7 @@ class WanModel(ModelMixin, ConfigMixin):
                             continue
                 if b <= self.blocks_to_swap and self.blocks_to_swap >= 0:
                     block.to(self.main_device)
-                x = block(x, b, **kwargs)
+                x = block(x, **kwargs)
 
                 #uni3c controlnet
                 if pdc_controlnet_states is not None and b < len(pdc_controlnet_states):
