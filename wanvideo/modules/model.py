@@ -15,6 +15,10 @@ try:
 except:
     BlockMask = create_block_mask = flex_attention = None
     pass
+try:
+    from ..radial_attention.attn_mask import RadialSpargeSageAttn, RadialSpargeSageAttnDense
+except:
+    pass
 
 from .attention import attention
 import numpy as np
@@ -259,6 +263,10 @@ class WanSelfAttention(nn.Module):
         self.eps = eps
         self.attention_mode = attention_mode
 
+        #radial attention
+        self.mask_map = None
+        self.decay_factor = 0.2
+
         # layers
         self.q = nn.Linear(in_features, out_features)
         self.k = nn.Linear(in_features, out_features)
@@ -316,6 +324,16 @@ class WanSelfAttention(nn.Module):
         # output
         x = x.flatten(2)
         x = self.o(x)
+
+        return x
+    
+    def forward_radial(self, q, k, v, dense_step=False):
+        if dense_step:
+            x = RadialSpargeSageAttnDense(q, k, v, self.mask_map)
+        else:
+            x = RadialSpargeSageAttn(q, k, v, self.mask_map, decay_factor=self.decay_factor)
+
+        x = self.o(x.flatten(2))
 
         return x
     
@@ -560,7 +578,7 @@ class WanAttentionBlock(nn.Module):
                  cross_attn_norm=False,
                  eps=1e-6,
                  attention_mode='sdpa',
-                 rope_func="comfy"
+                 rope_func="comfy",
                  ):
         super().__init__()
         self.dim = out_features
@@ -571,6 +589,10 @@ class WanAttentionBlock(nn.Module):
         self.eps = eps
         self.attention_mode = attention_mode
         self.rope_func = rope_func
+        #radial attn
+        self.dense_timesteps = 10
+        self.dense_block = False
+        self.dense_attention_mode = "sageattn"
 
         # layers
         self.norm1 = WanLayerNorm(out_features, eps)
@@ -704,6 +726,14 @@ class WanAttentionBlock(nn.Module):
             )
         elif ref_target_masks is not None:
             y, x_ref_attn_map = self.self_attn.forward_multitalk(q, k, v, seq_lens, grid_sizes, ref_target_masks)
+        elif self.attention_mode == "radial_sage_attention":
+            if self.dense_block or self.dense_timesteps is not None and current_step < self.dense_timesteps:
+                if self.dense_attention_mode == "sparse_sage_attn":
+                    y = self.self_attn.forward_radial(q, k, v, dense_step=True)
+                else:
+                    y = self.self_attn.forward(q, k, v, seq_lens, block_mask=block_mask)
+            else:
+                y = self.self_attn.forward_radial(q, k, v, dense_step=False)
         else:
             y = self.self_attn.forward(q, k, v, seq_lens, block_mask=block_mask)
 
