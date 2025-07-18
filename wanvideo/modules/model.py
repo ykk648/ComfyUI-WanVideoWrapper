@@ -16,7 +16,7 @@ except:
     BlockMask = create_block_mask = flex_attention = None
     pass
 try:
-    from ..radial_attention.attn_mask import RadialAttention
+    from ..radial_attention.attn_mask import RadialSpargeSageAttn, RadialSpargeSageAttnDense
 except:
     pass
 
@@ -328,22 +328,12 @@ class WanSelfAttention(nn.Module):
         return x
     
     def forward_radial(self, q, k, v, dense_step=False):
-        r"""
-        Args:
-            x(Tensor): Shape [B, L, num_heads, C / num_heads]
-            seq_lens(Tensor): Shape [B]
-            grid_sizes(Tensor): Shape [B, 3], the second dimension contains (F, H, W)
-            freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
-        """
-
         if dense_step:
-            x = RadialAttention(query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="dense", block_size=128, decay_factor=self.decay_factor)
+            x = RadialSpargeSageAttnDense(q, k, v, self.mask_map)
         else:
-            x = RadialAttention(query=q, key=k, value=v, mask_map=self.mask_map, sparsity_type="radial", block_size=128, decay_factor=self.decay_factor)
+            x = RadialSpargeSageAttn(q, k, v, self.mask_map, decay_factor=self.decay_factor)
 
-        # output
-        x = x.flatten(2)
-        x = self.o(x)
+        x = self.o(x.flatten(2))
 
         return x
     

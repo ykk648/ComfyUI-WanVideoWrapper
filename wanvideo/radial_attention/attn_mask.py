@@ -1,48 +1,15 @@
+# based on https://github.com/mit-han-lab/radial-attention/blob/main/radial_attn/attn_mask.py
 import torch
 try:
     from sparse_sageattn import sparse_sageattn
 except:
     sparse_sageattn = None
     raise ImportError("Package is not installed: https://github.com/jt-zhang/Sparse_SageAttention_API")
-from einops import rearrange, repeat
-
-def sparge_mask_convert(mask: torch.Tensor, block_size: int = 128) -> torch.Tensor:
-    assert block_size in [128, 64], "Radial Attention only supports block size of 128 or 64"
-    assert mask.shape[0] == mask.shape[1], "Input mask must be square."
-
-    if block_size == 128:
-        new_mask = torch.repeat_interleave(mask, 2, dim=1)
-        
-    elif block_size == 64:
-        num_row, num_col = mask.shape
-        reshaped_mask = mask.view(num_row // 2, 2, num_col)
-        new_mask = torch.max(reshaped_mask, dim=1).values
-
-    return new_mask
 
 from comfy import model_management as mm
 device = mm.get_torch_device()
 
-def get_indptr_from_mask(mask):
-    # query shows the device of the indptr
-    # indptr (torch.Tensor) - the block index pointer of the block-sparse matrix on row dimension,
-    # shape `(MB + 1,)`, where `MB` is the number of blocks in the row dimension.
-    # The first element is always 0, and the last element is the number of blocks in the row dimension.
-    # The rest of the elements are the number of blocks in each row.
-    # the mask is already a block sparse mask
-    indptr = torch.zeros(mask.shape[0] + 1, device=device, dtype=torch.int32)
-    indptr[0] = 0
-    row_counts = mask.sum(dim=1).flatten()  # Ensure 1D output [num_blocks_row]
-    indptr[1:] = torch.cumsum(row_counts, dim=0)
-    return indptr
-
-def get_indices_from_mask(mask):
-    # indices (torch.Tensor) - the block indices of the block-sparse matrix on column dimension,
-    # shape `(nnz,),` where `nnz` is the number of non-zero blocks.
-    # The elements in `indices` array should be less than `NB`: the number of blocks in the column dimension.
-    nonzero_indices = torch.nonzero(mask)
-    indices = nonzero_indices[:, 1].to(dtype=torch.int32, device=device)
-    return indices
+from tqdm import tqdm
 
 def shrinkMaskStrict(mask, block_size=128):
     seqlen = mask.shape[0]
@@ -57,21 +24,6 @@ def shrinkMaskStrict(mask, block_size=128):
     block_mask[0:0] = True
     block_mask[-1:-1] = True
     return block_mask
-
-def pad_qkv(input_tensor, block_size=128):
-    """
-    Pad the input tensor to be a multiple of the block size.
-    input shape: (seqlen, num_heads, hidden_dim)
-    """
-    seqlen, num_heads, hidden_dim = input_tensor.shape
-    # Calculate the necessary padding
-    padding_length = (block_size - (seqlen % block_size)) % block_size
-    # Create a padded tensor with zeros
-    padded_tensor = torch.zeros((seqlen + padding_length, num_heads, hidden_dim), device=input_tensor.device, dtype=input_tensor.dtype)
-    # Copy the original tensor into the padded tensor
-    padded_tensor[:seqlen, :, :] = input_tensor
-    
-    return padded_tensor
 
 def get_diagonal_split_mask(i, j, token_per_frame, sparse_type):
     assert(sparse_type in ["radial"])
@@ -109,12 +61,6 @@ def gen_log_mask_shrinked(device, s, video_token_num, num_frame, block_size=128,
     A more memory friendly version, we generate the attention mask of each frame pair at a time,
     shrinks it, and stores it into the final result
     """
-    # Simple cache based on function arguments
-    if not hasattr(gen_log_mask_shrinked, "_cache"):
-        gen_log_mask_shrinked._cache = {}
-    cache_key = (str(device), s, video_token_num, num_frame, block_size, sparse_type, decay_factor)
-    if cache_key in gen_log_mask_shrinked._cache:
-        return gen_log_mask_shrinked._cache[cache_key]
 
     final_log_mask = torch.zeros((s // block_size, s // block_size), device=device, dtype=torch.bool)
     token_per_frame = video_token_num // num_frame
@@ -124,7 +70,7 @@ def gen_log_mask_shrinked(device, s, video_token_num, num_frame, block_size=128,
     row_indices = torch.arange(0, token_per_frame, device=device).view(-1, 1)
     final_log_mask[video_text_border:] = True
     final_log_mask[:, video_text_border:] = True
-    for i in range(num_frame):
+    for i in tqdm(range(num_frame), desc="Frames (i)"):
         for j in range(num_frame):
             local_mask = torch.zeros((token_per_frame, token_per_frame), device=device, dtype=torch.bool)
             if j == 0: # this is attention sink
@@ -152,7 +98,6 @@ def gen_log_mask_shrinked(device, s, video_token_num, num_frame, block_size=128,
             final_log_mask[block_row_start:block_row_end, block_col_start:block_col_end] = torch.logical_or(
                 final_log_mask[block_row_start:block_row_end, block_col_start:block_col_end], block_mask)
     #print(f"mask sparsity: {1 - final_log_mask.sum() / final_log_mask.numel()}")
-    gen_log_mask_shrinked._cache[cache_key] = final_log_mask
     return final_log_mask
 
 class MaskMap:
@@ -170,40 +115,42 @@ class MaskMap:
         log_mask[:block_bound, :block_bound] = self.log_mask[:block_bound, :block_bound]
         return log_mask
 
-def SpargeSageAttnBackend(query, key, value, mask_map=None, video_mask=None, block_size=128):
-    if video_mask.all():
-        # dense case
-        output_video = sparse_sageattn(
-            query[:,:mask_map.video_token_num],
-            key[:,:key.shape[1], :, :],
-            value[:,:key.shape[1], :, :],
-            mask_id=None,
-            is_causal=False,
-            tensor_layout="NHD",
-        )[0]
-
-        return output_video.unsqueeze(0).contiguous()
-    
-    converted_mask = repeat(sparge_mask_convert(mask=video_mask, block_size=block_size), "s t -> b h s t", b=1, h=query.shape[-2])
-    
-    converted_mask = converted_mask.to(torch.int8)
-    
-    output = sparse_sageattn(
-        query.transpose(1, 2)[:, :, :mask_map.video_token_num, :],
-        key.transpose(1, 2)[:, :, :mask_map.video_token_num, :],
-        value.transpose(1, 2)[:, :, :mask_map.video_token_num, :],
-        mask_id=converted_mask,
+@torch.compiler.disable()
+def RadialSpargeSageAttnDense(query, key, value, mask_map=None):
+    # dense case
+    output_video = sparse_sageattn(
+        query[:,:mask_map.video_token_num],
+        key[:,:key.shape[1], :, :],
+        value[:,:key.shape[1], :, :],
+        mask_id=None,
         is_causal=False,
-        tensor_layout="HND",
+        tensor_layout="NHD",
     )
-    
-    return output.transpose(1, 2).contiguous()
+
+    return output_video.contiguous()
 
 @torch.compiler.disable()
-def RadialAttention(query, key, value, mask_map=None, sparsity_type="radial", block_size=128, decay_factor=1, use_sage_attention=False):
-    if sparsity_type == "dense":
-        video_mask = torch.ones((mask_map.video_token_num // block_size, mask_map.video_token_num // block_size), device=device, dtype=torch.bool)
+def RadialSpargeSageAttn(query, key, value, mask_map, block_size=128, decay_factor=1):
+    # Simple cache based on function arguments
+    if not hasattr(RadialSpargeSageAttn, "_cache"):
+        RadialSpargeSageAttn._cache = {}
+    cache_key = (query.shape[-2], block_size, decay_factor)
+    if cache_key in RadialSpargeSageAttn._cache:
+        input_mask = RadialSpargeSageAttn._cache[cache_key]
     else:
-        video_mask = mask_map.queryLogMask(query.shape[0] * query.shape[1], sparsity_type, block_size=block_size, decay_factor=decay_factor) if mask_map else None
+        print("generating input mask")
+        video_mask = mask_map.queryLogMask(query.shape[0] * query.shape[1], "radial", block_size=block_size, decay_factor=decay_factor) 
+        mask = torch.repeat_interleave(video_mask, 2, dim=1) #s, t
+        input_mask = mask.unsqueeze(0).unsqueeze(1).expand(1, query.shape[-2], mask.shape[0], mask.shape[1]) # b, h, s, t
+        RadialSpargeSageAttn._cache[cache_key] = input_mask
+
+    output = sparse_sageattn(
+        query[:, :, :mask_map.video_token_num, :],
+        key[:, :, :mask_map.video_token_num, :],
+        value[:, :, :mask_map.video_token_num, :],
+        mask_id=input_mask.to(torch.int8),
+        is_causal=False,
+        tensor_layout="NHD"
+    )
     
-    return SpargeSageAttnBackend(query, key, value, mask_map, video_mask, block_size=block_size)
+    return output.contiguous()

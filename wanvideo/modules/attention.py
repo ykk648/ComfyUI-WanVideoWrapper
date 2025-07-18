@@ -18,9 +18,9 @@ try:
     @torch.compiler.disable()
     def sageattn_func(q, k, v, attn_mask=None, dropout_p=0, is_causal=False):
         if q.dtype == torch.float32:
-            return sageattn(q.to(torch.float16), k.to(torch.float16), v.to(torch.float16), attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal).to(torch.float32)
+            return sageattn(q.to(torch.float16), k.to(torch.float16), v.to(torch.float16), attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, tensor_layout="NHD").to(torch.float32)
         else:
-            return sageattn(q, k, v, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal)
+            return sageattn(q, k, v, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, tensor_layout="NHD")
 except Exception as e:
     print(f"Warning: Could not load sageattention: {str(e)}")
     if isinstance(e, ModuleNotFoundError):
@@ -183,4 +183,4 @@ def attention(
     elif attention_mode == 'sdpa':
         return torch.nn.functional.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)).transpose(1, 2).contiguous()
     else:
-        return sageattn_func(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)).transpose(1, 2).contiguous()
+        return sageattn_func(q, k, v).contiguous()

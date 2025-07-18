@@ -280,7 +280,7 @@ class WanVideoSetRadialAttention:
                     "sageattn",
                     "sparse_sage_attention",
                     ], {"default": "sageattn", "tooltip": "The attention mode for dense attention"}),
-                "dense_blocks": ("INT",  {"default": 1, "min": 0, "max": 8, "step": 1, "tooltip": "Number of blocks to apply normal attention to"}),
+                "dense_blocks": ("INT",  {"default": 1, "min": 0, "max": 40, "step": 1, "tooltip": "Number of blocks to apply normal attention to"}),
                 "dense_timesteps": ("INT",  {"default": 10, "min": 0, "max": 100, "step": 1, "tooltip": "The step to start applying sparse attention"}),
                 "decay_factor": ("FLOAT",  {"default": 0.2, "min": 0, "max": 1, "step": 0.01, "tooltip": "Controls how quickly the attention window shrinks as the distance between frames increases in the sparse attention mask."}),
                }
