@@ -3,8 +3,11 @@ import torch
 try:
     from sparse_sageattn import sparse_sageattn
 except:
-    sparse_sageattn = None
-    raise ImportError("Package is not installed: https://github.com/jt-zhang/Sparse_SageAttention_API")
+    try:
+        from .sparse_sage.core import sparse_sageattn
+    except:
+        sparse_sageattn = None
+        raise ImportError("sparse_sageattn is not available. Please install the sparse_sageattn package or check your import path.")
 
 from comfy import model_management as mm
 device = mm.get_torch_device()
