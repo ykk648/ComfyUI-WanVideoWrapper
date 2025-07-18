@@ -281,6 +281,7 @@ class WanVideoSetRadialAttention:
                     "sparse_sage_attention",
                     ], {"default": "sageattn", "tooltip": "The attention mode for dense attention"}),
                 "dense_blocks": ("INT",  {"default": 1, "min": 0, "max": 40, "step": 1, "tooltip": "Number of blocks to apply normal attention to"}),
+                "dense_vace_blocks": ("INT",  {"default": 15, "min": 0, "max": 40, "step": 1, "tooltip": "Number of vace blocks to apply normal attention to"}),
                 "dense_timesteps": ("INT",  {"default": 10, "min": 0, "max": 100, "step": 1, "tooltip": "The step to start applying sparse attention"}),
                 "decay_factor": ("FLOAT",  {"default": 0.2, "min": 0, "max": 1, "step": 0.01, "tooltip": "Controls how quickly the attention window shrinks as the distance between frames increases in the sparse attention mask."}),
                }
@@ -292,7 +293,7 @@ class WanVideoSetRadialAttention:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "Sets radial attention parameters, dense attention refers to normal attention"
 
-    def loadmodel(self, model, dense_attention_mode, dense_blocks, dense_timesteps, decay_factor):
+    def loadmodel(self, model, dense_attention_mode, dense_blocks, dense_vace_blocks, dense_timesteps, decay_factor):
         if "radial" not in model.model.diffusion_model.attention_mode:
             raise Exception("Enable radial attention first in the model loader.")
             
@@ -302,6 +303,7 @@ class WanVideoSetRadialAttention:
 
         patcher.model_options["transformer_options"]["dense_attention_mode"] = dense_attention_mode
         patcher.model_options["transformer_options"]["dense_blocks"] = dense_blocks
+        patcher.model_options["transformer_options"]["dense_vace_blocks"] = dense_vace_blocks
         patcher.model_options["transformer_options"]["dense_timesteps"] = dense_timesteps
         patcher.model_options["transformer_options"]["decay_factor"] = decay_factor
 
@@ -2543,6 +2545,7 @@ class WanVideoSampler:
             
             dense_timesteps = transformer_options.get("dense_timesteps", None)
             dense_blocks = transformer_options.get("dense_blocks", None)
+            dense_vace_blocks = transformer_options.get("dense_vace_blocks", None)
             decay_factor = transformer_options.get("decay_factor", None)
             dense_attention_mode = transformer_options.get("dense_attention_mode", None)
             if dense_timesteps is None:
@@ -2559,7 +2562,7 @@ class WanVideoSampler:
             if transformer.vace_layers is not None:
                 for i, block in enumerate(transformer.vace_blocks):
                     block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
-                    block.dense_block = True if i < dense_blocks else False
+                    block.dense_block = True if i < dense_vace_blocks else False
                     block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length)
                     block.dense_attention_mode = dense_attention_mode
                     block.dense_timesteps = dense_timesteps
