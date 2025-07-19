@@ -3,10 +3,26 @@ from .fm_solvers import (FlowDPMSolverMultistepScheduler, get_sampling_sigmas, r
 from .fm_solvers_unipc import FlowUniPCMultistepScheduler
 from .basic_flowmatch import FlowMatchScheduler
 from .flowmatch_pusa import FlowMatchSchedulerPusa
+from .flowmatch_res_multistep import FlowMatchSchedulerResMultistep
 from .scheduling_flow_match_lcm import FlowMatchLCMScheduler
 from diffusers.schedulers import FlowMatchEulerDiscreteScheduler, DEISMultistepScheduler
 
 from ...utils import log
+
+scheduler_list = [
+    "unipc", "unipc/beta",
+    "dpm++", "dpm++/beta",
+    "dpm++_sde", "dpm++_sde/beta",
+    "euler", "euler/beta",
+    #"euler/accvideo",
+    "deis",
+    "lcm", "lcm/beta",
+    "res_multistep",
+    "flowmatch_causvid",
+    "flowmatch_distill",
+    "flowmatch_pusa",
+    "multitalk"
+]
 
 def get_scheduler(scheduler, steps, shift, device, transformer_dim, flowedit_args, denoise_strength, sigmas=None):
     timesteps = None
@@ -25,15 +41,15 @@ def get_scheduler(scheduler, steps, shift, device, transformer_dim, flowedit_arg
             timesteps, _ = retrieve_timesteps(sample_scheduler, device=device, sigmas=get_sampling_sigmas(steps, shift))
         else:
             sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
-    elif scheduler in ['euler/accvideo']:
-        if steps != 50:
-            raise Exception("Steps must be set to 50 for accvideo scheduler, 10 actual steps are used")
-        sample_scheduler = FlowMatchEulerDiscreteScheduler(shift=shift, use_beta_sigmas=(scheduler == 'euler/beta'))
-        sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
-        start_latent_list = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
-        sample_scheduler.sigmas = sample_scheduler.sigmas[start_latent_list]
-        steps = len(start_latent_list) - 1
-        sample_scheduler.timesteps = timesteps = sample_scheduler.timesteps[start_latent_list[:steps]]
+    # elif scheduler in ['euler/accvideo']:
+    #     if steps != 50:
+    #         raise Exception("Steps must be set to 50 for accvideo scheduler, 10 actual steps are used")
+    #     sample_scheduler = FlowMatchEulerDiscreteScheduler(shift=shift, use_beta_sigmas=(scheduler == 'euler/beta'))
+    #     sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
+    #     start_latent_list = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+    #     sample_scheduler.sigmas = sample_scheduler.sigmas[start_latent_list]
+    #     steps = len(start_latent_list) - 1
+    #     sample_scheduler.timesteps = timesteps = sample_scheduler.timesteps[start_latent_list[:steps]]
     elif 'dpm++' in scheduler:
         if 'sde' in scheduler:
             algorithm_type = "sde-dpmsolver++"
@@ -84,6 +100,9 @@ def get_scheduler(scheduler, steps, shift, device, transformer_dim, flowedit_arg
             shift=shift, sigma_min=0.0, extra_one_step=True
         )
         sample_scheduler.set_timesteps(steps, denoising_strength=denoise_strength, shift=shift)
+    elif scheduler == 'res_multistep':
+        sample_scheduler = FlowMatchSchedulerResMultistep(shift=shift)
+        sample_scheduler.set_timesteps(steps, denoising_strength=denoise_strength)
     if timesteps is None:
         timesteps = sample_scheduler.timesteps
         log.info(f"timesteps: {timesteps}")
