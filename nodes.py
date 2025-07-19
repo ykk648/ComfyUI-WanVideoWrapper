@@ -92,6 +92,7 @@ class WanVideoSetRadialAttention:
                 "dense_vace_blocks": ("INT",  {"default": 1, "min": 0, "max": 15, "step": 1, "tooltip": "Number of vace blocks to apply normal attention to"}),
                 "dense_timesteps": ("INT",  {"default": 10, "min": 0, "max": 100, "step": 1, "tooltip": "The step to start applying sparse attention"}),
                 "decay_factor": ("FLOAT",  {"default": 0.2, "min": 0, "max": 1, "step": 0.01, "tooltip": "Controls how quickly the attention window shrinks as the distance between frames increases in the sparse attention mask."}),
+                "block_size":("INT", {"default": 128, "min": 64, "max":128, "step": 64, "tooltip": "Control radial attention block size, either 128 or 64"}),
                }
         }
 
@@ -101,7 +102,7 @@ class WanVideoSetRadialAttention:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "Sets radial attention parameters, dense attention refers to normal attention"
 
-    def loadmodel(self, model, dense_attention_mode, dense_blocks, dense_vace_blocks, dense_timesteps, decay_factor):
+    def loadmodel(self, model, dense_attention_mode, dense_blocks, dense_vace_blocks, dense_timesteps, decay_factor, block_size):
         if "radial" not in model.model.diffusion_model.attention_mode:
             raise Exception("Enable radial attention first in the model loader.")
             
@@ -114,6 +115,7 @@ class WanVideoSetRadialAttention:
         patcher.model_options["transformer_options"]["dense_vace_blocks"] = dense_vace_blocks
         patcher.model_options["transformer_options"]["dense_timesteps"] = dense_timesteps
         patcher.model_options["transformer_options"]["decay_factor"] = decay_factor
+        patcher.model_options["transformer_options"]["block_size"] = block_size
 
         return (patcher,)
 
@@ -1639,14 +1641,15 @@ class WanVideoSampler:
 
         # Radial attention setup
         if transformer.attention_mode == "radial_sage_attention":
-            if latent.shape[2] % 16 != 0 or latent.shape[3] % 16 != 0:
-                raise Exception(f"Radial attention mode only supports image size divisible by 128.")
+            if latent.shape[2] % 8 != 0 or latent.shape[3] % 8 != 0:
+                raise Exception(f"Radial attention mode only supports image size divisible by 128 or 64.")
             
             dense_timesteps = transformer_options.get("dense_timesteps", None)
             dense_blocks = transformer_options.get("dense_blocks", None)
             dense_vace_blocks = transformer_options.get("dense_vace_blocks", None)
             decay_factor = transformer_options.get("decay_factor", None)
             dense_attention_mode = transformer_options.get("dense_attention_mode", None)
+            block_size = transformer_options.get("block_size", None)
             if dense_timesteps is None:
                 raise Exception("Radial attention mode is enabled, but no parameters are provided. Add the `WanVideoSetRadialAttention` node to the model to set the parameters.")
 
@@ -1654,7 +1657,7 @@ class WanVideoSampler:
             for i, block in enumerate(transformer.blocks):
                 block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
                 block.dense_block = True if i < dense_blocks else False
-                block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length)
+                block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length, block_size=block_size)
                 block.dense_attention_mode = dense_attention_mode
                 block.dense_timesteps = dense_timesteps
                 block.self_attn.decay_factor = decay_factor
@@ -1662,7 +1665,7 @@ class WanVideoSampler:
                 for i, block in enumerate(transformer.vace_blocks):
                     block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
                     block.dense_block = True if i < dense_vace_blocks else False
-                    block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length)
+                    block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length, block_size=block_size)
                     block.dense_attention_mode = dense_attention_mode
                     block.dense_timesteps = dense_timesteps
                     block.self_attn.decay_factor = decay_factor
