@@ -92,7 +92,7 @@ class WanVideoSetRadialAttention:
                 "dense_vace_blocks": ("INT",  {"default": 1, "min": 0, "max": 15, "step": 1, "tooltip": "Number of vace blocks to apply normal attention to"}),
                 "dense_timesteps": ("INT",  {"default": 10, "min": 0, "max": 100, "step": 1, "tooltip": "The step to start applying sparse attention"}),
                 "decay_factor": ("FLOAT",  {"default": 0.2, "min": 0, "max": 1, "step": 0.01, "tooltip": "Controls how quickly the attention window shrinks as the distance between frames increases in the sparse attention mask."}),
-                "block_size":("INT", {"default": 128, "min": 64, "max":128, "step": 64, "tooltip": "Control radial attention block size, either 128 or 64"}),
+                "block_size":([128, 64], {"default": 128, "tooltip": "Radial attention block size"}),
                }
         }
 
@@ -1641,17 +1641,25 @@ class WanVideoSampler:
 
         # Radial attention setup
         if transformer.attention_mode == "radial_sage_attention":
-            if latent.shape[2] % 8 != 0 or latent.shape[3] % 8 != 0:
-                raise Exception(f"Radial attention mode only supports image size divisible by 128 or 64.")
-            
             dense_timesteps = transformer_options.get("dense_timesteps", None)
             dense_blocks = transformer_options.get("dense_blocks", None)
             dense_vace_blocks = transformer_options.get("dense_vace_blocks", None)
             decay_factor = transformer_options.get("decay_factor", None)
             dense_attention_mode = transformer_options.get("dense_attention_mode", None)
             block_size = transformer_options.get("block_size", None)
-            if dense_timesteps is None:
-                raise Exception("Radial attention mode is enabled, but no parameters are provided. Add the `WanVideoSetRadialAttention` node to the model to set the parameters.")
+
+            if latent.shape[2] % (block_size/8) != 0 or latent.shape[3] % (block_size/8) != 0:
+                # Calculate closest valid latent sizes
+                block_div = int(block_size // 8)
+                closest_h = round(latent.shape[2] / block_div) * block_div
+                closest_w = round(latent.shape[3] / block_div) * block_div
+                closest_h_px = closest_h * 8
+                closest_w_px = closest_w * 8
+                raise Exception(
+                    f"Radial attention mode only supports image size divisible by block size. "
+                    f"Got {latent.shape[3] * 8}x{latent.shape[2] * 8} with block size {block_size}.\n"
+                    f"Closest valid sizes: {closest_w_px}x{closest_h_px} (width x height in pixels)."
+                )
 
             from .wanvideo.radial_attention.attn_mask import MaskMap
             for i, block in enumerate(transformer.blocks):
