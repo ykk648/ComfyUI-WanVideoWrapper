@@ -110,7 +110,7 @@ def convert_fp8_scaled_linear(module, sd, original_dtype, params_to_keep={}, pat
                     lora = (lora_diffs, lora_strengths)
                     setattr(submodule, "lora", lora)
 
-            if isinstance(submodule, nn.Linear) and (has_scale or has_fp8_weight):
+            if isinstance(submodule, nn.Linear) and (has_scale and has_fp8_weight):
                 original_forward = submodule.forward
                 setattr(submodule, "original_forward", original_forward)
                 setattr(submodule, "forward", lambda input, m=submodule: fp8_scaled_linear_forward(m, original_dtype, input))
