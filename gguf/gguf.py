@@ -71,13 +71,11 @@ class GGUFLinear(nn.Linear):
         device=None,
         lora_diffs=None,
         lora_strengths=None,
-        lora_alphas=None
     ) -> None:
         super().__init__(in_features, out_features, bias, device)
         self.compute_dtype = compute_dtype
         self.lora_diffs = lora_diffs
         self.lora_strengths = lora_strengths
-        self.lora_alphas = lora_alphas
 
     def forward(self, inputs):
         weight = dequantize_without_compile(self.weight)
