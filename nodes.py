@@ -1672,7 +1672,7 @@ class WanVideoSampler:
             for i, block in enumerate(transformer.blocks):
                 block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
                 block.dense_block = True if i < dense_blocks else False
-                block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length, block_size=block_size)
+                block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length if context_options is None else context_frames, block_size=block_size)
                 block.dense_attention_mode = dense_attention_mode
                 block.dense_timesteps = dense_timesteps
                 block.self_attn.decay_factor = decay_factor
@@ -1680,7 +1680,7 @@ class WanVideoSampler:
                 for i, block in enumerate(transformer.vace_blocks):
                     block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
                     block.dense_block = True if i < dense_vace_blocks else False
-                    block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length, block_size=block_size)
+                    block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length if context_options is None else context_frames, block_size=block_size)
                     block.dense_attention_mode = dense_attention_mode
                     block.dense_timesteps = dense_timesteps
                     block.self_attn.decay_factor = decay_factor
