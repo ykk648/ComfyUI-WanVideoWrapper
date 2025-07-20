@@ -119,6 +119,41 @@ class WanVideoSetRadialAttention:
 
         return (patcher,)
 
+class WanVideoBlockList:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "blocks": ("STRING",  {"default": "1", "multiline":True}),
+               }
+        }
+
+    RETURN_TYPES = ("INT",)
+    RETURN_NAMES = ("block_list", )
+    FUNCTION = "create_list"
+    CATEGORY = "WanVideoWrapper"
+    DESCRIPTION = "Comma separated list of blocks to apply block swap to, can also use ranges like '0-5' or '0,2,3-5' etc., can be connected to the dense_blocks input of 'WanVideoSetRadialAttention' node"
+
+    def create_list(self, blocks):
+        block_list = []
+        for line in blocks.splitlines():
+            for part in line.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if "-" in part:
+                    try:
+                        start, end = map(int, part.split("-", 1))
+                        block_list.extend(range(start, end + 1))
+                    except Exception:
+                        raise ValueError(f"Invalid range: '{part}'")
+                else:
+                    try:
+                        block_list.append(int(part))
+                    except Exception:
+                        raise ValueError(f"Invalid integer: '{part}'")
+        return (block_list,)
+
 #region TextEncode
 class WanVideoTextEncode:
     @classmethod
@@ -1671,7 +1706,10 @@ class WanVideoSampler:
             from .wanvideo.radial_attention.attn_mask import MaskMap
             for i, block in enumerate(transformer.blocks):
                 block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
-                block.dense_block = True if i < dense_blocks else False
+                if isinstance(dense_blocks, list):
+                    block.dense_block = i in dense_blocks
+                else:
+                    block.dense_block = i < dense_blocks
                 block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length if context_options is None else context_frames, block_size=block_size)
                 block.dense_attention_mode = dense_attention_mode
                 block.dense_timesteps = dense_timesteps
@@ -1679,13 +1717,18 @@ class WanVideoSampler:
             if transformer.vace_layers is not None:
                 for i, block in enumerate(transformer.vace_blocks):
                     block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
-                    block.dense_block = True if i < dense_vace_blocks else False
+                    if isinstance(dense_vace_blocks, list):
+                        block.dense_block = i in dense_vace_blocks
+                    else:
+                        block.dense_block = i < dense_vace_blocks
                     block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length if context_options is None else context_frames, block_size=block_size)
                     block.dense_attention_mode = dense_attention_mode
                     block.dense_timesteps = dense_timesteps
                     block.self_attn.decay_factor = decay_factor
-                    
-            log.info(f"Radial attention mode enabled. dense_attention_mode: {dense_attention_mode}, dense_timesteps: {dense_timesteps}, dense_blocks: {dense_blocks}, decay_factor: {decay_factor}")
+                            
+            log.info(f"Radial attention mode enabled.")
+            log.info(f"dense_attention_mode: {dense_attention_mode}, dense_timesteps: {dense_timesteps}, decay_factor: {decay_factor}")
+            log.info(f"dense_blocks: {[i for i, block in enumerate(transformer.blocks) if getattr(block, 'dense_block', False)]})")
 
 
         # FlowEdit setup
@@ -2937,6 +2980,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoMiniMaxRemoverEmbeds": WanVideoMiniMaxRemoverEmbeds,
     "WanVideoFreeInitArgs": WanVideoFreeInitArgs,
     "WanVideoSetRadialAttention": WanVideoSetRadialAttention,
+    "WanVideoBlockList": WanVideoBlockList,
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoSampler": "WanVideo Sampler",
@@ -2963,5 +3007,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoApplyNAG": "WanVideo Apply NAG",
     "WanVideoMiniMaxRemoverEmbeds": "WanVideo MiniMax Remover Embeds",
     "WanVideoFreeInitArgs": "WanVideo Free Init Args",
-    "WanVideoSetRadialAttention": "WanVideo Set Radial Attention"
+    "WanVideoSetRadialAttention": "WanVideo Set Radial Attention",
+    "WanVideoBlockList": "WanVideo Block List",
     }
