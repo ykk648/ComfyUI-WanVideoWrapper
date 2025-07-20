@@ -136,7 +136,13 @@ def RadialSpargeSageAttn(query, key, value, mask_map, decay_factor):
         RadialSpargeSageAttn._cache = {}
     # print(mask_map.block_size)
     block_size = mask_map.block_size
-    cache_key = (query.shape[-2], mask_map.block_size, decay_factor)
+    cache_key = (
+        query.shape[-2],
+        mask_map.block_size,
+        decay_factor,
+        mask_map.video_token_num,
+        mask_map.num_frame
+    )
     if cache_key in RadialSpargeSageAttn._cache:
         input_mask = RadialSpargeSageAttn._cache[cache_key]
     else:

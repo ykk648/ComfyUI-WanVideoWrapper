@@ -261,3 +261,11 @@ def optimized_scale(positive_flat, negative_flat):
     st_star = dot_product / squared_norm
     
     return st_star
+
+def find_closest_valid_dim(fixed_dim, var_dim, block_size):
+    for delta in range(1, 17):
+        for sign in [-1, 1]:
+            candidate = var_dim + sign * delta
+            if candidate > 0 and ((fixed_dim * candidate) // 4) % block_size == 0:
+                return candidate
+    return var_dim
