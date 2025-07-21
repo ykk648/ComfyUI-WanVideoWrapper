@@ -8,7 +8,7 @@ import inspect
 from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
 
 from .wanvideo.modules.model import rope_params
-
+from .fp8_optimization import convert_linear_with_lora_and_scale
 from .wanvideo.schedulers import get_scheduler, get_sampling_sigmas, retrieve_timesteps, scheduler_list
 
 from .multitalk.multitalk import timestep_transform, add_noise
@@ -1174,12 +1174,37 @@ class WanVideoSampler:
         transformer = model.diffusion_model
         dtype = model["dtype"]
         control_lora = model["control_lora"]
+        transformer_options = patcher.model_options.get("transformer_options", None)
+
+        if len(patcher.patches) != 0 and transformer_options.get("linear_with_lora", False) is True:
+            log.info(f"Using {len(patcher.patches)} patches for WanVideo model")
+            convert_linear_with_lora_and_scale(transformer, patches=patcher.patches)            
+
+        #compile
+        compile_args = model["compile_args"]
+        if compile_args is not None and model["auto_cpu_offload"] is False:
+            torch._dynamo.config.cache_size_limit = compile_args["dynamo_cache_size_limit"]
+            try:
+                if hasattr(torch, '_dynamo') and hasattr(torch._dynamo, 'config'):
+                    torch._dynamo.config.recompile_limit = compile_args["dynamo_recompile_limit"]
+            except Exception as e:
+                log.warning(f"Could not set recompile_limit: {e}")
+            if compile_args["compile_transformer_blocks_only"]:
+                for i, block in enumerate(transformer.blocks):
+                    if hasattr(block, "_orig_mod"):
+                        block = block._orig_mod
+                    transformer.blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
+                if transformer.vace_layers is not None:
+                    for i, block in enumerate(transformer.vace_blocks):
+                        if hasattr(block, "_orig_mod"):
+                            block = block._orig_mod
+                        transformer.vace_blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
+            else:
+                transformer = torch.compile(transformer, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
 
         multitalk_sampling = image_embeds.get("multitalk_sampling", False)
         if not multitalk_sampling and scheduler == "multitalk":
             raise Exception("multitalk scheduler is only for multitalk sampling when using ImagetoVideoMultiTalk -node")
-
-        transformer_options = patcher.model_options.get("transformer_options", None)
         
         steps = int(steps/denoise_strength)
 

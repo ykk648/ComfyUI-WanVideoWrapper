@@ -108,7 +108,8 @@ def apply_lora(model, device_to, transformer_load_device, params_to_keep=None, d
                 else:
                     model.patch_weight_to_device("{}.{}".format(name, param), device_to=device_to)
                     model.backup["{}.{}".format(name, param)] = None
-                    set_module_tensor_to_device(m, param, device=transformer_load_device)
+                    if device_to != transformer_load_device:
+                        set_module_tensor_to_device(m, param, device=transformer_load_device)
                 if low_mem_load:
                     try:
                         set_module_tensor_to_device(model.model.diffusion_model, key, device=transformer_load_device, dtype=dtype_to_use, value=model.model.diffusion_model.state_dict()[key])
