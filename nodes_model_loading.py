@@ -663,7 +663,7 @@ class WanVideoSetLoRAs:
             lora_low_mem_load = l.get("low_mem_load", False)
             merge_loras = l.get("merge_loras", True)
         if lora_low_mem_load is True or merge_loras is True:
-            raise ValueError("Set LoRA node does not use low_mem_load and can't merege LoRAs")
+            raise ValueError("Set LoRA node does not use low_mem_load and can't merge LoRAs, disable low_mem_load when and merge_loras in the LoRA select node.")
 
         
         for l in lora:
