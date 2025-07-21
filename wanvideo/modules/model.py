@@ -16,7 +16,7 @@ except:
     BlockMask = create_block_mask = flex_attention = None
     pass
 try:
-    from ..radial_attention.attn_mask import RadialSpargeSageAttn, RadialSpargeSageAttnDense
+    from ..radial_attention.attn_mask import RadialSpargeSageAttn, RadialSpargeSageAttnDense, MaskMap
 except:
     pass
 
@@ -29,7 +29,6 @@ import gc
 import comfy.model_management as mm
 from ...utils import log, get_module_memory_mb
 from ...cache_methods.cache_methods import TeaCacheState, MagCacheState, EasyCacheState, relative_l1_distance
-from ..radial_attention.attn_mask import MaskMap
 from ...multitalk.multitalk import get_attn_map_with_target
 
 from comfy.ldm.flux.math import apply_rope as apply_rope_comfy
