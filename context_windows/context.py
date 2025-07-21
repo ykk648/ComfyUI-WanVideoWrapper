@@ -1,6 +1,7 @@
 import numpy as np
 from typing import Callable, Optional, List
 import torch
+from ..utils import log
 
 def ordered_halving(val):
     bin_str = f"{val:064b}"
