@@ -1013,8 +1013,6 @@ class WanVideoModelLoader:
             else:
                 dtype = base_dtype
             params_to_keep = {"norm", "head", "bias", "time_in", "vector_in", "patch_embedding", "time_", "img_emb", "modulation", "text_embedding", "adapter", "add"}
-            if "scaled" in quantization:
-                params_to_keep = {"patch_embedding", "modulation","norm", "bias"}
             #if lora is not None:
             #    transformer_load_device = device
             if not lora_low_mem_load:
