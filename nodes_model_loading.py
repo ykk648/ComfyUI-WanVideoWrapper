@@ -459,43 +459,27 @@ class WanVideoLoraSelectMulti:
     def getlorapath(self, lora_0, strength_0, lora_1, strength_1, lora_2, strength_2, 
                 lora_3, strength_3, lora_4, strength_4, blocks={}, prev_lora=None, 
                 low_mem_load=False, merge_loras=True):
-        loras_list = []
-
-        strength_0 = round(strength_0, 4)
-        strength_1 = round(strength_1, 4)
-        strength_2 = round(strength_2, 4)
-        strength_3 = round(strength_3, 4)
-        strength_4 = round(strength_4, 4)
-        
-        if prev_lora is not None:
-            loras_list.extend(prev_lora)
-        
-        # Process each LoRA
+        loras_list = list(prev_lora) if prev_lora else []
         lora_inputs = [
-            (lora_0, strength_0), 
-            (lora_1, strength_1), 
-            (lora_2, strength_2), 
-            (lora_3, strength_3), 
+            (lora_0, strength_0),
+            (lora_1, strength_1),
+            (lora_2, strength_2),
+            (lora_3, strength_3),
             (lora_4, strength_4)
         ]
-        
         for lora_name, strength in lora_inputs:
-            # Skip if the LoRA is empty
-            if not lora_name or lora_name == "none" or strength == 0.0:
+            s = round(strength, 4)
+            if not lora_name or lora_name == "none" or s == 0.0:
                 continue
-                
-            lora = {
+            loras_list.append({
                 "path": folder_paths.get_full_path("loras", lora_name),
-                "strength": strength,
+                "strength": s,
                 "name": lora_name.split(".")[0],
                 "blocks": blocks.get("selected_blocks", {}),
                 "layer_filter": blocks.get("layer_filter", ""),
                 "low_mem_load": low_mem_load,
                 "merge_loras": merge_loras,
-            }
-            
-            loras_list.append(lora)
-        
+            })
         return (loras_list,)
     
 class WanVideoVACEModelSelect:
