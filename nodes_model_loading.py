@@ -801,8 +801,8 @@ class WanVideoModelLoader:
                             quantization = "fp8_e5m2_scaled"
                         break
 
-        if "scaled_fp8" in sd and quantization != "fp8_e4m3fn_scaled":
-            raise ValueError("The model is a scaled fp8 model, please set quantization to 'fp8_e4m3fn_scaled'")
+        if "scaled_fp8" in sd and "scaled" not in quantization:
+            raise ValueError("The model is a scaled fp8 model, please set quantization to '_scaled'")
 
         if merge_loras and "scaled" in quantization:
             raise ValueError("scaled models currently do not support merging LoRAs, please disable merging or use a non-scaled model")
