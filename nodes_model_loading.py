@@ -359,6 +359,10 @@ class WanVideoLoraSelect:
         loras_list = []
 
         strength = round(strength, 4)
+        if strength == 0.0:
+            if prev_lora is not None:
+                loras_list.extend(prev_lora)
+            return (loras_list,)
 
         try:
             lora_path = folder_paths.get_full_path("loras", lora)
@@ -477,7 +481,7 @@ class WanVideoLoraSelectMulti:
         
         for lora_name, strength in lora_inputs:
             # Skip if the LoRA is empty
-            if not lora_name or lora_name == "none":
+            if not lora_name or lora_name == "none" or strength == 0.0:
                 continue
                 
             lora = {
