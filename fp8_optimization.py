@@ -90,7 +90,9 @@ def convert_linear_with_lora_and_scale(module, scale_weight_keys=None, patches=N
                     lora_diffs = []
                     for p in patch:
                         lora_obj = p[1]
-                        if hasattr(lora_obj, "weights"):
+                        if "head" in name:
+                            continue  # For now skip LoRA for head layers
+                        elif hasattr(lora_obj, "weights"):
                             lora_diffs.append(lora_obj.weights)
                         elif isinstance(lora_obj, tuple) and lora_obj[0] == "diff":
                             lora_diffs.append(lora_obj[1])
