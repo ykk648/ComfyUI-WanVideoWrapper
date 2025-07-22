@@ -1,13 +1,20 @@
 # based on https://github.com/mit-han-lab/radial-attention/blob/main/radial_attn/attn_mask.py
 import torch
+
 try:
-    from sparse_sageattn import sparse_sageattn
+    from spas_sage_attn import block_sparse_sage2_attn_cuda
+    sparse_attn_func = block_sparse_sage2_attn_cuda
 except:
     try:
-        from .sparse_sage.core import sparse_sageattn
+        from sparse_sageattn import sparse_sageattn
+        sparse_attn_func = sparse_sageattn
     except:
-        sparse_sageattn = None
-        raise ImportError("sparse_sageattn is not available. Please install the sparse_sageattn package or check your import path.")
+        try:
+            from .sparse_sage.core import sparse_sageattn
+            sparse_attn_func = sparse_sageattn
+        except:
+            sparse_sageattn = None
+            raise ImportError("sparse_sageattn is not available. Please install the sparse_sageattn package or check your import path.")
 
 from comfy import model_management as mm
 device = mm.get_torch_device()
@@ -158,11 +165,10 @@ def RadialSpargeSageAttn(query, key, value, mask_map, decay_factor):
         input_mask = mask.unsqueeze(0).unsqueeze(1).expand(1, query.shape[-2], mask.shape[0], mask.shape[1])
         RadialSpargeSageAttn._cache[cache_key] = input_mask
 
-    return sparse_sageattn(
+    return sparse_attn_func(
         query[:, :, :mask_map.video_token_num, :],
         key[:, :, :mask_map.video_token_num, :],
         value[:, :, :mask_map.video_token_num, :],
         mask_id=input_mask.to(torch.int8),
-        is_causal=False,
         tensor_layout="NHD"
     ).contiguous()
