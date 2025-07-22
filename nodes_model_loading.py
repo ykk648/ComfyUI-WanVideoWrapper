@@ -1398,6 +1398,7 @@ class LoadWanVideoT5TextEncoder:
         text_encoder = {
             "model": T5_text_encoder,
             "dtype": dtype,
+            "name": model_name,
         }
         
         return (text_encoder,)
