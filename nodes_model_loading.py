@@ -670,6 +670,9 @@ class WanVideoSetLoRAs:
             log.info(f"Loading LoRA: {l['name']} with strength: {l['strength']}")
             lora_path = l["path"]
             lora_strength = l["strength"]
+            if lora_strength == 0:
+                log.warning(f"LoRA {lora_path} has strength 0, skipping...")
+                continue
             lora_sd = load_torch_file(lora_path, safe_load=True)
             if "dwpose_embedding.0.weight" in lora_sd: #unianimate
                 raise NotImplementedError("Unianimate LoRA patching is not implemented in this node.")
@@ -701,7 +704,7 @@ class WanVideoModelLoader:
                 "model": (folder_paths.get_filename_list("unet_gguf") + folder_paths.get_filename_list("diffusion_models"), {"tooltip": "These models are loaded from the 'ComfyUI/models/diffusion_models' -folder",}),
 
             "base_precision": (["fp32", "bf16", "fp16", "fp16_fast"], {"default": "bf16"}),
-            "quantization": (["disabled", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e5m2", "fp8_e4m3fn_fast_no_ffn", "fp8_e4m3fn_scaled"], {"default": "disabled", "tooltip": "optional quantization method"}),
+            "quantization": (["disabled", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e5m2", "fp8_e4m3fn_fast_no_ffn", "fp8_e4m3fn_scaled", "fp8_e5m2_scaled"], {"default": "disabled", "tooltip": "optional quantization method"}),
             "load_device": (["main_device", "offload_device"], {"default": "main_device", "tooltip": "Initial device to load the model to, NOT recommended with the larger models unless you have 48GB+ VRAM"}),
             },
             "optional": {
@@ -785,17 +788,18 @@ class WanVideoModelLoader:
             sd = load_gguf_checkpoint(model_path)
         
         if quantization == "disabled":
-            if "scaled_fp8" in sd:
-                quantization = "fp8_e4m3fn_scaled"
-            else:
-                for k, v in sd.items():
-                    if isinstance(v, torch.Tensor):
-                        if v.dtype == torch.float8_e4m3fn:
-                            quantization = "fp8_e4m3fn"
-                            break
-                        elif v.dtype == torch.float8_e5m2:
-                            quantization = "fp8_e5m2"
-                            break
+            for k, v in sd.items():
+                if isinstance(v, torch.Tensor):
+                    if v.dtype == torch.float8_e4m3fn:
+                        quantization = "fp8_e4m3fn"
+                        if "scaled_fp8" in sd:
+                            quantization = "fp8_e4m3fn_scaled"
+                        break
+                    elif v.dtype == torch.float8_e5m2:
+                        quantization = "fp8_e5m2"
+                        if "scaled_fp8" in sd:
+                            quantization = "fp8_e5m2_scaled"
+                        break
 
         if "scaled_fp8" in sd and quantization != "fp8_e4m3fn_scaled":
             raise ValueError("The model is a scaled fp8 model, please set quantization to 'fp8_e4m3fn_scaled'")
@@ -1004,7 +1008,7 @@ class WanVideoModelLoader:
         if not gguf:
             if "fp8_e4m3fn" in quantization:
                 dtype = torch.float8_e4m3fn
-            elif quantization == "fp8_e5m2":
+            elif "fp8_e5m2" in quantization:
                 dtype = torch.float8_e5m2
             else:
                 dtype = base_dtype
@@ -1040,6 +1044,9 @@ class WanVideoModelLoader:
                 log.info(f"Loading LoRA: {l['name']} with strength: {l['strength']}")
                 lora_path = l["path"]
                 lora_strength = l["strength"]
+                if lora_strength == 0:
+                    log.warning(f"LoRA {lora_path} has strength 0, skipping...")
+                    continue
                 lora_sd = load_torch_file(lora_path, safe_load=True)
                 if "dwpose_embedding.0.weight" in lora_sd: #unianimate
                     from .unianimate.nodes import update_transformer
