@@ -159,11 +159,11 @@ class WanVideoTextEncode:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-            "t5": ("WANTEXTENCODER",),
             "positive_prompt": ("STRING", {"default": "", "multiline": True} ),
             "negative_prompt": ("STRING", {"default": "", "multiline": True} ),
             },
             "optional": {
+                "t5": ("WANTEXTENCODER",),
                 "force_offload": ("BOOLEAN", {"default": True}),
                 "model_to_offload": ("WANVIDEOMODEL", {"tooltip": "Model to move to offload_device before encoding"}),
                 "use_disk_cache": ("BOOLEAN", {"default": False, "tooltip": "Cache the text embeddings to disk for faster re-use, under the custom_nodes/ComfyUI-WanVideoWrapper/text_embed_cache directory"}),
@@ -177,16 +177,16 @@ class WanVideoTextEncode:
     DESCRIPTION = "Encodes text prompts into text embeddings. For rudimentary prompt travel you can input multiple prompts separated by '|', they will be equally spread over the video length"
 
 
-    def process(self, t5, positive_prompt, negative_prompt, force_offload=True, model_to_offload=None, use_disk_cache=False):
+    def process(self, positive_prompt, negative_prompt, t5=None, force_offload=True, model_to_offload=None, use_disk_cache=False):
+        if t5 is None and not use_disk_cache:
+            raise ValueError("T5 encoder is required for text encoding. Please provide a valid T5 encoder or enable disk cache.")
         if use_disk_cache:
             # Prepare cache directory
             cache_dir = os.path.join(script_directory, 'text_embed_cache')
             os.makedirs(cache_dir, exist_ok=True)
 
             # Build a unique cache key from all relevant inputs
-            encoder_id = str(t5["name"])
-            dtype_str = str(t5["dtype"])
-            cache_key = f"{encoder_id}|{positive_prompt}|{negative_prompt}|{dtype_str}"
+            cache_key = f"{positive_prompt}|{negative_prompt}"
             cache_hash = hashlib.sha256(cache_key.encode('utf-8')).hexdigest()
             cache_path = os.path.join(cache_dir, f"{cache_hash}.pt")
 
@@ -198,6 +198,8 @@ class WanVideoTextEncode:
                     return (prompt_embeds_dict,)
                 except Exception as e:
                     log.warning(f"Failed to load cache: {e}, will re-encode.")
+        if t5 is None:
+            raise ValueError("No cached text embeds found for prompts, please provide a T5 encoder.")
 
         if model_to_offload is not None:
             log.info(f"Moving video model to {offload_device}")
