@@ -629,8 +629,10 @@ class WanVideoSetLoRAs:
             "required": 
             {
                 "model": ("WANVIDEOMODEL", ),
-                "lora": ("WANVIDLORA", ),
             },
+            "optional": {
+                "lora": ("WANVIDLORA", ),
+            }
         }
 
     RETURN_TYPES = ("WANVIDEOMODEL",)
@@ -640,7 +642,7 @@ class WanVideoSetLoRAs:
     EXPERIMENTAL = True
     DESCRIPTION = "Sets the LoRA weights to be used directly in linear layers of the model, this does NOT merge LoRAs"
 
-    def setlora(self, model, lora):
+    def setlora(self, model, lora=None):
         if lora is None:
             return (model,)
         

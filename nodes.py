@@ -8,7 +8,7 @@ import hashlib
 from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
 
 from .wanvideo.modules.model import rope_params
-from .fp8_optimization import convert_linear_with_lora_and_scale
+from .fp8_optimization import convert_linear_with_lora_and_scale, remove_lora_from_module
 from .wanvideo.schedulers import get_scheduler, get_sampling_sigmas, retrieve_timesteps, scheduler_list
 
 from .multitalk.multitalk import timestep_transform, add_noise
@@ -1281,9 +1281,12 @@ class WanVideoSampler:
         control_lora = model["control_lora"]
         transformer_options = patcher.model_options.get("transformer_options", None)
 
+        remove_lora_from_module(transformer)
         if len(patcher.patches) != 0 and transformer_options.get("linear_with_lora", False) is True:
             log.info(f"Using {len(patcher.patches)} patches for WanVideo model")
-            convert_linear_with_lora_and_scale(transformer, patches=patcher.patches)            
+            convert_linear_with_lora_and_scale(transformer, patches=patcher.patches)
+        else:
+            remove_lora_from_module(transformer)
 
         #compile
         compile_args = model["compile_args"]
