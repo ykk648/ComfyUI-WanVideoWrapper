@@ -180,24 +180,48 @@ class WanVideoTextEncode:
     def process(self, positive_prompt, negative_prompt, t5=None, force_offload=True, model_to_offload=None, use_disk_cache=False):
         if t5 is None and not use_disk_cache:
             raise ValueError("T5 encoder is required for text encoding. Please provide a valid T5 encoder or enable disk cache.")
+
+        # Prepare cache directory if needed
         if use_disk_cache:
-            # Prepare cache directory
             cache_dir = os.path.join(script_directory, 'text_embed_cache')
             os.makedirs(cache_dir, exist_ok=True)
 
-            # Build a unique cache key from all relevant inputs
-            cache_key = f"{positive_prompt}|{negative_prompt}"
-            cache_hash = hashlib.sha256(cache_key.encode('utf-8')).hexdigest()
-            cache_path = os.path.join(cache_dir, f"{cache_hash}.pt")
+            # Separate cache keys and paths for positive and negative
+            pos_cache_key = f"positive|{positive_prompt}"
+            pos_cache_hash = hashlib.sha256(pos_cache_key.encode('utf-8')).hexdigest()
+            pos_cache_path = os.path.join(cache_dir, f"{pos_cache_hash}.pt")
 
-            # Try to load from cache
-            if os.path.exists(cache_path):
+            neg_cache_key = f"negative|{negative_prompt}"
+            neg_cache_hash = hashlib.sha256(neg_cache_key.encode('utf-8')).hexdigest()
+            neg_cache_path = os.path.join(cache_dir, f"{neg_cache_hash}.pt")
+
+            context = None
+            context_null = None
+
+            # Try to load positive prompt embeds
+            if os.path.exists(pos_cache_path):
                 try:
-                    log.info(f"Loading text embeds from cache: {cache_path}")
-                    prompt_embeds_dict = torch.load(cache_path)
-                    return (prompt_embeds_dict,)
+                    log.info(f"Loading positive prompt embeds from cache: {pos_cache_path}")
+                    context = torch.load(pos_cache_path)
                 except Exception as e:
-                    log.warning(f"Failed to load cache: {e}, will re-encode.")
+                    log.warning(f"Failed to load positive cache: {e}, will re-encode.")
+
+            # Try to load negative prompt embeds
+            if os.path.exists(neg_cache_path):
+                try:
+                    log.info(f"Loading negative prompt embeds from cache: {neg_cache_path}")
+                    context_null = torch.load(neg_cache_path)
+                except Exception as e:
+                    log.warning(f"Failed to load negative cache: {e}, will re-encode.")
+
+            # If both loaded, return combined
+            if context is not None and context_null is not None:
+                prompt_embeds_dict = {
+                    "prompt_embeds": context,
+                    "negative_prompt_embeds": context_null,
+                }
+                return (prompt_embeds_dict,)
+
         if t5 is None:
             raise ValueError("No cached text embeds found for prompts, please provide a T5 encoder.")
 
@@ -221,15 +245,23 @@ class WanVideoTextEncode:
         encoder.model.to(device)
 
         with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=True):
-            context = encoder(positive_prompts, device)
-            context_null = encoder([negative_prompt], device)
+            # Encode positive if not loaded from cache
+            if use_disk_cache and context is not None:
+                pass
+            else:
+                context = encoder(positive_prompts, device)
+                # Apply weights to embeddings if any were extracted
+                for i, weights in enumerate(all_weights):
+                    for text, weight in weights.items():
+                        log.info(f"Applying weight {weight} to prompt: {text}")
+                        if len(weights) > 0:
+                            context[i] = context[i] * weight
 
-            # Apply weights to embeddings if any were extracted
-            for i, weights in enumerate(all_weights):
-                for text, weight in weights.items():
-                    log.info(f"Applying weight {weight} to prompt: {text}")
-                    if len(weights) > 0:
-                        context[i] = context[i] * weight
+            # Encode negative if not loaded from cache
+            if use_disk_cache and context_null is not None:
+                pass
+            else:
+                context_null = encoder([negative_prompt], device)
 
         if force_offload:
             encoder.model.to(offload_device)
@@ -240,12 +272,20 @@ class WanVideoTextEncode:
             "negative_prompt_embeds": context_null,
         }
 
+        # Save each part to its own cache file if needed
         if use_disk_cache:
             try:
-                torch.save(prompt_embeds_dict, cache_path)
-                log.info(f"Saved text embeds to cache: {cache_path}")
+                if not os.path.exists(pos_cache_path):
+                    torch.save(context, pos_cache_path)
+                    log.info(f"Saved positive prompt embeds to cache: {pos_cache_path}")
             except Exception as e:
-                log.warning(f"Failed to save cache: {e}")
+                log.warning(f"Failed to save positive cache: {e}")
+            try:
+                if not os.path.exists(neg_cache_path):
+                    torch.save(context_null, neg_cache_path)
+                    log.info(f"Saved negative prompt embeds to cache: {neg_cache_path}")
+            except Exception as e:
+                log.warning(f"Failed to save negative cache: {e}")
 
         return (prompt_embeds_dict,)
     
@@ -273,12 +313,13 @@ class WanVideoTextEncodeSingle:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-            "t5": ("WANTEXTENCODER",),
             "prompt": ("STRING", {"default": "", "multiline": True} ),
             },
             "optional": {
+                "t5": ("WANTEXTENCODER",),
                 "force_offload": ("BOOLEAN", {"default": True}),
                 "model_to_offload": ("WANVIDEOMODEL", {"tooltip": "Model to move to offload_device before encoding"}),
+                "cache_type": (["disabled", "positive", "negative", "both"], {"default": "positive", "tooltip": "Which cache to save to: positive, negative, or both"}),
             }
         }
 
@@ -288,28 +329,75 @@ class WanVideoTextEncodeSingle:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "Encodes text prompt into text embedding."
 
-    def process(self, t5, prompt, force_offload=True, model_to_offload=None):
-        if model_to_offload is not None:
-            log.info(f"Moving video model to {offload_device}")
-            model_to_offload.model.to(offload_device)
-            mm.soft_empty_cache()
+    def process(self, prompt, t5=None, force_offload=True, model_to_offload=None, use_disk_cache=False, cache_type="disabled"):
+        # Check for cache if enabled
+        encoded = None
+        if cache_type != "disabled":
+            cache_dir = os.path.join(script_directory, 'text_embed_cache')
+            os.makedirs(cache_dir, exist_ok=True)
+            pos_cache_key = f"positive|{prompt}"
+            pos_cache_hash = hashlib.sha256(pos_cache_key.encode('utf-8')).hexdigest()
+            pos_cache_path = os.path.join(cache_dir, f"{pos_cache_hash}.pt")
+            neg_cache_key = f"neg|{prompt}"
+            neg_cache_hash = hashlib.sha256(neg_cache_key.encode('utf-8')).hexdigest()
+            neg_cache_path = os.path.join(cache_dir, f"{neg_cache_hash}.pt")
+            # Try positive cache first
+            if os.path.exists(pos_cache_path):
+                try:
+                    log.info(f"Loading prompt embeds from positive cache: {pos_cache_path}")
+                    encoded = torch.load(pos_cache_path)
+                except Exception as e:
+                    log.warning(f"Failed to load positive cache: {e}, will re-encode.")
+            # Try negative cache if not found in positive
+            if encoded is None and os.path.exists(neg_cache_path):
+                try:
+                    log.info(f"Loading prompt embeds from negative cache: {neg_cache_path}")
+                    encoded = torch.load(neg_cache_path)
+                except Exception as e:
+                    log.warning(f"Failed to load negative cache: {e}, will re-encode.")
+        
+        if t5 is None and encoded is None:
+            raise ValueError("No cached text embeds found for prompts, please provide a T5 encoder.")
 
-        encoder = t5["model"]
-        dtype = t5["dtype"]
+        if encoded is None:
+            if model_to_offload is not None:
+                log.info(f"Moving video model to {offload_device}")
+                model_to_offload.model.to(offload_device)
+                mm.soft_empty_cache()
 
-        encoder.model.to(device)
-       
-        with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=True):
-            encoded = encoder([prompt], device)
+            encoder = t5["model"]
+            dtype = t5["dtype"]
 
-        if force_offload:
-            encoder.model.to(offload_device)
-            mm.soft_empty_cache()
+            encoder.model.to(device)
+           
+            with torch.autocast(device_type=mm.get_autocast_device(device), dtype=dtype, enabled=True):
+                encoded = encoder([prompt], device)
+
+            if force_offload:
+                encoder.model.to(offload_device)
+                mm.soft_empty_cache()
+
+            # Save to selected cache(s) if enabled
+            if use_disk_cache:
+                if cache_type in ("positive", "both"):
+                    try:
+                        if not os.path.exists(pos_cache_path):
+                            torch.save(encoded, pos_cache_path)
+                            log.info(f"Saved prompt embeds to positive cache: {pos_cache_path}")
+                    except Exception as e:
+                        log.warning(f"Failed to save positive cache: {e}")
+                if cache_type in ("negative", "both"):
+                    try:
+                        if not os.path.exists(neg_cache_path):
+                            torch.save(encoded, neg_cache_path)
+                            log.info(f"Saved prompt embeds to negative cache: {neg_cache_path}")
+                    except Exception as e:
+                        log.warning(f"Failed to save negative cache: {e}")
 
         prompt_embeds_dict = {
-                "prompt_embeds": encoded,
-                "negative_prompt_embeds": None,
-            }
+            "prompt_embeds": encoded,
+            "negative_prompt_embeds": None,
+        }
         return (prompt_embeds_dict,)
     
 class WanVideoApplyNAG:
