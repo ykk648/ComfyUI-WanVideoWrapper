@@ -1281,7 +1281,6 @@ class WanVideoSampler:
         control_lora = model["control_lora"]
         transformer_options = patcher.model_options.get("transformer_options", None)
 
-        remove_lora_from_module(transformer)
         if len(patcher.patches) != 0 and transformer_options.get("linear_with_lora", False) is True:
             log.info(f"Using {len(patcher.patches)} patches for WanVideo model")
             convert_linear_with_lora_and_scale(transformer, patches=patcher.patches)
