@@ -1415,7 +1415,7 @@ class WanVideoSampler:
                     image_cond = control_latents.to(device)
                     if not patcher.model.is_patched:
                         log.info("Re-loading control LoRA...")
-                        patcher = apply_lora(patcher, device, device, low_mem_load=False)
+                        patcher = apply_lora(patcher, device, device, low_mem_load=False, control_lora=True)
                         patcher.model.is_patched = True
                 else:
                     if transformer.in_dim not in [48, 32]:
@@ -1887,7 +1887,7 @@ class WanVideoSampler:
                             image_cond_input = control_latents.to(z)
                             if not patcher.model.is_patched:
                                 log.info("Loading LoRA...")
-                                patcher = apply_lora(patcher, device, device, low_mem_load=False)
+                                patcher = apply_lora(patcher, device, device, low_mem_load=False, control_lora=True)
                                 patcher.model.is_patched = True
                                 
                 elif ATI_tracks is not None and ((ati_start_percent <= current_step_percentage <= ati_end_percent) or 
