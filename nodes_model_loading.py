@@ -344,7 +344,7 @@ class WanVideoLoraSelect:
             "optional": {
                 "prev_lora":("WANVIDLORA", {"default": None, "tooltip": "For loading multiple LoRAs"}),
                 "blocks":("SELECTEDBLOCKS", ),
-                "low_mem_load": ("BOOLEAN", {"default": False, "tooltip": "Load the LORA model with less VRAM usage, slower loading. This affects ALL LoRAs, not just the current one"}),
+                "low_mem_load": ("BOOLEAN", {"default": False, "tooltip": "Load the LORA model with less VRAM usage, slower loading. This affects ALL LoRAs, not just the current one. No effect if merge_loras is False"}),
                 "merge_loras": ("BOOLEAN", {"default": True, "tooltip": "Merge LoRAs into the model, otherwise they are loaded on the fly. Always enabled for GGUF and scaled fp8 models. This affects ALL LoRAs, not just the current one"}),
             },
             "hidden": {
@@ -359,6 +359,8 @@ class WanVideoLoraSelect:
     DESCRIPTION = "Select a LoRA model from ComfyUI/models/loras"
 
     def getlorapath(self, lora, strength, unique_id, blocks={}, prev_lora=None, low_mem_load=False, merge_loras=True):
+        if not merge_loras:
+            low_mem_load = False  # Unmerged LoRAs don't need low_mem_load
         loras_list = []
 
         strength = round(strength, 4)
@@ -447,7 +449,7 @@ class WanVideoLoraSelectMulti:
             "optional": {
                 "prev_lora":("WANVIDLORA", {"default": None, "tooltip": "For loading multiple LoRAs"}),
                 "blocks":("SELECTEDBLOCKS", ),
-                "low_mem_load": ("BOOLEAN", {"default": False, "tooltip": "Load the LORA model with less VRAM usage, slower loading"}),
+                "low_mem_load": ("BOOLEAN", {"default": False, "tooltip": "Load the LORA model with less VRAM usage, slower loading. No effect if merge_loras is False"}),
                 "merge_loras": ("BOOLEAN", {"default": True, "tooltip": "Merge LoRAs into the model, otherwise they are loaded on the fly. Always enabled for GGUF and scaled fp8 models. This affects ALL LoRAs, not just the current one"}),
 
             }
@@ -462,6 +464,8 @@ class WanVideoLoraSelectMulti:
     def getlorapath(self, lora_0, strength_0, lora_1, strength_1, lora_2, strength_2, 
                 lora_3, strength_3, lora_4, strength_4, blocks={}, prev_lora=None, 
                 low_mem_load=False, merge_loras=True):
+        if not merge_loras:
+            low_mem_load = False  # Unmerged LoRAs don't need low_mem_load
         loras_list = list(prev_lora) if prev_lora else []
         lora_inputs = [
             (lora_0, strength_0),
