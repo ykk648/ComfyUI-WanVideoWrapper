@@ -111,6 +111,9 @@ def standardize_lora_key_format(lora_sd):
             k = k.replace('transformer.', 'diffusion_model.')
         if k.startswith('pipe.dit.'): #unianimate-dit/diffsynth
             k = k.replace('pipe.dit.', 'diffusion_model.')
+        if k.startswith('blocks.'):
+            k = k.replace('blocks.', 'diffusion_model.blocks.')
+        k = k.replace('.default.', '.')
 
         # Fun LoRA format
         if k.startswith('lora_unet__'):
