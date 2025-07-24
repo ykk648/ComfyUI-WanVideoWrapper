@@ -587,6 +587,50 @@ class VideoVAE_(nn.Module):
             mu = (mu - scale[0]) * scale[1]
         return mu
 
+    def encode_infinite(self, x, scale):
+        self.clear_cache()
+        ## cache
+        device = next(self.parameters()).device
+        t = x.shape[2]
+        iter_ = 1 + (t - 1) // 4
+
+        # Initialize output tensor on CPU
+        out = None
+
+        for i in range(iter_):
+            self._enc_conv_idx = [0]
+            # Extract only the frames needed for this iteration and move to GPU
+            if i == 0:
+                # Process first frame
+                current_frames = x[:, :, :1, :, :].to(device=device)
+                current_out = self.encoder(current_frames,
+                                   feat_cache=self._enc_feat_map,
+                                   feat_idx=self._enc_conv_idx)
+                # Initialize out with the first result (on CPU)
+                out = current_out.to('cpu')
+            else:
+                # Process subsequent frames (4 at a time)
+                current_frames = x[:, :, 1 + 4 * (i - 1):1 + 4 * i, :, :].to(device=device)
+                current_out = self.encoder(current_frames,
+                                    feat_cache=self._enc_feat_map,
+                                    feat_idx=self._enc_conv_idx)
+                # Concatenate on CPU
+                current_out = current_out.to('cpu')
+                out = torch.cat([out, current_out], 2)
+
+        # Final processing on GPU
+        out = out.to(device)
+        mu, log_var = self.conv1(out).chunk(2, dim=1)
+
+        if isinstance(scale[0], torch.Tensor):
+            scale = [s.to(dtype=mu.dtype, device=mu.device) for s in scale]
+            mu = (mu - scale[0].view(1, self.z_dim, 1, 1, 1)) * scale[1].view(
+                1, self.z_dim, 1, 1, 1)
+        else:
+            scale = scale.to(dtype=mu.dtype, device=mu.device)
+            mu = (mu - scale[0]) * scale[1]
+        return mu
+
 
     #modification originally by @raindrop313 https://github.com/raindrop313/ComfyUI-WanVideoStartEndFrames
     def decode_2(self, z, scale):
@@ -648,6 +692,53 @@ class VideoVAE_(nn.Module):
                                     feat_idx=self._conv_idx)
                 out = torch.cat([out, out_], 2) # may add tensor offload
             pbar.update(1)
+        return out
+    
+    def decode_infinite(self, z, scale):
+        self.clear_cache()
+        # z: [b,c,t,h,w]
+        device = next(self.parameters()).device
+        pbar = ProgressBar(z.shape[2])
+        
+        # Scale adjustment
+        if isinstance(scale[0], torch.Tensor):
+            scale = [s.to(dtype=z.dtype, device=z.device) for s in scale]
+            z = z / scale[1].view(1, self.z_dim, 1, 1, 1) + scale[0].view(
+                1, self.z_dim, 1, 1, 1)
+        else:
+            scale = scale.to(dtype=z.dtype, device=z.device)
+            z = z / scale[1] + scale[0]
+            
+        iter_ = z.shape[2]
+        x = self.conv2(z)
+        
+        # Initialize output tensor on CPU
+        out = None
+        
+        for i in range(iter_):
+            self._conv_idx = [0]
+            # Process one frame at a time
+            current_x = x[:, :, i:i + 1, :, :]
+            
+            if i == 0:
+                # Process first frame
+                current_out = self.decoder(current_x,
+                                   feat_cache=self._feat_map,
+                                   feat_idx=self._conv_idx)
+                # Initialize out with the first result (on CPU)
+                out = current_out.to('cpu')
+            else:
+                # Process subsequent frames
+                current_out = self.decoder(current_x,
+                                    feat_cache=self._feat_map,
+                                    feat_idx=self._conv_idx)
+                # Move to CPU and concatenate
+                current_out = current_out.to('cpu')
+                out = torch.cat([out, current_out], 2)
+            
+            pbar.update(1)
+            
+        # Final result stays on CPU unless needed for further GPU processing
         return out
 
     def reparameterize(self, mu, log_var):
