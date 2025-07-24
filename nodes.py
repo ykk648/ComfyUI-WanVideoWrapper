@@ -858,7 +858,7 @@ class WanVideoImageToVideoInfiniteLengthEncode:
 
         # Keep concatenated on CPU and let the VAE encode method handle GPU transfers as needed
         y = \
-        vae.infinite_encode([concatenated.to(dtype=vae.dtype)], device, end_=(end_image is not None and not fun_or_fl2v_model),
+        vae.encode_infinite([concatenated.to(dtype=vae.dtype)], device, end_=(end_image is not None and not fun_or_fl2v_model),
                    tiled=tiled_vae)[0]
         has_ref = False
         if extra_latents is not None:
@@ -885,7 +885,7 @@ class WanVideoImageToVideoInfiniteLengthEncode:
         max_seq_len = frames_per_stride * patches_per_frame
 
         if add_cond_latents is not None:
-            add_cond_latents["ref_latent_neg"] = vae.infinite_encode(torch.zeros(1, 3, 1, H, W, device=device, dtype=vae.dtype),
+            add_cond_latents["ref_latent_neg"] = vae.encode_infinite(torch.zeros(1, 3, 1, H, W, device=device, dtype=vae.dtype),
                                                             device)
 
         vae.model.clear_cache()
