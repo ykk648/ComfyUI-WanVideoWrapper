@@ -6,7 +6,6 @@ from .flowmatch_pusa import FlowMatchSchedulerPusa
 from .flowmatch_res_multistep import FlowMatchSchedulerResMultistep
 from .scheduling_flow_match_lcm import FlowMatchLCMScheduler
 from diffusers.schedulers import FlowMatchEulerDiscreteScheduler, DEISMultistepScheduler
-
 from ...utils import log
 
 scheduler_list = [
@@ -14,7 +13,6 @@ scheduler_list = [
     "dpm++", "dpm++/beta",
     "dpm++_sde", "dpm++_sde/beta",
     "euler", "euler/beta",
-    #"euler/accvideo",
     "deis",
     "lcm", "lcm/beta",
     "res_multistep",
@@ -24,7 +22,7 @@ scheduler_list = [
     "multitalk"
 ]
 
-def get_scheduler(scheduler, steps, shift, device, transformer_dim, flowedit_args, denoise_strength, sigmas=None):
+def get_scheduler(scheduler, steps, start_step, end_step, shift, device, transformer_dim=5120, flowedit_args=None, denoise_strength=1.0, sigmas=None):
     timesteps = None
     if 'unipc' in scheduler:
         sample_scheduler = FlowUniPCMultistepScheduler(shift=shift)
@@ -40,17 +38,8 @@ def get_scheduler(scheduler, steps, shift, device, transformer_dim, flowedit_arg
         if flowedit_args: #seems to work better
             timesteps, _ = retrieve_timesteps(sample_scheduler, device=device, sigmas=get_sampling_sigmas(steps, shift))
         else:
-            sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
-    # elif scheduler in ['euler/accvideo']:
-    #     if steps != 50:
-    #         raise Exception("Steps must be set to 50 for accvideo scheduler, 10 actual steps are used")
-    #     sample_scheduler = FlowMatchEulerDiscreteScheduler(shift=shift, use_beta_sigmas=(scheduler == 'euler/beta'))
-    #     sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
-    #     start_latent_list = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
-    #     sample_scheduler.sigmas = sample_scheduler.sigmas[start_latent_list]
-    #     steps = len(start_latent_list) - 1
-    #     sample_scheduler.timesteps = timesteps = sample_scheduler.timesteps[start_latent_list[:steps]]
-    elif 'dpm++' in scheduler:
+            sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas[:-1].tolist() if sigmas is not None else None)
+    elif 'dpm' in scheduler:
         if 'sde' in scheduler:
             algorithm_type = "sde-dpmsolver++"
         else:
@@ -68,8 +57,10 @@ def get_scheduler(scheduler, steps, shift, device, transformer_dim, flowedit_arg
         sample_scheduler.sigmas[-1] = 1e-6
     elif 'lcm' in scheduler:
         sample_scheduler = FlowMatchLCMScheduler(shift=shift, use_beta_sigmas=(scheduler == 'lcm/beta'))
-        sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas.tolist() if sigmas is not None else None)
+        sample_scheduler.set_timesteps(steps, device=device, sigmas=sigmas[:-1].tolist() if sigmas is not None else None)
     elif 'flowmatch_causvid' in scheduler:
+        if sigmas is not None:
+            raise NotImplementedError("This scheduler does not support custom sigmas")
         if transformer_dim == 5120:
             denoising_list = [999, 934, 862, 756, 603, 410, 250, 140, 74]
         else:
@@ -80,6 +71,8 @@ def get_scheduler(scheduler, steps, shift, device, transformer_dim, flowedit_arg
         sample_scheduler.timesteps = torch.tensor(denoising_list)[:steps].to(device)
         sample_scheduler.sigmas = torch.cat([sample_scheduler.timesteps / 1000, torch.tensor([0.0], device=device)])
     elif 'flowmatch_distill' in scheduler:
+        if sigmas is not None:
+            raise NotImplementedError("This scheduler does not support custom sigmas")
         sample_scheduler = FlowMatchScheduler(
             shift=shift, sigma_min=0.0, extra_one_step=True
         )
@@ -99,11 +92,52 @@ def get_scheduler(scheduler, steps, shift, device, transformer_dim, flowedit_arg
         sample_scheduler = FlowMatchSchedulerPusa(
             shift=shift, sigma_min=0.0, extra_one_step=True
         )
-        sample_scheduler.set_timesteps(steps, denoising_strength=denoise_strength, shift=shift)
+        sample_scheduler.set_timesteps(steps, denoising_strength=denoise_strength, shift=shift, sigmas=sigmas[:-1].tolist() if sigmas is not None else None)
     elif scheduler == 'res_multistep':
         sample_scheduler = FlowMatchSchedulerResMultistep(shift=shift)
-        sample_scheduler.set_timesteps(steps, denoising_strength=denoise_strength)
+        sample_scheduler.set_timesteps(steps, denoising_strength=denoise_strength, sigmas=sigmas[:-1].tolist() if sigmas is not None else None)
     if timesteps is None:
         timesteps = sample_scheduler.timesteps
-        log.info(f"timesteps: {timesteps}")
-    return sample_scheduler, timesteps
+
+    steps = len(timesteps)
+    if end_step != -1 and start_step >= end_step:
+        raise ValueError("start_step must be less than end_step")
+    if denoise_strength < 1.0:
+        if start_step != 0:
+            raise ValueError("start_step must be 0 when denoise_strength is used")
+        start_step = steps - int(steps * denoise_strength) - 1
+
+    # Determine start and end indices for slicing
+    start_idx = 0
+    end_idx = len(timesteps) - 1
+
+    log.info(f"Total timesteps: {timesteps}")
+
+    if isinstance(start_step, float):
+        idxs = (sample_scheduler.sigmas <= start_step).nonzero(as_tuple=True)[0]
+        if len(idxs) > 0:
+            start_idx = idxs[0].item()
+    elif isinstance(start_step, int):
+        if start_step > 0:
+            start_idx = start_step
+
+    if isinstance(end_step, float):
+        idxs = (sample_scheduler.sigmas >= end_step).nonzero(as_tuple=True)[0]
+        if len(idxs) > 0:
+            end_idx = idxs[-1].item()
+    elif isinstance(end_step, int):
+        if end_step != -1:
+            end_idx = end_step - 1
+
+    # Slice timesteps and sigmas once, based on indices
+    timesteps = timesteps[start_idx:end_idx+1]
+    sample_scheduler.full_sigmas = sample_scheduler.sigmas.clone()
+    sample_scheduler.sigmas = sample_scheduler.sigmas[start_idx:start_idx+len(timesteps)+1]  # always one longer
+    
+
+    log.info(f"Using timesteps: {timesteps}")
+    
+    if hasattr(sample_scheduler, 'timesteps'):
+        sample_scheduler.timesteps = timesteps
+
+    return sample_scheduler, timesteps, start_idx, end_idx

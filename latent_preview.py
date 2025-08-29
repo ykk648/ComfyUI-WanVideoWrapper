@@ -5,8 +5,9 @@ from comfy.taesd.taesd import TAESD
 import comfy.model_management
 import folder_paths
 import comfy.utils
-import logging
-import os
+from comfy.latent_formats import Wan21, Wan22
+from .utils import log
+import struct
 
 from .taehv import TAEHV
 
@@ -72,20 +73,23 @@ def get_previewer(device, latent_format):
     previewer = None
     method = args.preview_method
     if method != LatentPreviewMethod.NoPreviews:
-        # TODO previewer methods
-
         if method == LatentPreviewMethod.Auto:
             method = LatentPreviewMethod.Latent2RGB
 
         if method == LatentPreviewMethod.TAESD:
-            taehv_path = os.path.join(folder_paths.models_dir, "vae_approx", "taew2_1.safetensors")
-            if not os.path.exists(taehv_path):
-                raise RuntimeError(f"Could not find {taehv_path}")
-            taew_sd = comfy.utils.load_torch_file(taehv_path)
-            taesd = TAEHV(taew_sd).to(device)
-            previewer = TAESDPreviewerImpl(taesd)
-            previewer = WrappedPreviewer(previewer, rate=16)
-
+            if latent_format == Wan22: # No TAEW currently available for Wan2.2 VAE
+                method = LatentPreviewMethod.Latent2RGB
+            else:
+                try:
+                    taehv_path = folder_paths.get_full_path("vae_approx", "taew2_1.safetensors")
+                    taesd = TAEHV(comfy.utils.load_torch_file(taehv_path)).to(device)
+                    previewer = TAESDPreviewerImpl(taesd)
+                    previewer = WrappedPreviewer(previewer, rate=16)
+                except:
+                    log.info("Could not find TAEW model file 'taew2_1.safetensors' from models/vae_approx. You can download it from https://huggingface.co/Kijai/WanVideo_comfy/blob/main/taew2_1.safetensors")
+                    log.info("Using Latent2RGB previewer instead.")
+                    method = LatentPreviewMethod.Latent2RGB
+                
         if previewer is None:
             if latent_format.latent_rgb_factors is not None:
                 previewer = Latent2RGBPreviewer(latent_format.latent_rgb_factors, latent_format.latent_rgb_factors_bias)
@@ -154,7 +158,7 @@ class WrappedPreviewer(LatentPreviewer):
             return None
         if self.first_preview:
             self.first_preview = False
-            serv.send_sync('VHS_latentpreview', {'length':num_images, 'rate': self.rate})
+            serv.send_sync('VHS_latentpreview', {'length':num_images, 'rate': self.rate, 'id': serv.last_node_id})
             self.last_time = new_time + 1/self.rate
         if self.c_index + num_previews > num_images:
             x0 = x0.roll(-self.c_index, 0)[:num_previews]
@@ -186,6 +190,7 @@ class WrappedPreviewer(LatentPreviewer):
             message = io.BytesIO()
             message.write((1).to_bytes(length=4, byteorder='big')*2)
             message.write(ind.to_bytes(length=4, byteorder='big'))
+            message.write(struct.pack('16p', serv.last_node_id.encode('ascii')))
             i.save(message, format="JPEG", quality=95, compress_level=1)
             #NOTE: send sync already uses call_soon_threadsafe
             serv.send_sync(server.BinaryEventTypes.PREVIEW_IMAGE,

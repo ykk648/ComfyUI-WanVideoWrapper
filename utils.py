@@ -1,6 +1,7 @@
 import importlib.metadata
 import torch
 import logging
+import math
 from tqdm import tqdm
 import types, collections
 from comfy.utils import ProgressBar, copy_to_param, set_attr_param
@@ -11,7 +12,90 @@ from comfy.float import stochastic_rounding
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log = logging.getLogger(__name__)
 
-from accelerate.utils import set_module_tensor_to_device
+def check_device_same(first_device, second_device):
+    if first_device.type != second_device.type:
+        return False
+
+    if first_device.type == "cuda" and first_device.index is None:
+        first_device = torch.device("cuda", index=0)
+
+    if second_device.type == "cuda" and second_device.index is None:
+        second_device = torch.device("cuda", index=0)
+
+    return first_device == second_device
+
+# simplified version of the accelerate function https://github.com/huggingface/accelerate/blob/main/src/accelerate/utils/modeling.py
+def set_module_tensor_to_device(module, tensor_name, device, value=None, dtype=None):
+    """
+    A helper function to set a given tensor (parameter of buffer) of a module on a specific device (note that doing
+    `param.to(device)` creates a new tensor not linked to the parameter, which is why we need this function).
+
+    Args:
+        module (`torch.nn.Module`):
+            The module in which the tensor we want to move lives.
+        tensor_name (`str`):
+            The full name of the parameter/buffer.
+        device (`int`, `str` or `torch.device`):
+            The device on which to set the tensor.
+        value (`torch.Tensor`, *optional*):
+            The value of the tensor (useful when going from the meta device to any other device).
+        dtype (`torch.dtype`, *optional*):
+            If passed along the value of the parameter will be cast to this `dtype`. Otherwise, `value` will be cast to
+            the dtype of the existing parameter in the model.
+    """
+    # Recurse if needed
+    if "." in tensor_name:
+        splits = tensor_name.split(".")
+        for split in splits[:-1]:
+            new_module = getattr(module, split)
+            if new_module is None:
+                raise ValueError(f"{module} has no attribute {split}.")
+            module = new_module
+        tensor_name = splits[-1]
+
+    if tensor_name not in module._parameters and tensor_name not in module._buffers:
+        raise ValueError(f"{module} does not have a parameter or a buffer named {tensor_name}.")
+    is_buffer = tensor_name in module._buffers
+    old_value = getattr(module, tensor_name)
+
+    if old_value.device == torch.device("meta") and device not in ["meta", torch.device("meta")] and value is None:
+        raise ValueError(f"{tensor_name} is on the meta device, we need a `value` to put in on {device}.")
+
+    param = module._parameters[tensor_name] if tensor_name in module._parameters else None
+    param_cls = type(param)
+
+    if value is not None:
+        if dtype is None:
+            value = value.to(old_value.dtype)
+        elif not str(value.dtype).startswith(("torch.uint", "torch.int", "torch.bool")):
+            value = value.to(dtype)
+
+    device_quantization = None
+    with torch.no_grad():
+        if value is None:
+            new_value = old_value.to(device)
+            if dtype is not None and device in ["meta", torch.device("meta")]:
+                if not str(old_value.dtype).startswith(("torch.uint", "torch.int", "torch.bool")):
+                    new_value = new_value.to(dtype)
+
+                if not is_buffer:
+                    module._parameters[tensor_name] = param_cls(new_value, requires_grad=old_value.requires_grad)
+        elif isinstance(value, torch.Tensor):
+            new_value = value.to(device)
+        else:
+            new_value = torch.tensor(value, device=device)
+        if device_quantization is not None:
+            device = device_quantization
+        if is_buffer:
+            module._buffers[tensor_name] = new_value
+        elif value is not None or not check_device_same(torch.device(device), module._parameters[tensor_name].device):
+            param_cls = type(module._parameters[tensor_name])
+            new_value = param_cls(new_value, requires_grad=False).to(device)
+            module._parameters[tensor_name] = new_value
+
+    #if device != "cpu":
+    #    mm.soft_empty_cache()
+
 def check_diffusers_version():
     try:
         version = importlib.metadata.version('diffusers')
@@ -42,7 +126,7 @@ def get_tensor_memory(tensor):
     memory_bytes = tensor.element_size() * tensor.nelement()
     return f"{memory_bytes / (1024 * 1024):.2f} MB"
 
-def patch_weight_to_device(self, key, device_to=None, inplace_update=False, backup_keys=False):
+def patch_weight_to_device(self, key, device_to=None, inplace_update=False, backup_keys=False, scale_weight=None):
     if key not in self.patches:
         return
     
@@ -59,7 +143,11 @@ def patch_weight_to_device(self, key, device_to=None, inplace_update=False, back
     if convert_func is not None:
         temp_weight = convert_func(temp_weight, inplace=True)
 
+    if scale_weight is not None:
+        temp_weight = temp_weight * scale_weight.to(temp_weight.device, temp_weight.dtype)
+
     out_weight = calculate_weight(self.patches[key], temp_weight, key)
+    
     if set_func is None:
         out_weight = stochastic_rounding(out_weight, weight.dtype, seed=string_to_seed(key))
         if inplace_update:
@@ -69,7 +157,7 @@ def patch_weight_to_device(self, key, device_to=None, inplace_update=False, back
     else:
         set_func(out_weight, inplace_update=inplace_update, seed=string_to_seed(key))
 
-def apply_lora(model, device_to, transformer_load_device, params_to_keep=None, dtype=None, base_dtype=None, state_dict=None, low_mem_load=False, control_lora=False):
+def apply_lora(model, device_to, transformer_load_device, params_to_keep=None, dtype=None, base_dtype=None, state_dict=None, low_mem_load=False, control_lora=False, scale_weights={}):
         model.patch_weight_to_device = types.MethodType(patch_weight_to_device, model)
         to_load = []
         for n, m in model.model.named_modules():
@@ -85,7 +173,7 @@ def apply_lora(model, device_to, transformer_load_device, params_to_keep=None, d
                 to_load.append((n, m, params))
 
         to_load.sort(reverse=True)
-        pbar = ProgressBar(len(to_load))
+        #pbar = ProgressBar(len(to_load))
         for x in tqdm(to_load, desc="Loading model and applying LoRA weights:", leave=True):
             name = x[0]
             m = x[1]
@@ -99,17 +187,18 @@ def apply_lora(model, device_to, transformer_load_device, params_to_keep=None, d
                     dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
                     if "patch_embedding" in name:
                         dtype_to_use = torch.float32
-                    if name.startswith("diffusion_model."):
-                        name_no_prefix = name[len("diffusion_model."):]
-                    key = "{}.{}".format(name_no_prefix, param)
+                    key = f"{name.replace('diffusion_model.', '')}.{param}"
                     try:
                         set_module_tensor_to_device(model.model.diffusion_model, key, device=transformer_load_device, dtype=dtype_to_use, value=state_dict[key])
                     except:
                         continue
+                key = f"{name}.{param}"
+                if scale_weights is not None:
+                    scale_key = key.replace("weight", "scale_weight").replace("diffusion_model.", "") if "weight" in key else None
                 if low_mem_load:
-                    model.patch_weight_to_device("{}.{}".format(name, param), device_to=device_to, inplace_update=True, backup_keys=control_lora)
+                    model.patch_weight_to_device(f"{name}.{param}", device_to=device_to, inplace_update=True, backup_keys=control_lora, scale_weight=scale_weights.get(scale_key, None))
                 else:
-                    model.patch_weight_to_device("{}.{}".format(name, param), device_to=device_to, backup_keys=control_lora)
+                    model.patch_weight_to_device(f"{name}.{param}", device_to=device_to, backup_keys=control_lora, scale_weight=scale_weights.get(scale_key, None))
                     if device_to != transformer_load_device:
                         set_module_tensor_to_device(m, param, device=transformer_load_device)
                 if low_mem_load:
@@ -118,7 +207,19 @@ def apply_lora(model, device_to, transformer_load_device, params_to_keep=None, d
                     except:
                         continue
             m.comfy_patched_weights = True
-            pbar.update(1)
+            #pbar.update(1)
+        
+        # After LoRA patching, scale weights that have scale_weight but are NOT LoRA patched
+        if len(scale_weights) > 0 and not getattr(model, "scale_weights_applied", False):
+            for name, param in model.model.diffusion_model.named_parameters():
+                scale_key = name.replace("weight", "scale_weight").replace("diffusion_model.", "") if "weight" in name else None
+                full_param_name = f"diffusion_model.{name}"
+                if scale_key and scale_key in scale_weights and full_param_name not in model.patches:
+                    scale = scale_weights[scale_key]
+                    param_fp32 = param.to(torch.float32)
+                    param_fp32.mul_(scale.to(param.device, torch.float32))
+                    param.copy_(param_fp32.to(param.dtype))
+            model.scale_weights_applied = True
       
         model.current_weight_patches_uuid = model.patches_uuid
         if low_mem_load:
@@ -304,3 +405,133 @@ def find_closest_valid_dim(fixed_dim, var_dim, block_size):
             if candidate > 0 and ((fixed_dim * candidate) // 4) % block_size == 0:
                 return candidate
     return var_dim
+
+ # Radial attention setup
+def setup_radial_attention(transformer, transformer_options, latent, seq_len, latent_video_length, context_options=None):
+    if context_options is not None:
+        context_frames =  (context_options["context_frames"] - 1) // 4 + 1
+
+    dense_timesteps = transformer_options.get("dense_timesteps", 1)
+    dense_blocks = transformer_options.get("dense_blocks", 1)
+    dense_vace_blocks = transformer_options.get("dense_vace_blocks", 1)
+    decay_factor = transformer_options.get("decay_factor", 0.2)
+    dense_attention_mode = transformer_options.get("dense_attention_mode", "sageattn")
+    block_size = transformer_options.get("block_size", 128)
+
+    # Calculate closest valid latent sizes
+    if latent.shape[2] % (block_size/8) != 0 or latent.shape[3] % (block_size/8) != 0:
+        block_div = int(block_size // 8)
+        closest_h = round(latent.shape[2] / block_div) * block_div
+        closest_w = round(latent.shape[3] / block_div) * block_div
+        raise Exception(
+            f"Radial attention mode only supports image size divisible by block size. "
+            f"Got {latent.shape[3] * 8}x{latent.shape[2] * 8} with block size {block_size}.\n"
+            f"Closest valid sizes: {closest_w * 8}x{closest_h * 8} (width x height in pixels)."
+        )
+    tokens_per_frame = (latent.shape[2] * latent.shape[3]) // 4
+    if tokens_per_frame % block_size != 0:
+        closest_latent_h = find_closest_valid_dim(latent.shape[3], latent.shape[2], block_size)
+        closest_latent_w = find_closest_valid_dim(latent.shape[2], latent.shape[3], block_size)
+        raise Exception(
+            f"Radial attention mode requires tokens per frame ((latent_h * latent_w) // 4) to be divisible by block size ({block_size}).\n"
+            f"Current size in latent space:{latent.shape[3]}x{latent.shape[2]}, pixel space: {latent.shape[3]*8}x{latent.shape[2]*8} tokens_per_frame={tokens_per_frame}.\n"
+            f"Try adjusting to one of these latent sizes (in pixels):\n"
+            f"  Height: {latent.shape[2]*8} -> {closest_latent_h * 8}\n"
+            f"  Width: {latent.shape[3]*8} -> {closest_latent_w * 8}\n"
+            f"Or choose another resolution so that (latent_h * latent_w) // 4 is divisible by {block_size}."
+        )
+
+    from .wanvideo.radial_attention.attn_mask import MaskMap
+    for i, block in enumerate(transformer.blocks):
+        block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
+        if isinstance(dense_blocks, list):
+            block.dense_block = i in dense_blocks
+        else:
+            block.dense_block = i < dense_blocks
+        block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length if context_options is None else context_frames, block_size=block_size)
+        block.dense_attention_mode = dense_attention_mode
+        block.dense_timesteps = dense_timesteps
+        block.self_attn.decay_factor = decay_factor
+    if transformer.vace_layers is not None:
+        for i, block in enumerate(transformer.vace_blocks):
+            block.self_attn.mask_map = block.dense_attention_mode = block.dense_timesteps = block.self_attn.decay_factor = None
+            if isinstance(dense_vace_blocks, list):
+                block.dense_block = i in dense_vace_blocks
+            else:
+                block.dense_block = i < dense_vace_blocks
+            block.self_attn.mask_map = MaskMap(video_token_num=seq_len, num_frame=latent_video_length if context_options is None else context_frames, block_size=block_size)
+            block.dense_attention_mode = dense_attention_mode
+            block.dense_timesteps = dense_timesteps
+            block.self_attn.decay_factor = decay_factor
+                    
+    log.info(f"Radial attention mode enabled.")
+    log.info(f"dense_attention_mode: {dense_attention_mode}, dense_timesteps: {dense_timesteps}, decay_factor: {decay_factor}")
+    log.info(f"dense_blocks: {[i for i, block in enumerate(transformer.blocks) if getattr(block, 'dense_block', False)]})")
+
+
+
+def list_to_device(tensor_list, device, dtype=None):
+    """
+    Move all tensors in a list to the specified device and optionally cast to dtype.
+    """
+    return [t.to(device, dtype=dtype) if dtype is not None else t.to(device) for t in tensor_list]
+
+def dict_to_device(tensor_dict, device, dtype=None):
+    """
+    Move all tensors (and tensor lists) in a dict to the specified device and optionally cast to dtype.
+    Supports values that are tensors or lists of tensors.
+    """
+    result = {}
+    for k, v in tensor_dict.items():
+        if isinstance(v, torch.Tensor):
+            result[k] = v.to(device, dtype=dtype) if dtype is not None else v.to(device)
+        elif isinstance(v, list) and all(isinstance(t, torch.Tensor) for t in v):
+            result[k] = list_to_device(v, device, dtype)
+        else:
+            result[k] = v
+    return result
+
+def compile_model(transformer, compile_args=None):
+    if compile_args is None:
+        return transformer
+    torch._dynamo.config.cache_size_limit = compile_args["dynamo_cache_size_limit"]
+    try:
+        if hasattr(torch, '_dynamo') and hasattr(torch._dynamo, 'config'):
+            torch._dynamo.config.recompile_limit = compile_args["dynamo_recompile_limit"]
+    except Exception as e:
+        log.warning(f"Could not set recompile_limit: {e}")
+    if compile_args["compile_transformer_blocks_only"]:
+        for i, block in enumerate(transformer.blocks):
+            if hasattr(block, "_orig_mod"):
+                block = block._orig_mod
+            transformer.blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
+        if transformer.vace_layers is not None:
+            for i, block in enumerate(transformer.vace_blocks):
+                if hasattr(block, "_orig_mod"):
+                    block = block._orig_mod
+                transformer.vace_blocks[i] = torch.compile(block, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
+    else:
+        transformer = torch.compile(transformer, fullgraph=compile_args["fullgraph"], dynamic=compile_args["dynamic"], backend=compile_args["backend"], mode=compile_args["mode"])
+    return transformer
+
+#https://5410tiffany.github.io/tcfg.github.io/
+def tangential_projection(pred_cond: torch.Tensor, pred_uncond: torch.Tensor) -> torch.Tensor:
+    cond_dtype = pred_cond.dtype
+    preds = torch.stack([pred_cond, pred_uncond], dim=1).float()
+    orig_shape = preds.shape[2:]
+    preds_flat = preds.flatten(2)
+    U, S, Vh = torch.linalg.svd(preds_flat, full_matrices=False)
+    Vh_modified = Vh.clone()
+    Vh_modified[:, 1] = 0
+    recon = U @ torch.diag_embed(S) @ Vh_modified
+    return recon[:, 1].view(pred_uncond.shape).to(cond_dtype)
+
+#https://arxiv.org/abs/2508.03442
+def get_raag_guidance(noise_pred_cond, noise_pred_uncond, w_max, alpha=1.0, eps=1e-8):
+    delta = noise_pred_cond - noise_pred_uncond
+    norm_delta = torch.norm(delta.flatten(1), dim=1, keepdim=True)
+    norm_uncond = torch.norm(noise_pred_uncond.flatten(1), dim=1, keepdim=True)
+    ratio = norm_delta / (norm_uncond + eps)
+    ratio_mean = ratio.mean().item()
+    adaptive_w = 1.0 + (w_max - 1.0) * math.exp(-alpha * ratio_mean)
+    return adaptive_w
