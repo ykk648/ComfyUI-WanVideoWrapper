@@ -1048,12 +1048,14 @@ class VideoVAE_(nn.Module):
 
         return mu
 
-    def encode_infinite(self, x, scale):
+    def encode_infinite(self, x, pbar=True):
         self.clear_cache()
         ## cache
         device = next(self.parameters()).device
         t = x.shape[2]
         iter_ = 1 + (t - 1) // 4
+        if pbar:
+            pbar = ProgressBar(iter_)
 
         # Initialize output tensor on CPU
         out = None
@@ -1078,20 +1080,17 @@ class VideoVAE_(nn.Module):
                 # Concatenate on CPU
                 current_out = current_out.to('cpu')
                 out = torch.cat([out, current_out], 2)
-
+            if pbar:
+                pbar.update(1)
         # Final processing on GPU
         out = out.to(device)
-        mu, log_var = self.conv1(out).chunk(2, dim=1)
+        mu = self.conv1(out).chunk(2, dim=1)[0]
 
-        if isinstance(scale[0], torch.Tensor):
-            scale = [s.to(dtype=mu.dtype, device=mu.device) for s in scale]
-            mu = (mu - scale[0].view(1, self.z_dim, 1, 1, 1)) * scale[1].view(
-                1, self.z_dim, 1, 1, 1)
-        else:
-            scale = scale.to(dtype=mu.dtype, device=mu.device)
-            mu = (mu - scale[0]) * scale[1]
+        mu = (mu - self.mean.to(mu)) * self.inv_std.to(mu)
+        if pbar:
+            pbar.update_absolute(0)
+
         return mu
-
 
     #modification originally by @raindrop313 https://github.com/raindrop313/ComfyUI-WanVideoStartEndFrames
     def decode_2(self, z):
@@ -1150,22 +1149,16 @@ class VideoVAE_(nn.Module):
             pbar.update_absolute(0)
         return out
 
-    def decode_infinite(self, z, scale):
+    def decode_infinite(self, z, pbar=True):
         self.clear_cache()
         # z: [b,c,t,h,w]
-        device = next(self.parameters()).device
-        pbar = ProgressBar(z.shape[2])
+        z = z / self.inv_std.to(z) + self.mean.to(z)
 
-        # Scale adjustment
-        if isinstance(scale[0], torch.Tensor):
-            scale = [s.to(dtype=z.dtype, device=z.device) for s in scale]
-            z = z / scale[1].view(1, self.z_dim, 1, 1, 1) + scale[0].view(
-                1, self.z_dim, 1, 1, 1)
-        else:
-            scale = scale.to(dtype=z.dtype, device=z.device)
-            z = z / scale[1] + scale[0]
+        device = next(self.parameters()).device
 
         iter_ = z.shape[2]
+        if pbar:
+            pbar = ProgressBar(iter_)
         x = self.conv2(z)
 
         # Initialize output tensor on CPU
@@ -1191,10 +1184,10 @@ class VideoVAE_(nn.Module):
                 # Move to CPU and concatenate
                 current_out = current_out.to('cpu')
                 out = torch.cat([out, current_out], 2)
-
-            pbar.update(1)
-
-        # Final result stays on CPU unless needed for further GPU processing
+            if pbar:
+                pbar.update(1)
+        if pbar:
+            pbar.update_absolute(0)
         return out
 
     def reparameterize(self, mu, log_var):
@@ -1322,7 +1315,7 @@ class WanVideoVAE(nn.Module):
 
     def tiled_encode(self, video, device, tile_size, tile_stride, end_=False, pbar=True):
         _, _, T, H, W = video.shape
-        
+
         if tile_size is None and tile_stride is None:
             size_h, size_w = H //2, W // 2
             stride_h, stride_w = size_h // 2, size_w // 2
@@ -1387,13 +1380,13 @@ class WanVideoVAE(nn.Module):
 
     def single_encode(self, video, device, pbar=True):
         video = video.to(device)
-        x = self.model.encode(video, pbar=pbar)
+        x = self.model.encode_infinite(video, pbar=pbar)
         return x.float()
 
 
     def single_decode(self, hidden_state, device, pbar=True):
         hidden_state = hidden_state.to(device)
-        video = self.model.decode(hidden_state, pbar=pbar)
+        video = self.model.decode_infinite(hidden_state, pbar=pbar)
         return video
 
     def double_encode(self, video, device):
